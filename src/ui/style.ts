@@ -23,7 +23,6 @@ export const COLORS = {
   sandShade: 0xe6cb83,
   grass: 0x8ad463,
   grassShade: 0x69b946,
-  forestFloor: 0x7fcc5e,
   rock: 0xb4b9c4,
   rockLight: 0xd6dae2,
   rockShade: 0x8a90a0,

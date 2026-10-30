@@ -92,6 +92,15 @@ export class WorldCameraController {
     this.apply();
   }
 
+  /**
+   * When the browser event happened. Phaser handles all events of a frame
+   * together, so the frame time would make every move of a slow frame look
+   * simultaneous – the event's own time keeps the swipe speed right.
+   */
+  private timeOf(pointer: Phaser.Input.Pointer): number {
+    return pointer.event?.timeStamp ?? this.scene.time.now;
+  }
+
   /** Pointer position in CSS px. */
   private cssPoint(pointer: Phaser.Input.Pointer): Point {
     const scale = renderScaleOf(this.scene);
@@ -104,7 +113,7 @@ export class WorldCameraController {
       return;
     }
     const { x, y } = this.cssPoint(pointer);
-    this.tracker.down(pointer.id, x, y, this.scene.time.now);
+    this.tracker.down(pointer.id, x, y, this.timeOf(pointer));
   };
 
   private readonly onMove = (pointer: Phaser.Input.Pointer): void => {
@@ -112,12 +121,12 @@ export class WorldCameraController {
       return;
     }
     const { x, y } = this.cssPoint(pointer);
-    this.tracker.move(pointer.id, x, y, this.scene.time.now);
+    this.tracker.move(pointer.id, x, y, this.timeOf(pointer));
   };
 
   private readonly onUp = (pointer: Phaser.Input.Pointer): void => {
     const { x, y } = this.cssPoint(pointer);
-    this.tracker.up(pointer.id, x, y, this.scene.time.now);
+    this.tracker.up(pointer.id, x, y, this.timeOf(pointer));
   };
 
   private readonly onWheel = (pointer: Phaser.Input.Pointer, _over: unknown, _dx: number, deltaY: number): void => {

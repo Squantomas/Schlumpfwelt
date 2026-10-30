@@ -53,7 +53,7 @@ export function paintGround(ctx: CanvasRenderingContext2D, world: WorldView, see
   paintTiles(ctx, world, level, 1, LIP + 1, () => COLORS.sandShade);
   paintTiles(ctx, world, level, 1, 0, () => COLORS.sand);
   paintTiles(ctx, world, level, 2, LIP, () => COLORS.grassShade);
-  paintTiles(ctx, world, level, 2, 0, (terrain) => (terrain === 'forest' ? COLORS.forestFloor : COLORS.grass));
+  paintTiles(ctx, world, level, 2, 0, () => COLORS.grass);
 
   paintDetails(ctx, world, seed);
 }
