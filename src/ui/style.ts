@@ -6,14 +6,28 @@
 /** Smallest tap target in CSS pixels – nothing tappable may be smaller. */
 export const MIN_TAP_SIZE = 48;
 
+/**
+ * Edge length of one map tile in world pixels. Final for all later graphics
+ * (houses, decoration): top-down view of a square grid, objects in a slight
+ * front view that may reach up over their tile.
+ */
+export const TILE_SIZE = 64;
+
 export const COLORS = {
   water: 0x8ed8f8,
   waterShallow: 0xb5e8fb,
+  waterMid: 0xa1dff8,
+  waterDeep: 0x7ccdf2,
   foam: 0xffffff,
   sand: 0xf7e4a9,
   sandShade: 0xe6cb83,
   grass: 0x8ad463,
   grassShade: 0x69b946,
+  forestFloor: 0x7fcc5e,
+  rock: 0xb4b9c4,
+  rockLight: 0xd6dae2,
+  rockShade: 0x8a90a0,
+  ringGlow: 0xffffff,
   treeTrunk: 0x9a6a3c,
   treeCrown: 0x4fa83d,
   treeCrownLight: 0x72c95a,

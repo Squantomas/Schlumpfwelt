@@ -161,6 +161,27 @@ describe('generateIsland', () => {
     }
   });
 
+  it('hat keine einzelnen Landkacheln im Strand: jede Nicht-Strand-Kachel hat mindestens zwei Nachbarn mit festem Land', () => {
+    const inland = (world: World, x: number, y: number): boolean => {
+      const terrain = terrainAt(world, x, y);
+      return terrain !== 'water' && terrain !== 'sand';
+    };
+    for (const seed of SEEDS) {
+      const world = generateIsland(seed);
+      forEachTile(world, (x, y) => {
+        if (inland(world, x, y)) {
+          const neighbors = [
+            [0, -1],
+            [-1, 0],
+            [1, 0],
+            [0, 1],
+          ].filter(([dx = 0, dy = 0]) => inland(world, x + dx, y + dy)).length;
+          expect(neighbors, `Seed ${seed}, Kachel ${x},${y}`).toBeGreaterThanOrEqual(2);
+        }
+      });
+    }
+  });
+
   it('hat genug baubare Wiese: mindestens 35 % des Landes', () => {
     for (const seed of SEEDS) {
       const world = generateIsland(seed);

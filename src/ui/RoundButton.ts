@@ -1,7 +1,7 @@
 import Phaser from 'phaser';
 import { COLORS, MIN_TAP_SIZE } from './style';
 
-export type ButtonIcon = 'play';
+export type ButtonIcon = 'play' | 'plus' | 'minus';
 
 export interface RoundButtonOptions {
   /** Radius in CSS px; never smaller than half of {@link MIN_TAP_SIZE}. */
@@ -16,6 +16,7 @@ export class RoundButton extends Phaser.GameObjects.Container {
   private readonly face: Phaser.GameObjects.Graphics;
   private readonly icon: ButtonIcon;
   private radius = 0;
+  private pressed = false;
 
   constructor(scene: Phaser.Scene, x: number, y: number, options: RoundButtonOptions) {
     super(scene, x, y);
@@ -24,11 +25,21 @@ export class RoundButton extends Phaser.GameObjects.Container {
     this.add(this.face);
     this.setRadius(options.radius);
 
-    this.on(Phaser.Input.Events.GAMEOBJECT_POINTER_DOWN, () => this.face.setScale(0.92));
-    this.on(Phaser.Input.Events.GAMEOBJECT_POINTER_OUT, () => this.face.setScale(1));
+    this.on(Phaser.Input.Events.GAMEOBJECT_POINTER_DOWN, () => {
+      this.pressed = true;
+      this.face.setScale(0.92);
+    });
+    this.on(Phaser.Input.Events.GAMEOBJECT_POINTER_OUT, () => {
+      this.pressed = false;
+      this.face.setScale(1);
+    });
     this.on(Phaser.Input.Events.GAMEOBJECT_POINTER_UP, () => {
       this.face.setScale(1);
-      options.onTap();
+      // Only a press that started on this button counts (not a drag that ends here).
+      if (this.pressed) {
+        this.pressed = false;
+        options.onTap();
+      }
     });
 
     scene.add.existing(this);
@@ -69,6 +80,16 @@ export class RoundButton extends Phaser.GameObjects.Container {
       case 'play': {
         const s = r * 0.42;
         g.fillStyle(COLORS.buttonIcon).fillTriangle(-s * 0.7, -s, -s * 0.7, s, s, 0);
+        break;
+      }
+      case 'plus':
+      case 'minus': {
+        const arm = r * 0.4;
+        const thickness = r * 0.2;
+        g.fillStyle(COLORS.buttonIcon).fillRoundedRect(-arm, -thickness / 2, arm * 2, thickness, thickness / 2);
+        if (this.icon === 'plus') {
+          g.fillRoundedRect(-thickness / 2, -arm, thickness, arm * 2, thickness / 2);
+        }
         break;
       }
     }

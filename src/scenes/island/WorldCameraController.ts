@@ -1,0 +1,133 @@
+import Phaser from 'phaser';
+import { CameraRig } from '../../ui/cameraRig';
+import { screenToWorld, type Point, type Rect, type Size } from '../../ui/cameraMath';
+import { GestureTracker } from '../../ui/gestures';
+import { renderScaleOf } from '../../ui/viewport';
+
+export interface WorldCameraOptions {
+  readonly bounds: Rect;
+  readonly focus: Rect;
+  readonly focusPadding: number;
+  readonly tileSize: number;
+  readonly maxTileCssPx: number;
+  readonly tapMaxMovePx: number;
+  readonly wheelZoomPerPixel: number;
+  /** A tap on the world (not on a button): the world point and the screen point (CSS px). */
+  readonly onTap: (world: Point, screen: Point) => void;
+}
+
+/** Largest wheel step that is taken into account (some mice send huge values). */
+const MAX_WHEEL_DELTA = 240;
+
+/**
+ * Connects the pure camera ({@link CameraRig}, {@link GestureTracker}) to
+ * Phaser: finger/mouse input goes in, the Phaser world camera comes out.
+ *
+ * - One finger or the left mouse button drags, two fingers pinch (zoom around
+ *   the middle between them), the mouse wheel zooms around the pointer.
+ * - Presses that start on a game object (the +/− buttons) never move the camera.
+ * - The world camera zooms by `rig zoom × render scale`, so the game zoom and
+ *   the canvas resolution multiply cleanly (see `viewport.ts`).
+ */
+export class WorldCameraController {
+  private readonly rig: CameraRig;
+  private readonly tracker: GestureTracker;
+
+  constructor(
+    private readonly scene: Phaser.Scene,
+    private readonly camera: Phaser.Cameras.Scene2D.Camera,
+    private readonly options: WorldCameraOptions,
+  ) {
+    this.rig = new CameraRig(options);
+    this.tracker = new GestureTracker(
+      {
+        begin: () => this.rig.stop(),
+        pan: (dx, dy) => this.rig.pan(dx, dy),
+        pinch: (from, to, scale) => this.rig.pinch(from, to, scale),
+        tap: (at) => options.onTap(screenToWorld(this.rig.view, this.rig.viewSize, at), at),
+        fling: (vx, vy) => this.rig.fling(vx, vy),
+      },
+      { tapMaxMovePx: options.tapMaxMovePx },
+    );
+
+    // The first touch pointer exists already; two more allow a pinch plus a stray finger.
+    scene.input.addPointer(2);
+    scene.input.on(Phaser.Input.Events.POINTER_DOWN, this.onDown);
+    scene.input.on(Phaser.Input.Events.POINTER_MOVE, this.onMove);
+    scene.input.on(Phaser.Input.Events.POINTER_UP, this.onUp);
+    scene.input.on(Phaser.Input.Events.POINTER_WHEEL, this.onWheel);
+    scene.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+      scene.input.off(Phaser.Input.Events.POINTER_DOWN, this.onDown);
+      scene.input.off(Phaser.Input.Events.POINTER_MOVE, this.onMove);
+      scene.input.off(Phaser.Input.Events.POINTER_UP, this.onUp);
+      scene.input.off(Phaser.Input.Events.POINTER_WHEEL, this.onWheel);
+    });
+  }
+
+  get view(): CameraRig['view'] {
+    return this.rig.view;
+  }
+
+  get limits(): CameraRig['limits'] {
+    return this.rig.limits;
+  }
+
+  /** Call whenever the visible area changes (start, resize, rotation). Size in CSS px. */
+  layout(size: Size): void {
+    const scale = renderScaleOf(this.scene);
+    this.camera.setSize(Math.round(size.width * scale), Math.round(size.height * scale));
+    this.rig.resize(size);
+    this.apply();
+  }
+
+  /** Zooms smoothly by `factor` around the middle of the screen (for the +/− buttons). */
+  zoomBy(factor: number): void {
+    const { width, height } = this.rig.viewSize;
+    this.rig.zoomBy(factor, { x: width / 2, y: height / 2 });
+  }
+
+  /** Advances inertia and smooth zoom; call once per frame. */
+  update(deltaMs: number): void {
+    this.rig.update(deltaMs);
+    this.apply();
+  }
+
+  /** Pointer position in CSS px. */
+  private cssPoint(pointer: Phaser.Input.Pointer): Point {
+    const scale = renderScaleOf(this.scene);
+    return { x: pointer.x / scale, y: pointer.y / scale };
+  }
+
+  private readonly onDown = (pointer: Phaser.Input.Pointer, currentlyOver: readonly Phaser.GameObjects.GameObject[]): void => {
+    // Buttons handle their own presses; only the left mouse button drags.
+    if (currentlyOver.length > 0 || (!pointer.wasTouch && !pointer.leftButtonDown())) {
+      return;
+    }
+    const { x, y } = this.cssPoint(pointer);
+    this.tracker.down(pointer.id, x, y, this.scene.time.now);
+  };
+
+  private readonly onMove = (pointer: Phaser.Input.Pointer): void => {
+    if (!pointer.isDown) {
+      return;
+    }
+    const { x, y } = this.cssPoint(pointer);
+    this.tracker.move(pointer.id, x, y, this.scene.time.now);
+  };
+
+  private readonly onUp = (pointer: Phaser.Input.Pointer): void => {
+    const { x, y } = this.cssPoint(pointer);
+    this.tracker.up(pointer.id, x, y, this.scene.time.now);
+  };
+
+  private readonly onWheel = (pointer: Phaser.Input.Pointer, _over: unknown, _dx: number, deltaY: number): void => {
+    const delta = Math.max(-MAX_WHEEL_DELTA, Math.min(MAX_WHEEL_DELTA, deltaY));
+    this.rig.zoomBy(Math.exp(-delta * this.options.wheelZoomPerPixel), this.cssPoint(pointer));
+  };
+
+  private apply(): void {
+    const { zoom, centerX, centerY } = this.rig.view;
+    this.camera.setZoom(zoom * renderScaleOf(this.scene));
+    this.camera.centerOn(centerX, centerY);
+  }
+}

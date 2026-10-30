@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { TERRAINS, createWorld, inBounds, isBuildable, isLand, setTerrain, terrainAt } from '../../src/sim/world';
+import { TERRAINS, createWorld, inBounds, isBuildable, isLand, landBounds, setTerrain, terrainAt } from '../../src/sim/world';
 
 describe('createWorld', () => {
   it('füllt die Karte mit Wasser', () => {
@@ -68,5 +68,19 @@ describe('Geländearten', () => {
 
   it('alles außer Wasser ist Land', () => {
     expect(TERRAINS.filter(isLand)).toEqual(['sand', 'grass', 'forest', 'rock']);
+  });
+});
+
+describe('landBounds', () => {
+  it('umschließt alles Land', () => {
+    const world = createWorld(10, 8);
+    setTerrain(world, 2, 3, 'sand');
+    setTerrain(world, 6, 5, 'grass');
+    setTerrain(world, 4, 1, 'rock');
+    expect(landBounds(world)).toEqual({ minX: 2, minY: 1, maxX: 6, maxY: 5 });
+  });
+
+  it('liefert bei reinem Wasser nichts', () => {
+    expect(landBounds(createWorld(5, 5))).toBeUndefined();
   });
 });

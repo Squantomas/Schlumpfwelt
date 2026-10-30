@@ -4,6 +4,7 @@ import { t } from './data/texts';
 import { BootScene } from './scenes/BootScene';
 import { IslandScene } from './scenes/IslandScene';
 import { Simulation } from './sim/simulation';
+import { createInitialState } from './sim/state';
 import { COLORS } from './ui/style';
 import { measureViewport, watchViewport } from './ui/viewport';
 
@@ -24,7 +25,18 @@ if (!container) {
   throw new Error('Missing <div id="game"> in index.html');
 }
 
-const simulation = new Simulation();
+/**
+ * Seed of the island: `?seed=123` in the address picks a fixed island (for
+ * tests and for sharing), otherwise every start gets a new one (until saving
+ * arrives in M5).
+ */
+function pickSeed(): number {
+  const param = new URLSearchParams(window.location.search).get('seed');
+  const parsed = param === null || param.trim() === '' ? Number.NaN : Number(param);
+  return Number.isInteger(parsed) && parsed >= 0 ? parsed : Math.floor(Math.random() * 2 ** 32);
+}
+
+const simulation = new Simulation(createInitialState(pickSeed()));
 const view = measureViewport(container);
 
 const game = new Phaser.Game({

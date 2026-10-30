@@ -137,22 +137,35 @@ export function generateIsland(seed: number, params: WorldParams = DEFAULT_WORLD
   // 5. Distance from the sea in tiles (8 directions): 0 = sea, 1 = right at the shore.
   const shore = distanceToSea(width, height, land);
 
-  // 6. Terrain: beach along the shore, patches inland.
-  const inland: number[] = [];
+  // 6. Terrain: beach along the shore, meadow inland.
   for (let y = 0; y < height; y += 1) {
     for (let x = 0; x < width; x += 1) {
       const i = index(x, y);
-      const d = shore[i] ?? 0;
       if (!land[i]) {
         continue;
       }
+      const d = shore[i] ?? 0;
       const wideBeach = d === 2 && noise('beach', x, y, params.beach.widenNoiseScale, 2) > params.beach.widenThreshold;
-      if (d <= 1 || wideBeach) {
-        world.tiles[i] = 'sand';
-      } else {
-        world.tiles[i] = 'grass';
-        inland.push(i);
+      world.tiles[i] = d <= 1 || wideBeach ? 'sand' : 'grass';
+    }
+  }
+  // Single meadow tiles that stick out into the beach look like mistakes: give them to the beach.
+  const isGrass = (x: number, y: number): boolean => terrainAtIndex(world.tiles, width, height, x, y) === 'grass';
+  for (let changed = true; changed; ) {
+    changed = false;
+    for (let y = 0; y < height; y += 1) {
+      for (let x = 0; x < width; x += 1) {
+        if (world.tiles[index(x, y)] === 'grass' && NEIGHBORS_4.filter(([dx, dy]) => !isGrass(x + dx, y + dy)).length >= 3) {
+          world.tiles[index(x, y)] = 'sand';
+          changed = true;
+        }
       }
+    }
+  }
+  const inland: number[] = [];
+  for (let i = 0; i < world.tiles.length; i += 1) {
+    if (world.tiles[i] === 'grass') {
+      inland.push(i);
     }
   }
 
@@ -176,6 +189,10 @@ export function generateIsland(seed: number, params: WorldParams = DEFAULT_WORLD
   claim('rock', 'rock', params.rock);
 
   return world;
+}
+
+function terrainAtIndex(tiles: readonly Terrain[], width: number, height: number, x: number, y: number): Terrain {
+  return x < 0 || y < 0 || x >= width || y >= height ? 'water' : (tiles[y * width + x] ?? 'water');
 }
 
 /** Tiles reachable from (startX, startY) over `allowed` tiles. */

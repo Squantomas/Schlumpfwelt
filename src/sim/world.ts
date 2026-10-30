@@ -52,3 +52,30 @@ export function isBuildable(terrain: Terrain): boolean {
 export function isLand(terrain: Terrain): boolean {
   return terrain !== 'water';
 }
+
+export interface TileBounds {
+  readonly minX: number;
+  readonly minY: number;
+  /** Inclusive. */
+  readonly maxX: number;
+  readonly maxY: number;
+}
+
+/** Smallest rectangle of tiles that contains all land, or `undefined` if there is none. */
+export function landBounds(world: WorldView): TileBounds | undefined {
+  let minX = Number.POSITIVE_INFINITY;
+  let minY = Number.POSITIVE_INFINITY;
+  let maxX = Number.NEGATIVE_INFINITY;
+  let maxY = Number.NEGATIVE_INFINITY;
+  for (let y = 0; y < world.height; y += 1) {
+    for (let x = 0; x < world.width; x += 1) {
+      if (isLand(terrainAt(world, x, y))) {
+        minX = Math.min(minX, x);
+        minY = Math.min(minY, y);
+        maxX = Math.max(maxX, x);
+        maxY = Math.max(maxY, y);
+      }
+    }
+  }
+  return maxX < minX ? undefined : { minX, minY, maxX, maxY };
+}
