@@ -3,14 +3,14 @@
 Gedächtnis des Orchestrators. Bei Neustart: „Setze laut `docs/FORTSCHRITT.md` fort“.
 
 ## Aktueller Stand
-- **Aktueller Meilenstein:** M0 – Fundament (Issue #1, Branch `m0-fundament`)
-- **Status:** Builder arbeitet
-- **Nächster Schritt:** Builder M0 abschließen → PR öffnen → Review + Spieltest
+- **Aktueller Meilenstein:** M1 – Die Insel (Issue #2, Branch `m1-insel`)
+- **Status:** M0 gemergt (PR #11), Pages-Deployment wird geprüft
+- **Nächster Schritt:** Branch `m1-insel` von `main` anlegen, Builder M1 starten
 
 ## Meilensteine
 | # | Issue | Branch | PR | Status |
 |---|---|---|---|---|
-| M0 | #1 | m0-fundament | – | in Arbeit |
+| M0 | #1 | m0-fundament | #11 | fertig |
 | M1 | #2 | m1-insel | – | offen |
 | M2 | #3 | m2-gestalten | – | offen |
 | M3 | #4 | m3-wirtschaft | – | offen |
@@ -23,7 +23,7 @@ Gedächtnis des Orchestrators. Bei Neustart: „Setze laut `docs/FORTSCHRITT.md`
 
 ## Modelle
 - Orchestrator: Opus 5.5 (`claude-opus-5-5`), Effort high – per `get_session` geprüft.
-- Subagenten laut Tabelle im Prompt (`opus`/`sonnet`/`haiku`); Aliase zeigen auf Opus 5.5 / Sonnet 5.5 / Haiku 5.5.
+- Subagenten laut Tabelle im Prompt (`opus`/`sonnet`/`haiku`). Builder M0 meldet Opus 5.5 – Alias `opus` zeigt auf die aktuelle Generation.
 
 ## Offene Punkte
 - GitHub Pages muss in den Repo-Einstellungen auf „GitHub Actions“ stehen (Prüfung beim ersten Deployment).
