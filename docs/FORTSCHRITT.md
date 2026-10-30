@@ -3,15 +3,15 @@
 Gedächtnis des Orchestrators. Bei Neustart: „Setze laut `docs/FORTSCHRITT.md` fort“.
 
 ## Aktueller Stand
-- **Aktueller Meilenstein:** M1 – Die Insel (Issue #2, Branch `m1-insel`)
-- **Status:** M0 gemergt (PR #11), Pages-Deployment wird geprüft
-- **Nächster Schritt:** Branch `m1-insel` von `main` anlegen, Builder M1 starten
+- **Aktueller Meilenstein:** M2 – Gestalten (Issue #3, Branch `m2-gestalten`)
+- **Status:** M1 gemergt (PR #12)
+- **Nächster Schritt:** Branch `m2-gestalten` von `main` anlegen, Builder M2 starten
 
 ## Meilensteine
 | # | Issue | Branch | PR | Status |
 |---|---|---|---|---|
 | M0 | #1 | m0-fundament | #11 | fertig |
-| M1 | #2 | m1-insel | – | offen |
+| M1 | #2 | m1-insel | #12 | fertig |
 | M2 | #3 | m2-gestalten | – | offen |
 | M3 | #4 | m3-wirtschaft | – | offen |
 | M4 | #5 | m4-shop | – | offen |
@@ -26,4 +26,6 @@ Gedächtnis des Orchestrators. Bei Neustart: „Setze laut `docs/FORTSCHRITT.md`
 - Subagenten laut Tabelle im Prompt (`opus`/`sonnet`/`haiku`). Builder M0 meldet Opus 5.5 – Alias `opus` zeigt auf die aktuelle Generation.
 
 ## Offene Punkte
-- GitHub Pages muss in den Repo-Einstellungen auf „GitHub Actions“ stehen (Prüfung beim ersten Deployment).
+- Pages-Deployment funktioniert (M0, Lauf grün). Die Live-Seite ist aus dem Container nicht abrufbar (github.io durch Netzwerk-Policy gesperrt) – Erfolg wird über den grünen Deploy-Job geprüft.
+- Kosmetik für M9 (Stil-Leitfaden): Felsboden und Sand ähnlich hell; Waldboden im Weitblick nur dezent dunkler.
+- `npm run smoke` dauert headless 6–10 min (ca. 8 fps Software-Rendering).

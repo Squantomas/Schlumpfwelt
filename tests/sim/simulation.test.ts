@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { FixedStepClock, TICK_MS } from '../../src/sim/clock';
 import { Simulation } from '../../src/sim/simulation';
+import { createInitialState } from '../../src/sim/state';
 
 describe('Simulation', () => {
   it('zählt pro vergangener Tick-Dauer einen Tick', () => {
@@ -72,7 +73,7 @@ describe('Simulation', () => {
   });
 
   it('übernimmt einen vorgegebenen Zustand und eine eigene Uhr', () => {
-    const sim = new Simulation({ tick: 41, paused: false }, new FixedStepClock({ ticksPerSecond: 1 }));
+    const sim = new Simulation({ ...createInitialState(), tick: 41 }, new FixedStepClock({ ticksPerSecond: 1 }));
     expect(sim.tickMs).toBe(1000);
     sim.update(999);
     expect(sim.state.tick).toBe(41);
@@ -81,11 +82,14 @@ describe('Simulation', () => {
   });
 
   it('kopiert den Startzustand, damit ihn niemand von außen ändert', () => {
-    const initial = { tick: 5, paused: false };
+    const initial = { ...createInitialState(), tick: 5 };
     const sim = new Simulation(initial);
     initial.tick = 1000;
     initial.paused = true;
-    expect(sim.state).toEqual({ tick: 5, paused: false });
+    initial.world.tiles[0] = 'rock';
+    expect(sim.state.tick).toBe(5);
+    expect(sim.state.paused).toBe(false);
+    expect(sim.state.world.tiles[0]).toBe('water');
   });
 
   it('meldet die Tick-Dauer der Uhr', () => {

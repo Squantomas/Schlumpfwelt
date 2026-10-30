@@ -21,7 +21,7 @@ describe('applyCommand', () => {
   it('ändert nur, was der Befehl betrifft', () => {
     const state = { ...createInitialState(), tick: 7 };
     applyCommand(state, { type: 'setPaused', paused: true });
-    expect(state).toEqual({ tick: 7, paused: true });
+    expect(state).toEqual({ ...createInitialState(), tick: 7, paused: true });
   });
 
   it('meldet unbekannte Befehle als Fehler', () => {

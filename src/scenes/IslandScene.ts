@@ -1,32 +1,78 @@
 import Phaser from 'phaser';
+import { CAMERA_CONFIG } from '../data/camera';
 import { t } from '../data/texts';
+import { hash2 } from '../sim/random';
 import type { Simulation } from '../sim/simulation';
+import { isLand, landBounds, terrainAt } from '../sim/world';
+import { growRect, tileAtWorld, visibleRect, type CameraBounds, type Point, type Rect } from '../ui/cameraMath';
+import { landRegions } from '../ui/cameraRegions';
 import { createLabel, setLabelSize } from '../ui/label';
-import { COLORS, clamp, rgb } from '../ui/style';
+import { RoundButton } from '../ui/RoundButton';
+import { COLORS, MIN_TAP_SIZE, TILE_SIZE, clamp, rgb } from '../ui/style';
 import { onViewportChange, type ViewSize } from '../ui/viewport';
-import { SCENES } from './keys';
-import { markActiveScene } from './sceneMarker';
+import { groundSize, paintGround } from './island/groundTexture';
+import {
+  GLINT_KEY,
+  OBJECT_ORIGIN,
+  RING_KEY,
+  RING_OUTER_FRACTION,
+  RING_SIZE,
+  ROCK_KEYS,
+  TEXTURE_SCALE,
+  TREE_KEYS,
+  registerIslandTextures,
+} from './island/objectTextures';
+import { WorldCameraController } from './island/WorldCameraController';
+import { ISLAND_EVENTS, SCENES, type TileTapEvent } from './keys';
+import { markActiveScene, markCamera, markTap } from './sceneMarker';
 
-/** The island is drawn at this radius and scaled to the screen. */
-const BASE_RADIUS = 100;
-/** Outer edge of the shallow water around the island, relative to the grass radius. */
-const SHALLOW_FACTOR = 1.35;
-const WAVE_COUNT = 3;
+/** How long the greeting stays fully visible, then it fades away (ms). */
+const GREETING_SHOW_MS = 3500;
+const GREETING_FADE_MS = 900;
+/** Tap ring: how long it takes to grow and fade away (ms). */
+const RING_MS = 900;
+/** The ring stays fully visible this long before it fades (ms). */
+const RING_HOLD_MS = 500;
+/** Zoom buttons: size and distance to the screen corner, in CSS px. */
+const ZOOM_BUTTON_RADIUS = 34;
+const ZOOM_BUTTON_MARGIN = 16;
+const ZOOM_BUTTON_GAP = 12;
+/** Depth of things above all objects (their depth is their y position in the world). */
+const TOP_DEPTH = 1_000_000;
+
+interface Glint {
+  readonly sprite: Phaser.GameObjects.Image;
+  readonly phase: number;
+}
 
 /**
- * "Hallo Insel": a round placeholder island in the sea.
+ * The island: ground baked into one texture, trees and rocks as sprites
+ * sorted by their y position, a camera you can drag, pinch and wheel-zoom.
  *
  * This scene drives the simulation – `simulation.update()` is called here and
- * nowhere else. The display only reads the state; the waves are drawn from the
- * smooth simulation time `(tick + alpha) * tickMs`, so they move fluidly
- * although the simulation only ticks 10 times per second, and stand still
- * while the simulation is paused.
+ * nowhere else. The display only reads the state. The glints on the water are
+ * drawn from the smooth simulation time `(tick + alpha) * tickMs`, so they
+ * move fluidly although the simulation only ticks 10 times per second, and
+ * stand still while the simulation is paused.
+ *
+ * Two cameras: the world camera (behind) shows `worldLayer`; the main camera
+ * (in front, CSS pixels as everywhere else) shows `uiLayer`.
  */
 export class IslandScene extends Phaser.Scene {
   private readonly simulation: Simulation;
-  private waves!: Phaser.GameObjects.Graphics;
-  private island!: Phaser.GameObjects.Container;
-  private islandRadius = BASE_RADIUS;
+  private worldLayer!: Phaser.GameObjects.Layer;
+  private uiLayer!: Phaser.GameObjects.Layer;
+  private worldCamera!: Phaser.Cameras.Scene2D.Camera;
+  private controller!: WorldCameraController;
+  private glints: Glint[] = [];
+  /** Tree and rock sprites by tile index (`y * width + x`); M2/M3 remove them when forest is cleared. */
+  private readonly objects = new Map<number, Phaser.GameObjects.Image>();
+  private ring!: Phaser.GameObjects.Image;
+  private ringTween: Phaser.Tweens.Tween | undefined;
+  private ringFade: Phaser.Tweens.Tween | undefined;
+  private groundKey = '';
+  private cameraKey = '';
+  private landInView = 0;
 
   constructor(simulation: Simulation) {
     super(SCENES.island);
@@ -36,84 +82,269 @@ export class IslandScene extends Phaser.Scene {
   create(): void {
     markActiveScene(SCENES.island);
 
-    this.waves = this.add.graphics();
-    this.island = this.add.container(0, 0, [drawIsland(this)]);
-    const greeting = createLabel(this, t('island.greeting'), 64);
+    const { seed, world } = this.simulation.state;
+    registerIslandTextures(this);
+    // A restarted scene starts clean (the instance is reused).
+    this.glints = [];
+    this.objects.clear();
+    this.ringTween = undefined;
+    this.ringFade = undefined;
 
-    onViewportChange(this, ({ width, height }: ViewSize) => {
-      const m = Math.min(width, height);
-      const gap = m * 0.04;
+    this.worldLayer = this.add.layer();
+    this.uiLayer = this.add.layer();
 
-      setLabelSize(greeting, clamp(m * 0.11, 34, 112), width * 0.9);
-      greeting.setPosition(width / 2, Math.max(12, height * 0.05) + greeting.height / 2);
+    // World camera behind, main camera (UI) in front and see-through.
+    this.worldCamera = this.cameras.add(0, 0, this.scale.width, this.scale.height, false, 'world');
+    Phaser.Utils.Array.SendToBack(this.cameras.cameras, this.worldCamera);
+    this.worldCamera.setBackgroundColor(COLORS.waterDeep).ignore(this.uiLayer);
+    this.cameras.main.setBackgroundColor('rgba(0,0,0,0)').ignore(this.worldLayer);
 
-      const top = greeting.y + greeting.height / 2 + gap;
-      const available = Math.max(1, height - top - gap);
-      this.islandRadius = clamp(Math.min(width * 0.46, available * 0.5) / SHALLOW_FACTOR, 40, 520);
-      this.island.setPosition(width / 2, top + available / 2).setScale(this.islandRadius / BASE_RADIUS);
+    this.buildGround(seed);
+    this.buildObjects(seed);
+    this.buildGlints(seed);
+    this.ring = this.add.image(0, 0, RING_KEY).setDepth(TOP_DEPTH).setVisible(false);
+    this.worldLayer.add(this.ring);
+
+    const bounds: CameraBounds = {
+      ...growRect(
+        { x: 0, y: 0, width: world.width * TILE_SIZE, height: world.height * TILE_SIZE },
+        CAMERA_CONFIG.marginTiles * TILE_SIZE,
+      ),
+      // The screen centre stays on or right next to land: the island can never leave the picture.
+      centerRegions: landRegions(world, TILE_SIZE, CAMERA_CONFIG.landMarginTiles),
+    };
+    this.controller = new WorldCameraController(this, this.worldCamera, {
+      bounds,
+      focus: islandFocus(world),
+      focusPadding: 12,
+      tileSize: TILE_SIZE,
+      maxTileCssPx: CAMERA_CONFIG.maxTileCssPx,
+      tapMaxMovePx: CAMERA_CONFIG.tapMaxMovePx,
+      wheelZoomPerPixel: CAMERA_CONFIG.wheelZoomPerPixel,
+      blocksCamera: (object) => object.displayList === this.uiLayer,
+      onTap: (point) => this.handleTap(point),
     });
 
-    this.cameras.main.fadeIn(300, ...rgb(COLORS.water));
+    const greeting = createLabel(this, t('island.greeting'), 64);
+    this.uiLayer.add(greeting);
+    this.tweens.add({ targets: greeting, alpha: 0, delay: GREETING_SHOW_MS, duration: GREETING_FADE_MS });
+
+    const zoomIn = new RoundButton(this, 0, 0, {
+      radius: ZOOM_BUTTON_RADIUS,
+      icon: 'plus',
+      onTap: () => this.controller.zoomBy(CAMERA_CONFIG.buttonZoomFactor),
+    });
+    const zoomOut = new RoundButton(this, 0, 0, {
+      radius: ZOOM_BUTTON_RADIUS,
+      icon: 'minus',
+      onTap: () => this.controller.zoomBy(1 / CAMERA_CONFIG.buttonZoomFactor),
+    });
+    this.uiLayer.add([zoomIn, zoomOut]);
+
+    onViewportChange(this, ({ width, height }: ViewSize) => {
+      this.controller.layout({ width, height });
+
+      const m = Math.min(width, height);
+      setLabelSize(greeting, clamp(m * 0.07, 26, 64), width * 0.9);
+      greeting.setPosition(width / 2, Math.max(14, height * 0.04) + greeting.height / 2);
+
+      const radius = Math.max(ZOOM_BUTTON_RADIUS, MIN_TAP_SIZE / 2);
+      zoomOut.setRadius(radius).setPosition(width - ZOOM_BUTTON_MARGIN - radius, height - ZOOM_BUTTON_MARGIN - radius);
+      zoomIn.setRadius(radius).setPosition(zoomOut.x, zoomOut.y - 2 * radius - ZOOM_BUTTON_GAP);
+    });
+
+    const fade = rgb(COLORS.waterDeep);
+    this.cameras.main.fadeIn(300, ...fade);
+    this.worldCamera.fadeIn(300, ...fade);
+
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+      this.textures.remove(this.groundKey);
+    });
   }
 
   override update(_time: number, delta: number): void {
     const alpha = this.simulation.update(delta);
     const seconds = ((this.simulation.state.tick + alpha) * this.simulation.tickMs) / 1000;
-    this.drawWaves(seconds);
-  }
 
-  /** Foam rings that slowly drift away from the beach and fade out. */
-  private drawWaves(seconds: number): void {
-    const r = this.islandRadius;
-    const g = this.waves.clear();
-    for (let i = 0; i < WAVE_COUNT; i += 1) {
-      const progress = (seconds * 0.2 + i / WAVE_COUNT) % 1;
-      const opacity = 0.6 * (1 - progress) * Math.min(1, progress * 5);
-      g.lineStyle(Math.max(2, r * 0.03), COLORS.foam, opacity);
-      g.strokeCircle(this.island.x, this.island.y, r * (SHALLOW_FACTOR + 0.05 + progress * 0.45));
+    this.controller.update(delta);
+    this.publishCamera();
+
+    for (const { sprite, phase } of this.glints) {
+      const wave = 0.5 + 0.5 * Math.sin(seconds * 1.6 + phase);
+      sprite.setAlpha(0.15 + 0.45 * wave).setScale((0.8 + 0.3 * wave) / TEXTURE_SCALE);
     }
   }
-}
 
-/** Placeholder island from simple shapes, centred on (0, 0) with radius {@link BASE_RADIUS}. */
-function drawIsland(scene: Phaser.Scene): Phaser.GameObjects.Graphics {
-  const R = BASE_RADIUS;
-  const g = scene.add.graphics();
-
-  g.fillStyle(COLORS.waterShallow).fillCircle(0, 0, R * SHALLOW_FACTOR);
-  g.fillStyle(COLORS.sandShade).fillCircle(0, R * 0.05, R * 1.13);
-  g.fillStyle(COLORS.sand).fillCircle(0, 0, R * 1.12);
-  g.fillStyle(COLORS.grassShade).fillCircle(0, R * 0.04, R * 0.95);
-  g.fillStyle(COLORS.grass).fillCircle(0, 0, R * 0.94);
-
-  const flowers: readonly [number, number][] = [
-    [-0.15, 0.2],
-    [0.1, 0.55],
-    [0.55, -0.05],
-    [-0.6, 0.05],
-    [-0.05, -0.15],
-  ];
-  for (const [x, y] of flowers) {
-    g.fillStyle(COLORS.flower).fillCircle(x * R, y * R, R * 0.045);
-    g.fillStyle(COLORS.flowerCenter).fillCircle(x * R, y * R, R * 0.02);
+  /** Publishes the camera for tests (`<html data-camera-*>`); the land count is only recomputed when the view changed. */
+  private publishCamera(): void {
+    const view = this.controller.view;
+    const size = this.controller.viewSize;
+    const key = `${String(view.zoom)}|${String(view.centerX)}|${String(view.centerY)}|${String(size.width)}|${String(size.height)}`;
+    if (key !== this.cameraKey) {
+      this.cameraKey = key;
+      this.landInView = countLandIn(this.simulation.state.world, visibleRect(view, size));
+    }
+    markCamera({
+      zoom: view.zoom,
+      centerX: view.centerX,
+      centerY: view.centerY,
+      minZoom: this.controller.limits.min,
+      maxZoom: this.controller.limits.max,
+      landInView: this.landInView,
+    });
   }
 
-  // Sorted top to bottom, so lower trees overlap the ones behind them.
-  const trees: readonly [number, number, number][] = [
-    [0.3, -0.55, 1],
-    [-0.4, -0.45, 1.15],
-    [0.62, 0.3, 0.9],
-    [-0.42, 0.5, 1],
-  ];
-  for (const [x, y, size] of trees) {
-    drawTree(g, x * R, y * R, R * 0.17 * size);
+  /** Paints the ground once onto a canvas texture and shows it as one image. */
+  private buildGround(seed: number): void {
+    const { world } = this.simulation.state;
+    const { width, height } = groundSize(world);
+    this.groundKey = `ground-${String(seed)}`;
+    if (this.textures.exists(this.groundKey)) {
+      this.textures.remove(this.groundKey);
+    }
+    const texture = this.textures.createCanvas(this.groundKey, width, height);
+    if (!texture) {
+      return;
+    }
+    paintGround(texture.getContext(), world, seed);
+    texture.refresh();
+    this.worldLayer.add(this.add.image(0, 0, this.groundKey).setOrigin(0, 0).setDepth(0));
   }
-  return g;
+
+  /** One tree per forest tile, one rock per rock tile; the sprite's depth is its ground y. */
+  private buildObjects(seed: number): void {
+    const { world } = this.simulation.state;
+    for (let y = 0; y < world.height; y += 1) {
+      for (let x = 0; x < world.width; x += 1) {
+        const terrain = terrainAt(world, x, y);
+        if (terrain !== 'forest' && terrain !== 'rock') {
+          continue;
+        }
+        const r = (n: number): number => hash2(seed + n * 977, x, y);
+        const groundX = (x + 0.5 + (r(1) - 0.5) * 0.3) * TILE_SIZE;
+        const groundY = (y + 0.84 + (r(2) - 0.5) * 0.2) * TILE_SIZE;
+        const isTree = terrain === 'forest';
+        const keys = isTree ? TREE_KEYS : ROCK_KEYS;
+        const key = keys[Math.floor(r(3) * keys.length)] ?? keys[0];
+        const origin = isTree ? OBJECT_ORIGIN.tree : OBJECT_ORIGIN.rock;
+        const size = (isTree ? 0.9 + r(4) * 0.25 : 0.85 + r(4) * 0.3) / TEXTURE_SCALE;
+        const sprite = this.add
+          .image(groundX, groundY, key)
+          .setOrigin(origin.x, origin.y)
+          .setScale(r(5) < 0.5 ? size : -size, size)
+          .setDepth(groundY);
+        this.worldLayer.add(sprite);
+        this.objects.set(y * world.width + x, sprite);
+      }
+    }
+  }
+
+  /** The tree or rock sprite standing on a tile, if there is one. */
+  objectAt(x: number, y: number): Phaser.GameObjects.Image | undefined {
+    return this.objects.get(y * this.simulation.state.world.width + x);
+  }
+
+  /** A few twinkles on the sea near the coast. */
+  private buildGlints(seed: number): void {
+    const { world } = this.simulation.state;
+    const nearLand = (x: number, y: number): boolean => {
+      for (let dy = -3; dy <= 3; dy += 1) {
+        for (let dx = -3; dx <= 3; dx += 1) {
+          if (isLand(terrainAt(world, x + dx, y + dy))) {
+            return true;
+          }
+        }
+      }
+      return false;
+    };
+    for (let y = 0; y < world.height; y += 1) {
+      for (let x = 0; x < world.width; x += 1) {
+        if (terrainAt(world, x, y) !== 'water' || hash2(seed + 4242, x, y) > 0.07 || !nearLand(x, y)) {
+          continue;
+        }
+        const sprite = this.add
+          .image(
+            (x + 0.15 + hash2(seed + 4243, x, y) * 0.7) * TILE_SIZE,
+            (y + 0.15 + hash2(seed + 4244, x, y) * 0.7) * TILE_SIZE,
+            GLINT_KEY,
+          )
+          .setScale(1 / TEXTURE_SCALE)
+          .setDepth(1);
+        this.worldLayer.add(sprite);
+        this.glints.push({ sprite, phase: hash2(seed + 4245, x, y) * Math.PI * 2 });
+      }
+    }
+  }
+
+  /** A short touch on the world: announce the tile and show a soft ring on it. */
+  private handleTap(world: Point): void {
+    const map = this.simulation.state.world;
+    const tile = tileAtWorld(world, TILE_SIZE, map);
+    if (!tile) {
+      return;
+    }
+    const event: TileTapEvent = tile;
+    markTap(tile);
+    this.events.emit(ISLAND_EVENTS.tileTap, event);
+    this.showRing(tile);
+  }
+
+  private showRing(tile: TileTapEvent): void {
+    this.ringTween?.stop();
+    this.ringFade?.stop();
+    // At small zoom a tile is tiny on screen; the ring keeps a minimum size of about 44 CSS px.
+    const zoom = this.controller.view.zoom;
+    const diameter = Math.max(TILE_SIZE * 1.15, 44 / zoom);
+    const base = diameter / (RING_SIZE * TEXTURE_SCALE * RING_OUTER_FRACTION);
+    this.ring
+      .setPosition((tile.x + 0.5) * TILE_SIZE, (tile.y + 0.5) * TILE_SIZE)
+      .setVisible(true)
+      .setAlpha(1)
+      .setScale(base * 0.7);
+    this.ringTween = this.tweens.add({
+      targets: this.ring,
+      scale: base * 1.1,
+      duration: RING_MS,
+      ease: 'Cubic.easeOut',
+    });
+    this.ringFade = this.tweens.add({
+      targets: this.ring,
+      alpha: 0,
+      delay: RING_HOLD_MS,
+      duration: RING_MS - RING_HOLD_MS,
+      onComplete: () => this.ring.setVisible(false),
+    });
+  }
 }
 
-function drawTree(g: Phaser.GameObjects.Graphics, x: number, y: number, crown: number): void {
-  g.fillStyle(COLORS.grassShade).fillEllipse(x, y + crown * 1.25, crown * 1.6, crown * 0.5);
-  g.fillStyle(COLORS.treeTrunk).fillRoundedRect(x - crown * 0.22, y, crown * 0.44, crown * 1.2, crown * 0.12);
-  g.fillStyle(COLORS.treeCrown).fillCircle(x, y - crown * 0.1, crown);
-  g.fillStyle(COLORS.treeCrownLight).fillCircle(x - crown * 0.35, y - crown * 0.45, crown * 0.4);
+/** Number of land tiles that overlap the rectangle (world px). */
+function countLandIn(world: Parameters<typeof landBounds>[0], rect: Rect): number {
+  const x0 = Math.max(0, Math.floor(rect.x / TILE_SIZE));
+  const x1 = Math.min(world.width - 1, Math.floor((rect.x + rect.width) / TILE_SIZE));
+  const y0 = Math.max(0, Math.floor(rect.y / TILE_SIZE));
+  const y1 = Math.min(world.height - 1, Math.floor((rect.y + rect.height) / TILE_SIZE));
+  let count = 0;
+  for (let y = y0; y <= y1; y += 1) {
+    for (let x = x0; x <= x1; x += 1) {
+      if (isLand(terrainAt(world, x, y))) {
+        count += 1;
+      }
+    }
+  }
+  return count;
+}
+
+/** The area that should be well visible at the start: all land plus a few tiles of water. */
+function islandFocus(world: Parameters<typeof landBounds>[0]): Rect {
+  const land = landBounds(world);
+  const pad = CAMERA_CONFIG.startPaddingTiles;
+  if (!land) {
+    return { x: 0, y: 0, width: world.width * TILE_SIZE, height: world.height * TILE_SIZE };
+  }
+  return {
+    x: (land.minX - pad) * TILE_SIZE,
+    y: (land.minY - pad) * TILE_SIZE,
+    width: (land.maxX - land.minX + 1 + 2 * pad) * TILE_SIZE,
+    height: (land.maxY - land.minY + 1 + 2 * pad) * TILE_SIZE,
+  };
 }

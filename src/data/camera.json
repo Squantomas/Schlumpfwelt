@@ -1,0 +1,9 @@
+{
+  "marginTiles": 2,
+  "landMarginTiles": 1,
+  "startPaddingTiles": 3,
+  "maxTileCssPx": 128,
+  "buttonZoomFactor": 1.6,
+  "wheelZoomPerPixel": 0.0015,
+  "tapMaxMovePx": 10
+}
