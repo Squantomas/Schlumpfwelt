@@ -28,6 +28,5 @@
   "hint.needsPath": "Dieses Haus braucht einen Weg.",
   "hint.pathNoMove": "Wege kann man nicht verschieben. Reiß sie ab und bau neu.",
   "hint.nothingToMove": "Hier steht nichts zum Verschieben.",
-  "hint.nothingToDemolish": "Hier gibt es nichts zum Abreißen.",
-  "hint.noPathHere": "Hier kann kein Weg hin."
+  "hint.nothingToDemolish": "Hier gibt es nichts zum Abreißen."
 }

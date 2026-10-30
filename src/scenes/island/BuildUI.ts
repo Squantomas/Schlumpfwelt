@@ -151,11 +151,6 @@ export class BuildUI {
     this.seenVersion = -1;
   }
 
-  /** The toolbar, picker and hint bar areas plus the zoom buttons – places the ✓ / ✕ must stay out of. */
-  get avoid(): readonly Rect[] {
-    return this.avoidRects;
-  }
-
   /** Free area for the ✓ / ✕ buttons: not under the toolbar, picker or hint bar. */
   get safeArea(): Rect {
     const top = this.hintRect.y + this.hintRect.height + 6;
@@ -334,10 +329,6 @@ export class BuildUI {
   /** The text shown in the hint bar, for tests. */
   get shownHint(): string {
     return this.hintText() ?? '';
-  }
-
-  get bottomInset(): number {
-    return this.view.height - Math.min(this.toolbarRect.y, this.pickerRect.height > 0 ? this.pickerRect.y : Infinity);
   }
 }
 
