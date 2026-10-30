@@ -6,6 +6,39 @@ import tseslint from 'typescript-eslint';
 const SIM_IMPORT_MESSAGE =
   'src/sim/ ist reines TypeScript: kein Phaser und keine Imports aus scenes/, ui/, save/ oder main (siehe CLAUDE.md).';
 
+const SIM_DETERMINISM_MESSAGE =
+  'src/sim/ ist deterministisch: keine Wanduhr, kein Math.random – Zeit kommt über die Ticks, Zufall nur über einen eigenen Seed-RNG in src/sim/.';
+
+/** Browser, network, timers and wall clock – nothing the simulation may touch. */
+const SIM_RESTRICTED_GLOBALS = [
+  'window',
+  'self',
+  'globalThis',
+  'document',
+  'navigator',
+  'location',
+  'localStorage',
+  'sessionStorage',
+  'indexedDB',
+  'caches',
+  'fetch',
+  'XMLHttpRequest',
+  'WebSocket',
+  'EventSource',
+  'Worker',
+  'setTimeout',
+  'setInterval',
+  'clearTimeout',
+  'clearInterval',
+  'queueMicrotask',
+  'requestAnimationFrame',
+  'cancelAnimationFrame',
+  'requestIdleCallback',
+  'performance',
+  'crypto',
+  'Phaser',
+];
+
 export default defineConfig(
   globalIgnores(['dist/', 'coverage/', 'node_modules/']),
 
@@ -61,7 +94,8 @@ export default defineConfig(
   },
 
   // Architecture rule: the simulation must stay independent of Phaser, the
-  // display and the browser, so it can be unit-tested and saved as plain data.
+  // display and the browser, and deterministic (no wall clock, no Math.random),
+  // so it can be unit-tested, replayed and saved as plain data.
   {
     files: ['src/sim/**/*.ts'],
     rules: {
@@ -79,13 +113,21 @@ export default defineConfig(
       ],
       'no-restricted-globals': [
         'error',
-        ...['window', 'document', 'navigator', 'localStorage', 'sessionStorage', 'indexedDB', 'Phaser'].map(
-          (name) => ({ name, message: 'src/sim/ darf nicht auf Browser oder Phaser zugreifen.' }),
-        ),
+        ...SIM_RESTRICTED_GLOBALS.map((name) => ({
+          name,
+          message: 'src/sim/ darf nicht auf Browser, Netz, Timer, Wanduhr oder Phaser zugreifen.',
+        })),
+      ],
+      'no-restricted-properties': [
+        'error',
+        { object: 'Date', property: 'now', message: SIM_DETERMINISM_MESSAGE },
+        { object: 'Math', property: 'random', message: SIM_DETERMINISM_MESSAGE },
       ],
       'no-restricted-syntax': [
         'error',
         { selector: 'ImportExpression', message: 'Keine dynamischen Imports in src/sim/.' },
+        { selector: "NewExpression[callee.name='Date'][arguments.length=0]", message: SIM_DETERMINISM_MESSAGE },
+        { selector: "CallExpression[callee.name='Date']", message: SIM_DETERMINISM_MESSAGE },
       ],
     },
   },

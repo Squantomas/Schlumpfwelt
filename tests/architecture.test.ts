@@ -8,7 +8,42 @@ import indexHtml from '../index.html?raw';
  * 2. Theme-specific words only live in `src/data/theme.json`.
  */
 
-const ARCHITECTURE_RULES = new Set(['no-restricted-imports', 'no-restricted-globals', 'no-restricted-syntax']);
+const ARCHITECTURE_RULES = new Set([
+  'no-restricted-imports',
+  'no-restricted-globals',
+  'no-restricted-properties',
+  'no-restricted-syntax',
+]);
+
+/** Globals that give access to browser, network, timers or the wall clock. */
+const FORBIDDEN_GLOBALS = [
+  'window',
+  'self',
+  'globalThis',
+  'document',
+  'navigator',
+  'location',
+  'localStorage',
+  'sessionStorage',
+  'indexedDB',
+  'caches',
+  'fetch',
+  'XMLHttpRequest',
+  'WebSocket',
+  'EventSource',
+  'Worker',
+  'setTimeout',
+  'setInterval',
+  'clearTimeout',
+  'clearInterval',
+  'queueMicrotask',
+  'requestAnimationFrame',
+  'cancelAnimationFrame',
+  'requestIdleCallback',
+  'performance',
+  'crypto',
+  'Phaser',
+];
 
 const eslint = new ESLint();
 
@@ -43,6 +78,32 @@ describe('Architektur: src/sim/ ist reines TypeScript', { timeout: 30_000 }, () 
     expect(await architectureViolations(SIM_FILE, code)).toEqual(['no-restricted-globals', 'no-restricted-globals']);
   });
 
+  it.each(FORBIDDEN_GLOBALS)('verbietet das Global %s', async (name) => {
+    const code = `export const value: unknown = ${name};\n`;
+    expect(await architectureViolations(SIM_FILE, code)).toEqual(['no-restricted-globals']);
+  });
+
+  it('verbietet den Umweg über globalThis', async () => {
+    const code = "export const load = globalThis.fetch('https://example.org');\n";
+    expect(await architectureViolations(SIM_FILE, code)).toEqual(['no-restricted-globals']);
+  });
+
+  it.each([
+    ['Date.now()', 'export const now = Date.now();\n'],
+    ['Math.random()', 'export const roll = Math.random();\n'],
+    ['Math.random als Wert', 'export const roll = Math.random;\n'],
+    ['Math.random per Destrukturierung', 'const { random } = Math;\nexport const roll = random();\n'],
+  ])('verbietet Wanduhr und Zufall: %s', async (_name, code) => {
+    expect(await architectureViolations(SIM_FILE, code)).toEqual(['no-restricted-properties']);
+  });
+
+  it.each([
+    ['new Date()', 'export const today = new Date();\n'],
+    ['Date()', 'export const today = Date();\n'],
+  ])('verbietet die aktuelle Uhrzeit: %s', async (_name, code) => {
+    expect(await architectureViolations(SIM_FILE, code)).toEqual(['no-restricted-syntax']);
+  });
+
   it('verbietet dynamische Imports', async () => {
     const code = "export const later = import('./clock');\n";
     expect(await architectureViolations(SIM_FILE, code)).toEqual(['no-restricted-syntax']);
@@ -54,8 +115,14 @@ describe('Architektur: src/sim/ ist reines TypeScript', { timeout: 30_000 }, () 
     expect(await architectureViolations(SIM_FILE, code)).toEqual([]);
   });
 
-  it('erlaubt Phaser außerhalb von src/sim/', async () => {
-    const code = "import Phaser from 'phaser';\nexport const mode = Phaser.AUTO;\n";
+  it('erlaubt reine Berechnungen mit Math und festen Datumswerten', async () => {
+    const code = 'export const x = Math.floor(Math.max(1, 2.5));\nexport const epoch = new Date(0);\n';
+    expect(await architectureViolations(SIM_FILE, code)).toEqual([]);
+  });
+
+  it('erlaubt Phaser, Browser und Uhr außerhalb von src/sim/', async () => {
+    const code =
+      "import Phaser from 'phaser';\nexport const x = [Phaser.AUTO, window.innerWidth, Date.now(), Math.random()];\n";
     expect(await architectureViolations(SCENE_FILE, code)).toEqual([]);
   });
 });
