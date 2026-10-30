@@ -27,7 +27,7 @@ Ein gemütliches Aufbauspiel im Browser für **Kinder von 6 bis 10 Jahren**: Auf
 | Hosting | Heimserver im LAN | nginx im Docker-Container, nicht öffentlich |
 | Grafik | KI-generiert | Stilvorgabe früh festlegen, bis dahin Platzhalter |
 | Thema | Schlümpfe, privat | Kein öffentliches Hosting (Markenrecht Peyo/IMPS) |
-| Arbeitsweise | Claude baut, Thomas testet und entscheidet | Kleine Meilensteine, jeder sofort im Browser spielbar |
+| Arbeitsweise | Claude baut, Projektleitung testet und entscheidet | Kleine Meilensteine, jeder sofort im Browser spielbar |
 
 ## 3. Spieldesign
 
@@ -116,7 +116,7 @@ Jeder Meilenstein endet mit einer Version, die auf dem Heimserver läuft und auf
 
 ## 6. Arbeitsweise
 
-- Ein GitHub Issue und ein Branch pro Meilenstein, Pull Request, Thomas testet die Vorschau und gibt frei
+- Ein GitHub Issue und ein Branch pro Meilenstein, Pull Request, Projektleitung testet die Vorschau und gibt frei
 - Tests für `src/sim/`, die Oberfläche wird durch Spielen getestet
 - Nach jedem Meilenstein: kurzer Spieltest mit den Kindern, Beobachtungen als Issues
 
