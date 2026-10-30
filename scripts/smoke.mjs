@@ -219,7 +219,13 @@ async function checkTapRing({ page, check, tap, point, name }) {
   for (let attempt = 0; attempt < 3; attempt += 1) {
     await sleep(2000); // der Ring vom letzten Versuch ist weg
     await tap(point);
+    await sleep(300); // mindestens ein Frame mit Ring
+    // Ein Screenshot dauert auf dem Tablet (DPR 2) länger als der Ring lebt: Spiel anhalten, Bild festhalten.
+    await page.evaluate(() => {
+      window.__holdFrames = true;
+    });
     const during = await grab();
+    await page.evaluate(() => window.__releaseFrames());
     await sleep(2500);
     const after = await grab();
     if (!during.equals(after)) {
@@ -554,6 +560,21 @@ async function testMouseCamera({ page, check, shot, size }) {
 async function testProfile(browser, profile) {
   const problems = [];
   const context = await browser.newContext(profile.context);
+  // Lässt sich das Zeichnen anhalten (`__holdFrames`), um Screenshots flüchtiger Effekte aufzunehmen.
+  await context.addInitScript(() => {
+    const raf = window.requestAnimationFrame.bind(window);
+    const held = [];
+    window.__holdFrames = false;
+    window.__releaseFrames = () => {
+      window.__holdFrames = false;
+      for (const callback of held.splice(0)) raf(callback);
+    };
+    window.requestAnimationFrame = (callback) =>
+      raf((time) => {
+        if (window.__holdFrames) held.push(callback);
+        else callback(time);
+      });
+  });
   const page = await context.newPage();
 
   page.on('console', (message) => {
