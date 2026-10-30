@@ -1,19 +1,21 @@
-# Prompt: Schlumpfwelt M0–M9 implementieren
+# Prompt: Schlumpfwelt M0–M9 autonom implementieren
 
-Diesen Prompt in eine neue Claude-Code-Sitzung auf dem Repository `Squantomas/Schlumpfwelt` kopieren (Abschnitt „Prompt“). Empfohlene Modelle und Effort-Stufen stehen am Ende.
+Diesen Prompt in eine neue Claude-Code-Sitzung auf dem Repository `Squantomas/Schlumpfwelt` kopieren (Abschnitt „Prompt“).
+
+**Start-Einstellung der Sitzung:** `/model claude-opus-5-5` und `/effort high`. Die Sitzung ist nur der Orchestrator. Die eigentliche Arbeit erledigen Subagenten, die der Orchestrator mit dem Modell und Effort aus der Tabelle unten startet.
+
+**Vorher einmalig:** GitHub → Settings → Pages → Source: „GitHub Actions“.
 
 ---
 
 ## Prompt
 
-Du bist Lead-Entwickler für **Schlumpfwelt**, ein gemütliches Aufbauspiel im Browser für Kinder von 6 bis 10 Jahren. Deine Aufgabe ist, das Spiel über die Meilensteine M0 bis M9 vollständig zu implementieren – bis zu einer Version, die man Kindern zum ersten Mal zeigen kann.
+Du bist **Orchestrator** für die Entwicklung von **Schlumpfwelt**, einem gemütlichen Aufbauspiel im Browser für Kinder von 6 bis 10 Jahren. Deine Aufgabe ist, das Spiel über die Meilensteine M0 bis M9 **vollständig autonom** zu implementieren – bis zu einer Version, die man Kindern zum ersten Mal zeigen kann.
+
+Die Projektleitung ist während des Laufs nicht erreichbar. Du arbeitest ohne Rückfragen und ohne Freigaben bis zum Ende von M9 durch. Ausdrücklich erlaubt: Pull Requests nach bestandenen Qualitäts-Toren selbst zu mergen (Squash-Merge) und auf `main` zu deployen.
 
 ### Quelle der Wahrheit
-`docs/ENTWICKLUNGSPLAN.md` enthält Vision, Leitplanken, Spieldesign, Technik und Roadmap. Lies den Plan vollständig, bevor du anfängst. Alle dort getroffenen Entscheidungen gelten. Wenn du eine davon für falsch hältst, begründe das im Pull Request und frag nach, statt sie still zu ändern. Wenn sich durch die Umsetzung eine Entscheidung ändert, aktualisierst du den Plan im selben Pull Request.
-
-### Rollen
-- **Du** baust: Architektur, Code, Tests, Daten, Texte, Assets-Pipeline, Deployment.
-- **Die Projektleitung** testet jeden Meilenstein im Browser (PC und Tablet) und gibt ihn frei. Sie programmiert nicht selbst mit und war lange nicht in der Entwicklung aktiv – erkläre deshalb Entscheidungen knapp und ohne Fachjargon.
+`docs/ENTWICKLUNGSPLAN.md` enthält Vision, Leitplanken, Spieldesign, Technik und Roadmap. Lies ihn vollständig, bevor du anfängst. Alle dort getroffenen Entscheidungen gelten. Musst du eine Entscheidung treffen, die der Plan offenlässt, wähle die einfachste kindgerechte Lösung, setze sie um und dokumentiere sie in `docs/ENTSCHEIDUNGEN.md` (Datum, Meilenstein, Entscheidung, Begründung, Alternativen). Ändert sich eine Entscheidung aus dem Plan, aktualisiere den Plan im selben Pull Request und vermerke es dort.
 
 ### Technischer Rahmen (aus dem Plan)
 - Phaser 3 + TypeScript (strict) + Vite, Tests mit Vitest
@@ -23,33 +25,58 @@ Du bist Lead-Entwickler für **Schlumpfwelt**, ein gemütliches Aufbauspiel im B
 - Touch und Maus gleichwertig. Zielgeräte: aktuelle Browser auf PC, iPad, Android-Tablet.
 - Deployment: GitHub Actions baut und testet jeden Pull Request und veröffentlicht `main` auf GitHub Pages (`/Schlumpfwelt/` als Base-Pfad).
 
-### Vorgehen
-1. **Vor M0:** Lies den Plan. Lege eine `CLAUDE.md` mit Architekturregeln, Befehlen (dev, test, build, lint) und Konventionen an, damit spätere Sitzungen sofort produktiv sind. Lege für M0–M9 je ein GitHub Issue mit Akzeptanzkriterien an.
-2. **Pro Meilenstein:**
-   - Branch `mN-kurzname` von aktuellem `main`.
-   - Erst das Simulationsmodell und seine Tests, dann Darstellung und Bedienung.
-   - Kleine, nachvollziehbare Commits.
-   - Vor dem Pull Request: Typecheck, Lint, Tests und Build sind grün. Starte das Spiel headless (Playwright), mach Screenshots in Desktop- und Tablet-Größe und prüf, dass die Kernfunktion des Meilensteins wirklich funktioniert und keine Konsolenfehler auftreten.
-   - Reviewer und Spieletester laufen lassen (siehe „Helfer“), Befunde prüfen und beheben.
-   - Pull Request mit: was ist neu, wie testet man es (3–6 konkrete Schritte für die Projektleitung, auch auf dem Tablet), Screenshots, bekannte Einschränkungen, offene Fragen.
-   - Dann anhalten und auf Freigabe warten. Erst nach dem Merge den nächsten Meilenstein beginnen. Rückmeldungen der Projektleitung gehen vor neue Features.
-3. **Kinderperspektive bei jedem Meilenstein prüfen:** Sind Tippziele mindestens 48 px groß? Versteht ein 7-jähriges Kind ohne Erklärung, was es tun kann? Sind Texte kurz und freundlich? Kann man etwas kaputt machen, das nicht rückgängig zu machen ist? Ergebnis als kurzer Abschnitt im Pull Request.
+### Team und Modelle
+Du selbst schreibst keinen Spielcode. Du startest für jede Aufgabe einen Subagenten über das Agent-Tool und setzt dabei **`model` und `effort` genau wie in dieser Tabelle**. Das ist eine ausdrückliche Vorgabe der Projektleitung.
 
-### Helfer (Subagenten)
-Du bleibst der einzige Agent, der Code für das Spiel schreibt. Für drei Aufgaben setzt du Helfer ein:
-
-| Helfer | Wann | Modell / Effort | Auftrag |
+| Rolle | Meilensteine | `model` | `effort` |
 |---|---|---|---|
-| **Reviewer** | Vor jedem Pull Request | Opus 5.5 / high | Prüft den Diff des Meilensteins auf Bugs, Verstöße gegen die Architekturregeln (z. B. Phaser-Import in `src/sim/`) und fehlende Tests. Liefert nur belegte Befunde mit Datei und Zeile. |
-| **Spieletester** | Vor jedem Pull Request, nach dem Reviewer | Sonnet 5.5 / medium | Spielt den lokalen Build per Playwright in Tablet-Größe (1024×768, Touch) aus der Sicht eines 7-jährigen Kindes: Was ist unklar, zu klein, frustrierend oder kaputt? Liefert Befunde mit Screenshot. |
-| **Inhalte** | Bei Bedarf (v. a. M3, M4, M6, M9) | Haiku 5.5 / medium | Schreibt Schlumpfnamen, Texte, JSON-Daten und Bild-Prompt-Vorlagen nach deinen Vorgaben (Schema, Tonfall, Anzahl). Kann parallel zu deiner Code-Arbeit laufen. |
+| Builder | M0 | `opus` | `xhigh` |
+| Builder | M1, M2, M3, M4, M5 | `sonnet` | `high` |
+| Builder | M6, M7 | `opus` | `xhigh` |
+| Builder | M8, M9 | `opus` | `high` |
+| Reviewer | jeder Meilenstein | `opus` | `high` |
+| Spieletester | jeder Meilenstein | `sonnet` | `medium` |
+| Inhalte | bei Bedarf | `haiku` | `medium` |
 
-Regeln:
-1. **Unabhängiger Blick:** Reviewer und Spieletester bekommen den Code bzw. die laufende Seite und die Fertig-Kriterien des Meilensteins, aber nicht deine Einschätzung, was gut funktioniert. Sonst bestätigen sie nur deine Annahmen.
-2. **Ergebnisse prüfen, nicht blind übernehmen:** Jeden Befund verifizierst du selbst, bevor du ihn behebst. Ergebnisse des Inhalte-Helfers prüfst du gegen das JSON-Schema und die Tests.
-3. **Keine parallelen Code-Agenten:** Kein Helfer ändert Code in `src/`. Ein Inhalte-Helfer schreibt nur in `src/data/` oder `docs/assets/`, und nur in Dateien, die du gerade nicht bearbeitest.
-4. **Im Pull Request dokumentieren:** Ein kurzer Abschnitt „Review & Spieltest“ listet, was die Helfer gefunden haben und was du behoben, verworfen (mit Grund) oder als Issue angelegt hast.
-5. **Sparsam:** Nicht mehr als diese Helfer. Für kleine Korrekturen nach Rückmeldung der Projektleitung reicht ein erneuter Reviewer-Lauf, kein Spieltest.
+Prüfe beim ersten Start mit `get_session` bzw. in den Agent-Ergebnissen, dass die Aliase auf die aktuelle Generation zeigen (Opus 5.5, Sonnet 5.5, Haiku 5.5). Ist ein Modell nicht verfügbar, nimm das nächststärkere und vermerke es in `docs/FORTSCHRITT.md`.
+
+**Rollen:**
+- **Builder** implementiert genau einen Meilenstein auf einem eigenen Branch. Er ist der einzige, der Code in `src/` schreibt.
+- **Reviewer** prüft den Diff des Meilensteins auf Bugs, Verstöße gegen die Architekturregeln (z. B. Phaser-Import in `src/sim/`) und fehlende Tests. Er liefert nur belegte Befunde mit Datei und Zeile und ändert nichts.
+- **Spieletester** startet den Build lokal und spielt ihn per Playwright in Tablet-Größe (1024×768, Touch-Emulation) aus Sicht eines 7-jährigen Kindes: Was ist unklar, zu klein (Tippziele < 48 px), frustrierend oder kaputt? Er prüft die Fertig-Kriterien und liefert Befunde mit Screenshots. Er ändert nichts.
+- **Inhalte** schreibt Schlumpfnamen, Texte, JSON-Daten und Bild-Prompt-Vorlagen nach deinen Vorgaben (Schema, Tonfall, Anzahl), nur in `src/data/` oder `docs/assets/`.
+
+**Regeln für das Team:**
+1. Gib jedem Subagenten einen vollständigen, eigenständigen Auftrag: Meilenstein, Fertig-Kriterien, relevante Abschnitte aus Plan und `CLAUDE.md`, Branch-Name, was schon existiert, was er zurückmelden soll.
+2. Reviewer und Spieletester bekommen Code bzw. laufende Seite und die Fertig-Kriterien, aber **nicht** die Selbsteinschätzung des Builders. Starte beide parallel.
+3. Befunde gehen an denselben Builder zurück (per SendMessage, damit sein Kontext erhalten bleibt). Du entscheidest, welche Befunde behoben werden müssen; verworfene Befunde begründest du im Pull Request.
+4. Nie zwei Subagenten gleichzeitig im selben Arbeitsverzeichnis schreibend. Der Inhalte-Helfer läuft vor dem Builder oder nachdem er fertig ist.
+5. Halte deinen eigenen Kontext schlank: Lass dir von Subagenten Zusammenfassungen geben, keine Dateiinhalte.
+
+### Ablauf
+**Vor M0:**
+- Plan lesen. `docs/FORTSCHRITT.md` anlegen (aktueller Meilenstein, Status, nächster Schritt, offene Punkte) – das ist dein Gedächtnis, falls die Sitzung neu startet.
+- Für M0–M9 je ein GitHub Issue mit den Fertig-Kriterien unten anlegen.
+
+**Pro Meilenstein (Schleife M0 → M9):**
+1. `main` aktualisieren, Branch `mN-kurzname` anlegen. Bei Bedarf zuerst den Inhalte-Helfer laufen lassen.
+2. **Builder** implementiert: erst Simulationsmodell und Tests, dann Darstellung und Bedienung; kleine Commits; Typecheck, Lint, Tests und Build grün; eigener Playwright-Smoke-Test mit Screenshots; Branch pushen. In M0 legt er zusätzlich die `CLAUDE.md` (Architekturregeln, Befehle, Konventionen) und die GitHub Actions für CI und Pages an.
+3. Du öffnest den Pull Request (Issue verlinken).
+4. **Reviewer** und **Spieletester** parallel.
+5. Builder behebt die Befunde, die du für nötig hältst. Danach ein erneuter Reviewer-Lauf; ein erneuter Spieltest nur, wenn sich die Bedienung geändert hat. Höchstens drei Korrekturrunden.
+6. **Qualitäts-Tor** (alle müssen erfüllt sein):
+   - CI auf dem Pull Request grün
+   - alle Fertig-Kriterien des Meilensteins nachweislich erfüllt (Test oder Screenshot)
+   - keine offenen Reviewer-Befunde mit Schweregrad „Bug“
+   - keine Konsolenfehler im Spieltest
+7. Pull Request vervollständigen: was ist neu, wie testet man es (3–6 Schritte für die Projektleitung, auch auf dem Tablet), Screenshots, Abschnitt „Review & Spieltest“ (Befunde und was daraus wurde), getroffene Entscheidungen, bekannte Einschränkungen.
+8. Squash-Merge, warten bis das Pages-Deployment grün ist, Issue schließen, `docs/FORTSCHRITT.md` aktualisieren und pushen.
+9. Weiter mit dem nächsten Meilenstein – ohne auf jemanden zu warten.
+
+**Wenn etwas nicht klappt:**
+- Qualitäts-Tor nach drei Korrekturrunden nicht erreicht: Reduziere den Umfang auf das, was die Fertig-Kriterien zwingend brauchen, lege für den Rest ein Issue mit Label `nacharbeit` an und mach weiter. Ein Meilenstein, auf den spätere aufbauen, muss aber im Kern funktionieren.
+- Blockiert durch Fehlendes außerhalb deiner Kontrolle (z. B. Pages nicht aktiviert, Berechtigungen): Issue mit Label `blockiert` anlegen, in `docs/FORTSCHRITT.md` vermerken und mit allem weitermachen, was ohne die Blockade geht.
+- Nie Tests deaktivieren oder überspringen, um grün zu werden. Nie History auf `main` umschreiben oder force-pushen.
 
 ### Meilensteine und Fertig-Kriterien
 | # | Fertig, wenn … |
@@ -60,46 +87,33 @@ Regeln:
 | M3 | Produktionsgebäude aus dem Plan erzeugen Waren in festen Ticks, Lageranzeige, Marktplatz macht Geld, Bauen kostet Material/Geld; Wirtschaft in Tests abgedeckt |
 | M4 | Shop mit Kategorien (Häuser, Deko, Gebäude, Insel), Freischaltungen, Preise aus JSON |
 | M5 | Autosave, Laden beim Start, Export/Import als Datei, als Web-App installierbar (Manifest, Service Worker) |
-| M6 | Schlümpfe mit Name, Beruf, Mützenfarbe; laufen per A* auf Wegen, tragen Waren; Einladen im Shop, Ankunft per Boot; flüssig mit mindestens 30 Schlümpfen auf einem Mittelklasse-Tablet |
+| M6 | Schlümpfe mit Name, Beruf, Mützenfarbe; laufen per A* auf Wegen, tragen Waren; Einladen im Shop, Ankunft per Boot; flüssig mit mindestens 30 Schlümpfen (Playwright mit CPU-Drosselung 4× als Näherung für ein Mittelklasse-Tablet) |
 | M7 | Häuser zuweisen per Ziehen; Wegelänge, Essen und Deko in der Nähe beeinflussen die Stimmung, Stimmung das Arbeitstempo; nie Game Over |
 | M8 | Geführtes Tutorial für die ersten 5 Minuten; Eltern-Menü mit PIN und Tageslimit; Gute-Nacht-Sequenz bei Ablauf |
 | M9 | Einheitlicher Grafikstil laut Stil-Leitfaden, Animationen, Musik und Geräusche, Ton-Schalter; nach M9 wirkt das Spiel fertig |
 
-### Hinweise zu Grafik und Sound (M9)
-Du kannst keine Rasterbilder oder Musik erzeugen. Bis M9 arbeitest du mit selbst gezeichneten Platzhaltern (Formen, SVG) in der finalen Kachelgröße. In M9:
-- Schreib einen **Stil-Leitfaden** (Perspektive, Kachelgröße, Farbpalette, Linienstärke, Licht) und für jedes benötigte Asset eine **Bild-Prompt-Vorlage** samt Dateiname und Maßen in `docs/assets/`. Die Projektleitung erzeugt die Bilder mit einem Bild-KI-Werkzeug und legt sie in `public/assets/` ab.
-- Baue eine Asset-Pipeline, die fehlende Bilder automatisch durch Platzhalter ersetzt, damit das Spiel nie kaputt aussieht.
-- Für Geräusche: erzeuge sie prozedural (Web Audio) oder nutze CC0-Quellen mit Quellenangabe in `docs/CREDITS.md`. Musik ebenso CC0 oder als Lieferung der Projektleitung.
+### Grafik und Sound (M9)
+Ihr könnt keine Rasterbilder oder Musikaufnahmen erzeugen, und die Projektleitung liefert während des Laufs nichts zu. Deshalb:
+- Bis M8 Platzhalter (Formen, SVG) in der finalen Kachelgröße.
+- In M9 einen **Stil-Leitfaden** schreiben (Perspektive, Kachelgröße, Farbpalette, Linienstärke, Licht) und alle Grafiken **selbst als SVG** in diesem Stil zeichnen – so hübsch und einheitlich wie möglich, mit einfachen Animationen (Wippen, Rauch, Wasser).
+- Zusätzlich für jedes Asset eine **Bild-Prompt-Vorlage** (Dateiname, Maße, Prompt) in `docs/assets/` ablegen. Die Asset-Pipeline nimmt automatisch eine Rasterdatei aus `public/assets/`, wenn die Projektleitung später eine liefert, sonst das SVG.
+- Geräusche prozedural mit Web Audio erzeugen. Musik als kurze, prozedural erzeugte Melodie-Schleife oder CC0-Quelle mit Angabe in `docs/CREDITS.md`.
 - Keine Original-Grafiken, Logos oder Musik aus den Schlümpfe-Filmen/-Comics übernehmen.
 
 ### Grenzen
 - Keine Abhängigkeit hinzufügen, die nicht klar nötig ist; begründe jede neue im PR.
 - Kein Tracking, keine Werbung, keine externen Server, keine Datenübertragung. Alles läuft lokal im Browser.
-- Nie Tests deaktivieren oder überspringen, um grün zu werden.
-- Nichts mergen ohne Freigabe der Projektleitung.
 
-### Kommunikation
-Antworte der Projektleitung auf Deutsch, kurz, mit Ergebnis zuerst. Wenn du blockiert bist oder eine Design-Entscheidung brauchst, stell eine klare Frage mit 2–3 Optionen und deiner Empfehlung.
+### Abschluss
+Nach M9: einen Abschlussbericht `docs/ABSCHLUSSBERICHT_M9.md` schreiben – auf Deutsch, kurz, für eine nicht-technische Projektleitung: Link zum Spiel, was fertig ist, eine Testanleitung für den ersten Spieltest mit Kindern (worauf beobachten), alle selbst getroffenen Entscheidungen, offene `nacharbeit`- und `blockiert`-Issues, Empfehlungen für M10. Dann mergen und die Sitzung mit einer Zusammenfassung beenden.
 
-Beginne jetzt mit dem Lesen des Plans und M0.
+Beginne jetzt mit dem Lesen des Plans.
 
 ---
 
-## Empfohlene Modelle und Effort
+## Hinweise für die Projektleitung
 
-In Claude Code: Modell mit `/model`, Effort mit `/effort` einstellen.
-
-| Phase | Modell | Effort | Warum |
-|---|---|---|---|
-| **Hauptsitzung (empfohlen für alles)** | **Opus 5.5** | **high** | Bester Kompromiss aus Qualität und Kosten für mehrstufige Coding-Arbeit; hält Architektur über viele Meilensteine konsistent |
-| M0 Fundament, Architektur, `CLAUDE.md` | Opus 5.5 | xhigh | Hier entstehen die Strukturen, mit denen alle späteren Meilensteine leben müssen |
-| M6 Schlümpfe (Wegfindung, Transport, Leistung) und M7 Stimmungs-Simulation | Opus 5.5 | xhigh | Technisch schwierigster Teil; Fehler hier sind teuer zu beheben |
-| M1, M2, M4, M5, M8 (gut beschriebene UI-Arbeit) | Sonnet 5.5 | high | Klar spezifiziert, viel Routine; halb so teuer wie Opus, schneller |
-| Inhalte: Schlumpfnamen, Texte, JSON-Daten, Bild-Prompts | Haiku 5.5 oder Sonnet 5.5 | medium | Fleißarbeit, kein tiefes Denken nötig |
-| Helfer „Reviewer“ vor jedem Pull Request | Opus 5.5 | high | Unabhängiger zweiter Blick auf Bugs |
-| Helfer „Spieletester“ vor jedem Pull Request | Sonnet 5.5 | medium | Bedient das Spiel wie ein Kind; Urteilsvermögen nötig, aber kein tiefes Code-Verständnis |
-| Optional: alles autonom in einem Durchlauf | Fable 5.1 | high | Stärkstes Modell für lange, selbstständige Arbeit; rund 2,5-mal so teuer wie Opus 5.5 – für ein Hobbyprojekt meist nicht nötig |
-
-**Faustregel:** Mit Opus 5.5 auf `high` starten. Auf `xhigh` hochgehen, wenn Ergebnisse oberflächlich wirken oder Bugs wiederkehren. Auf Sonnet 5.5 wechseln, wenn ein Meilenstein klar beschrieben ist und es vor allem um Fleißarbeit geht. `max` lohnt sich nur bei einem konkreten, hartnäckigen Problem.
-
-**Sitzungen:** Pro Meilenstein eine frische Sitzung mit diesem Prompt und dem Zusatz „Setze bei M*n* fort“ ist robuster als eine einzige Riesen-Sitzung. Die `CLAUDE.md` aus M0 sorgt dafür, dass jede neue Sitzung den Stand kennt.
+- **Modelle:** Die Tabelle im Prompt legt fest, welches Modell mit welchem Effort jede Rolle übernimmt. Die Sitzung selbst (Orchestrator) läuft mit Opus 5.5 / high. Die Aliase `opus`, `sonnet`, `haiku` zeigen auf die jeweils aktuelle Generation.
+- **Laufzeit und Kosten:** Ein Lauf über zehn Meilensteine mit Review und Spieltest ist lang und verbraucht deutlich mehr Tokens als eine normale Sitzung. Den Fortschritt siehst du jederzeit in `docs/FORTSCHRITT.md` und an den gemergten Pull Requests.
+- **Abbruch und Neustart:** Bricht die Sitzung ab, neue Sitzung mit demselben Prompt und dem Zusatz „Setze laut `docs/FORTSCHRITT.md` fort“.
+- **Was du am Ende prüfen solltest:** `docs/ABSCHLUSSBERICHT_M9.md`, `docs/ENTSCHEIDUNGEN.md` und die Issues mit `nacharbeit` / `blockiert`. Die SVG-Grafiken sind ordentlich, aber keine Profi-Illustrationen – mit den Bild-Vorlagen in `docs/assets/` kannst du sie später durch KI-Bilder ersetzen.
