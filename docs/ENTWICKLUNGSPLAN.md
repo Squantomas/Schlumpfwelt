@@ -24,9 +24,9 @@ Ein gemütliches Aufbauspiel im Browser für **Kinder von 6 bis 10 Jahren**: Auf
 | Plattform | Browser auf PC, Tablet, Handy | Touch-Bedienung gleichwertig zu Maus |
 | Technik | Phaser 3 + TypeScript + Vite | siehe Abschnitt 4 |
 | Speichern | Lokal im Browser | IndexedDB, plus Export/Import als Datei |
-| Hosting | Heimserver im LAN | nginx im Docker-Container, nicht öffentlich |
+| Hosting | GitHub Pages (Repository ist öffentlich) | Automatisches Deployment bei jedem Push auf `main`, Adresse: squantomas.github.io/Schlumpfwelt |
 | Grafik | KI-generiert | Stilvorgabe früh festlegen, bis dahin Platzhalter |
-| Thema | Schlümpfe, privat | Kein öffentliches Hosting (Markenrecht Peyo/IMPS) |
+| Thema | Schlümpfe, nicht kommerziell | Seite ist öffentlich erreichbar → Markenrecht Peyo/IMPS beachten: Name, Figuren und Texte in einer Theme-Datei bündeln, damit ein Umbenennen jederzeit möglich ist |
 | Arbeitsweise | Claude baut, Projektleitung testet und entscheidet | Kleine Meilensteine, jeder sofort im Browser spielbar |
 
 ## 3. Spieldesign
@@ -69,7 +69,7 @@ Häuser (verschiedene Pilzhaus-Varianten), Deko (Blumen, Brunnen, Zäune, Bänke
 - **Wegfindung**: A* auf dem Wegeraster
 - **Speichern**: IndexedDB, Autosave jede Minute + Export/Import als `.json`
 - **Touch**: Ziehen = Kamera, Zwei-Finger = Zoom, Tippen = Auswahl, Bauen per „Antippen + Bestätigen“ statt Drag & Drop
-- **Deployment**: GitHub Actions baut, Docker-Image `nginx` mit statischen Dateien läuft auf dem Heimserver
+- **Deployment**: GitHub Actions baut bei jedem Push auf `main` und veröffentlicht auf **GitHub Pages**; Pull Requests werden vorher gebaut und getestet
 
 ```
 src/
@@ -81,13 +81,13 @@ src/
 └── save/         # IndexedDB, Export/Import
 public/assets/    # Grafiken, Sounds
 tests/
-deploy/           # Dockerfile, nginx.conf, docker-compose.yml
+.github/workflows/  # Build, Tests, Deployment auf GitHub Pages
 ```
 
 ### Technische Risiken
 | Risiko | Gegenmaßnahme |
 |---|---|
-| **iPad/Safari löscht Browser-Speicher** nach 7 Tagen ohne Nutzung | Als Web-App zum Home-Bildschirm hinzufügen (PWA), Export-Knopf, ggf. später Speichern auf dem Heimserver |
+| **iPad/Safari löscht Browser-Speicher** nach 7 Tagen ohne Nutzung | Als Web-App zum Home-Bildschirm hinzufügen (PWA), Export-Knopf |
 | Audio startet auf Tablets erst nach Berührung | Startbildschirm „Tippen zum Spielen“ |
 | Leistung auf alten Tablets | Früh auf dem schwächsten Familiengerät testen, Anzahl Schlümpfe begrenzen |
 | KI-Grafiken passen stilistisch nicht zusammen | Verbindlicher Stil-Leitfaden + feste Prompt-Vorlage, einheitliche Perspektive und Kachelgröße |
@@ -95,11 +95,11 @@ deploy/           # Dockerfile, nginx.conf, docker-compose.yml
 
 ## 5. Roadmap
 
-Jeder Meilenstein endet mit einer Version, die auf dem Heimserver läuft und auf dem Tablet getestet werden kann.
+Jeder Meilenstein endet mit einer Version, die auf GitHub Pages läuft und auf dem Tablet getestet werden kann.
 
 | # | Meilenstein | Ergebnis |
 |---|---|---|
-| **M0** | Fundament | Vite + Phaser + TS, Vitest, GitHub Actions, Docker/nginx auf dem Heimserver – „Hallo Insel“ im Tablet-Browser |
+| **M0** | Fundament | Vite + Phaser + TS, Vitest, GitHub Actions + GitHub Pages – „Hallo Insel“ im Tablet-Browser |
 | **M1** | Die Insel | Kachel-Insel (Wasser, Strand, Wiese, Wald, Fels), Kamera mit Touch und Maus |
 | **M2** | Gestalten | Wege, Häuser, Deko setzen, verschieben, abreißen – **schon allein ein Spielzeug** |
 | **M3** | Wirtschaft | Produktionsgebäude, Lager, Markt → Geld, Baukosten |
@@ -123,5 +123,4 @@ Jeder Meilenstein endet mit einer Version, die auf dem Heimserver läuft und auf
 ## 7. Noch offen (klärbar später)
 
 - Welche Geräte genau (iPad-Modell/Android)? → schwächstes Gerät als Referenz für die Leistung
-- Heimserver: Läuft Docker schon? Hostname/Port im LAN?
 - Gibt es Lieblingsschlümpfe der Kinder, die als Erstes auf die Insel sollen?
