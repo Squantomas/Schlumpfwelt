@@ -1,107 +1,127 @@
 # Schlumpfwelt – Entwicklungsplan
 
-Stand: 30.10.2026 · Basis: README (Insel, eigenes Dorf, kleine Wirtschaftssimulation, Geld verdienen, Dinge kaufen, Aufbauspiel-Genre)
+Stand: 30.10.2026 · Version 2 (nach Grilling-Runde)
 
-## 1. Vision in einem Satz
+## 1. Vision
 
-Ein gemütliches 2D-Aufbauspiel: Der Spieler baut auf einer Insel ein Dorf, kleine Bewohner sammeln Rohstoffe, verarbeiten sie in Produktionsketten, verkaufen Waren – und vom Geld kauft man Gebäude, Deko und Erweiterungen für die Insel.
+Ein gemütliches Aufbauspiel im Browser für **Kinder von 6 bis 10 Jahren**: Auf einer Insel gestalten sie ihr eigenes Schlumpfdorf. Schlümpfe arbeiten, verdienen Geld, und davon kauft man Häuser, Deko und lädt neue Schlümpfe ein.
 
-**Zielgruppe:** Familie / Kinder + Hobby-Spaß. Kein Kampf, kein Zeitdruck, kein „Game Over“.
+**Kern-Spaß: das Dorf gestalten.** Die Wirtschaft ist Mittel zum Zweck, nicht Selbstzweck.
 
-## 2. Wichtiger Hinweis: Rechte an den Schlümpfen
+## 2. Leitplanken (Entscheidungen)
 
-„Die Schlümpfe“ sind eine geschützte Marke (Peyo / IMPS). Für ein **rein privates** Spiel zu Hause ist das unkritisch. Sobald das Spiel **veröffentlicht** wird (auch kostenlos auf GitHub/itch.io), braucht es eigene Figuren und einen eigenen Namen.
-
-**Empfehlung:** Die Bewohner im Code neutral benennen (`Bewohner`, `villager`) und Name, Grafiken und Texte in einer Theme-Datei bündeln. Dann ist ein Umbenennen später eine Sache von Minuten.
-
-## 3. Technologie-Entscheidung
-
-| Option | Pro | Contra |
+| Thema | Entscheidung | Folge für das Design |
 |---|---|---|
-| **Python + pygame-ce** ✅ | Python ist dir vertraut, läuft unter Ubuntu, sehr einfacher Einstieg, volle Kontrolle | Benutzeroberfläche (Menüs, Buttons) muss man selbst bauen |
-| Python + Arcade | Modernere API, eingebaute GUI-Elemente | Kleinere Community |
-| Godot (GDScript) | Professionelle Engine, Editor, Export auf Web/Handy | Neues Werkzeug und neue Sprache lernen |
+| Zielgruppe | Kinder 6–10 | Große Buttons, Symbole + kurze Sätze, max. 2-stufige Produktionsketten |
+| Kern-Spaß | Gestalten | Viel Deko, verschieben/abreißen kostenlos, kein Platzmangel-Stress |
+| Scheitern | Sanfter Druck | Hungrige/unglückliche Schlümpfe arbeiten langsamer – nichts geht kaputt, kein Game Over |
+| Bauen | Freies Raster + Wege | Gebäude brauchen Wegeanschluss, Schlümpfe laufen auf Wegen |
+| Wohnen | Spieler weist zu, welcher Schlumpf in welchem Haus wohnt | Wohnung nah am Arbeitsplatz = kurze Wege = mehr Ertrag |
+| Neue Schlümpfe | Im Shop einladen | Schlümpfe sind die wertvollste Kaufware, jeder mit Name und Beruf |
+| Texte | Kurze Sätze ok | Deutsch, Texte zentral in einer Datei |
+| Spielzeit | Tageslimit durch Eltern | Schlümpfe gehen nach Ablauf „schlafen“, Einstellung mit Eltern-PIN |
+| Extras | Musik & Sounds, Schlümpfe mit Namen, Tutorial | siehe Meilensteine |
+| Plattform | Browser auf PC, Tablet, Handy | Touch-Bedienung gleichwertig zu Maus |
+| Technik | Phaser 3 + TypeScript + Vite | siehe Abschnitt 4 |
+| Speichern | Lokal im Browser | IndexedDB, plus Export/Import als Datei |
+| Hosting | Heimserver im LAN | nginx im Docker-Container, nicht öffentlich |
+| Grafik | KI-generiert | Stilvorgabe früh festlegen, bis dahin Platzhalter |
+| Thema | Schlümpfe, privat | Kein öffentliches Hosting (Markenrecht Peyo/IMPS) |
+| Arbeitsweise | Claude baut, Thomas testet und entscheidet | Kleine Meilensteine, jeder sofort im Browser spielbar |
 
-**Empfehlung: Python 3.12 + pygame-ce**, Kartenansicht von oben (Top-Down, Kachelraster). Isometrische Ansicht (Siedler-Look) ist reizvoll, kostet aber deutlich mehr Grafik- und Rechenaufwand – erst später als Option.
+## 3. Spieldesign
 
-Weitere Bausteine:
-- **Spieldaten in JSON/YAML** (Gebäude, Waren, Preise, Rezepte) → Balancing ohne Code-Änderungen
-- **pytest** für die Wirtschaftslogik (läuft ohne Grafik)
-- **Grafik:** zum Start freie Assets (z. B. Kenney.nl, CC0), später eigene
-- **Speichern:** JSON-Spielstand
+### Spielkreislauf
+Sammeln → Verarbeiten → Verkaufen → **Geld** → Shop (Häuser, Deko, Schlümpfe, Inselteile) → schöneres, größeres Dorf.
 
-## 4. Architektur (Grundidee)
-
-Die wichtigste Regel: **Simulation und Darstellung strikt trennen.** Die Wirtschaft läuft als reines Python ohne pygame – dadurch testbar, schneller zu entwickeln und später austauschbar.
-
-```
-schlumpfwelt/
-├── main.py                 # Start, Spielschleife
-├── sim/                    # Reine Spiellogik, kein pygame
-│   ├── world.py            # Insel, Kachelraster, Gelände
-│   ├── buildings.py        # Gebäude, Bauplätze, Bauzustand
-│   ├── economy.py          # Lager, Waren, Produktionsketten, Markt
-│   ├── villagers.py        # Bewohner, Jobs, Bedürfnisse
-│   ├── pathfinding.py      # Wege (A*)
-│   └── clock.py            # Feste Simulations-Ticks (z. B. 10/s)
-├── ui/                     # pygame: Zeichnen, Kamera, Eingabe, Menüs
-├── data/                   # buildings.json, goods.json, shop.json, theme.json
-├── assets/                 # Grafiken, Sounds
-├── saves/
-└── tests/
-```
-
-## 5. Spielmechanik – erste Version
-
-**Rohstoffe & Ketten (bewusst klein halten):**
-
-| Gebäude | braucht | erzeugt |
-|---|---|---|
-| Holzfällerhütte | Bäume in der Nähe | Holz |
-| Steinbruch | Felsen | Stein |
-| Beerensammler | Büsche | Beeren |
-| Sägewerk | Holz | Bretter |
-| Bäckerei / Küche | Beeren | Kuchen |
-| Marktplatz | Waren | **Geld** |
-
-**Kreislauf:** Sammeln → Verarbeiten → Verkaufen → Geld → Shop (neue Gebäude, Deko, Insel-Erweiterungen, mehr Bewohner) → mehr Produktion.
-
-**Bewohner:** Jeder hat einen Job, läuft sichtbar zwischen Arbeitsplatz und Lager hin und her (das macht den Siedler-Charme aus). Einfaches Bedürfnis „Essen“ – satte Bewohner arbeiten schneller.
-
-**Shop:** Pilzhäuser, Brücken, Brunnen, Gärten, neue Inselteile, besondere Gebäude (z. B. ein Labor mit lustigen Effekten).
-
-## 6. Roadmap in Meilensteinen
-
-Jeder Meilenstein endet mit etwas **Spielbarem**. Aufwand grob geschätzt für Hobby-Tempo mit KI-Unterstützung (Abende/Wochenenden).
-
-| # | Meilenstein | Ergebnis | Aufwand |
+### Produktionsketten (Start)
+| Gebäude | Beruf | braucht | erzeugt |
 |---|---|---|---|
-| **M0** | Fundament | Projektstruktur, pygame-Fenster, Spielschleife, Tests, GitHub Actions | 1 Abend |
-| **M1** | Die Insel | Insel aus Kacheln (Wasser, Gras, Wald, Fels), Kamera scrollen/zoomen | 1–2 Abende |
-| **M2** | Bauen | Gebäude aus Menü wählen, auf freie Kacheln setzen, Baukosten | 2 Abende |
-| **M3** | Wirtschaft (ohne Figuren) | Gebäude produzieren pro Tick ins zentrale Lager, Lageranzeige, Marktplatz verkauft → Geld | 2–3 Abende |
-| **M4** | Shop | Geld ausgeben: neue Gebäude freischalten, Deko kaufen | 1–2 Abende |
-| **M5** | Speichern/Laden | Spielstand als JSON | 1 Abend |
-| — | **🎉 Erster spielbarer Prototyp** | | **~2–3 Wochen** |
-| **M6** | Lebendige Bewohner | Figuren laufen per Wegfindung, tragen Waren, Wege bauen | 1–2 Wochen |
-| **M7** | Bedürfnisse & Wachstum | Essen, Wohnhäuser, Bevölkerungswachstum | 1 Woche |
-| **M8** | Look & Feel | Eigene Grafiken, Animationen, Tag/Nacht, Musik, Sounds | offen |
-| **M9** | Ausbau | Insel-Erweiterungen, Aufträge/Quests, Ereignisse (Regen, Händlerschiff) | offen |
-| **M10** | Optional | Isometrische Ansicht, Web-Version (pygbag), Android | offen |
+| Holzfällerhütte | Holzfäller-Schlumpf | Bäume | Holz |
+| Beerengarten | Gärtner-Schlumpf | – | Schlumpfbeeren |
+| Steinbruch | Steinmetz-Schlumpf | Felsen | Stein |
+| Schreinerei | Schreiner-Schlumpf | Holz | Möbel |
+| Bäckerei | Bäcker-Schlumpf | Beeren | Beerenkuchen |
+| Marktplatz | Händler-Schlumpf | Waren | Geld |
 
-**Bewusst die Wirtschaft (M3) vor den laufenden Figuren (M6):** So ist früh testbar, ob das Spiel Spaß macht, bevor die aufwendigste Technik gebaut wird.
+Bau-Materialien (Holz, Stein) werden fürs Bauen verbraucht, Endprodukte (Möbel, Kuchen) bringen auf dem Markt Geld. Kuchen ist zugleich Essen.
 
-## 7. Arbeitsweise
+### Schlümpfe
+- Name, Beruf, Mützenfarbe, Stimmung (fröhlich / normal / traurig) – antippen zeigt eine Karte
+- **Zuhause**: Spieler zieht Schlumpf auf ein Haus. Wohnort nah an der Arbeit → mehr Ertrag
+- **Bedürfnisse (sanft)**: Essen, ein Zuhause, Deko in der Nähe → Stimmung → Arbeitstempo
+- Neue Schlümpfe kommen per Boot, nachdem man sie im Shop eingeladen hat. Voraussetzung: ein freies Haus
 
-- **Branch pro Meilenstein**, Pull Request, kurz durchsehen, mergen
-- **GitHub Issues** pro Meilenstein als Aufgabenliste
-- **Tests** für `sim/` (Wirtschaft, Bauen, Speichern); UI wird durch Spielen getestet
-- **Balancing-Tabelle** in `data/` – Preise und Produktionszeiten ohne Code-Änderung justieren
-- **Spieletests mit der Zielgruppe** (Kinder?) nach M5 und M7
+### Shop
+Häuser (verschiedene Pilzhaus-Varianten), Deko (Blumen, Brunnen, Zäune, Bänke, Laternen), Produktionsgebäude, Schlümpfe, Insel-Erweiterungen.
 
-## 8. Offene Entscheidungen
+### Tageslimit
+- Eltern-Menü mit PIN: Minuten pro Tag
+- Bei Ablauf: Abenddämmerung, Schlümpfe gehen ins Bett, Spiel speichert und pausiert
+- Kein Ertrag im Hintergrund (kein Grund für Suchtschleifen)
 
-1. **Für wen ist das Spiel?** Kinder (einfacher, bunter) oder du selbst (tiefere Wirtschaft)?
-2. **Bleibt es privat?** Davon hängt der Umgang mit Name/Figuren ab (siehe Abschnitt 2).
-3. **Ansicht:** Draufsicht zum Start okay, oder ist der Siedler-Iso-Look von Anfang an Pflicht?
-4. **Plattform:** nur Ubuntu-PC, oder auch Windows/Browser/Tablet?
+## 4. Technik
+
+- **Phaser 3 + TypeScript**, Build mit **Vite**
+- **Simulation getrennt von Darstellung**: `src/sim/` ist reines TypeScript ohne Phaser → mit **Vitest** testbar
+- **Spieldaten in JSON** (`src/data/`): Gebäude, Waren, Preise, Schlümpfe, Texte → Balancing ohne Code
+- **Feste Simulations-Ticks** (z. B. 10/s), Darstellung interpoliert
+- **Wegfindung**: A* auf dem Wegeraster
+- **Speichern**: IndexedDB, Autosave jede Minute + Export/Import als `.json`
+- **Touch**: Ziehen = Kamera, Zwei-Finger = Zoom, Tippen = Auswahl, Bauen per „Antippen + Bestätigen“ statt Drag & Drop
+- **Deployment**: GitHub Actions baut, Docker-Image `nginx` mit statischen Dateien läuft auf dem Heimserver
+
+```
+src/
+├── main.ts
+├── sim/          # Welt, Gebäude, Wirtschaft, Schlümpfe, Wege, Uhr – kein Phaser
+├── scenes/       # Phaser-Szenen: Boot, Insel, UI, Shop, Eltern
+├── ui/           # Buttons, Karten, Dialoge
+├── data/         # buildings.json, goods.json, smurfs.json, texts.de.json
+└── save/         # IndexedDB, Export/Import
+public/assets/    # Grafiken, Sounds
+tests/
+deploy/           # Dockerfile, nginx.conf, docker-compose.yml
+```
+
+### Technische Risiken
+| Risiko | Gegenmaßnahme |
+|---|---|
+| **iPad/Safari löscht Browser-Speicher** nach 7 Tagen ohne Nutzung | Als Web-App zum Home-Bildschirm hinzufügen (PWA), Export-Knopf, ggf. später Speichern auf dem Heimserver |
+| Audio startet auf Tablets erst nach Berührung | Startbildschirm „Tippen zum Spielen“ |
+| Leistung auf alten Tablets | Früh auf dem schwächsten Familiengerät testen, Anzahl Schlümpfe begrenzen |
+| KI-Grafiken passen stilistisch nicht zusammen | Verbindlicher Stil-Leitfaden + feste Prompt-Vorlage, einheitliche Perspektive und Kachelgröße |
+| Tageslimit lässt sich durch Browser-Löschen umgehen | Für 6–10-Jährige ausreichend; serverseitig nur bei Bedarf |
+
+## 5. Roadmap
+
+Jeder Meilenstein endet mit einer Version, die auf dem Heimserver läuft und auf dem Tablet getestet werden kann.
+
+| # | Meilenstein | Ergebnis |
+|---|---|---|
+| **M0** | Fundament | Vite + Phaser + TS, Vitest, GitHub Actions, Docker/nginx auf dem Heimserver – „Hallo Insel“ im Tablet-Browser |
+| **M1** | Die Insel | Kachel-Insel (Wasser, Strand, Wiese, Wald, Fels), Kamera mit Touch und Maus |
+| **M2** | Gestalten | Wege, Häuser, Deko setzen, verschieben, abreißen – **schon allein ein Spielzeug** |
+| **M3** | Wirtschaft | Produktionsgebäude, Lager, Markt → Geld, Baukosten |
+| **M4** | Shop | Häuser, Deko, Gebäude kaufen und freischalten |
+| **M5** | Speichern | IndexedDB-Autosave, Export/Import, als Web-App installierbar |
+| — | **🎉 Prototyp mit den Kindern testen** | Macht Gestalten + Geldverdienen Spaß? |
+| **M6** | Schlümpfe | Namen, Berufe, laufen auf Wegen, tragen Waren, Einladen im Shop, Ankunft per Boot |
+| **M7** | Wohnen & Stimmung | Häuser zuweisen, Wegelänge, Essen, Deko-Bonus, Stimmung → Arbeitstempo |
+| **M8** | Kinderfreundlich | Tutorial (erste 5 Min), Eltern-Menü mit PIN und Tageslimit, Gute-Nacht-Sequenz |
+| **M9** | Look & Sound | Stil-Leitfaden, KI-Grafiken, Animationen, Musik, Geräusche |
+| **M10** | Ausbau | Insel-Erweiterungen, Aufträge, Ereignisse (Händlerschiff, Regenbogen), Jahreszeiten |
+
+**Begründung der Reihenfolge:** Gestalten (M2) kommt vor der Wirtschaft, weil es der Kern-Spaß ist und den Kindern sofort etwas zum Spielen gibt. Die laufenden Schlümpfe (M6) sind der technisch aufwendigste Teil und kommen erst, wenn die Grundschleife trägt. Den Grafikstil (M9) früh festzulegen wäre auch möglich, falls Platzhalter die Kinder beim Testen stören.
+
+## 6. Arbeitsweise
+
+- Ein GitHub Issue und ein Branch pro Meilenstein, Pull Request, Thomas testet die Vorschau und gibt frei
+- Tests für `src/sim/`, die Oberfläche wird durch Spielen getestet
+- Nach jedem Meilenstein: kurzer Spieltest mit den Kindern, Beobachtungen als Issues
+
+## 7. Noch offen (klärbar später)
+
+- Welche Geräte genau (iPad-Modell/Android)? → schwächstes Gerät als Referenz für die Leistung
+- Heimserver: Läuft Docker schon? Hostname/Port im LAN?
+- Gibt es Lieblingsschlümpfe der Kinder, die als Erstes auf die Insel sollen?
