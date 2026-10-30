@@ -1,33 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { FixedStepClock } from '../../src/sim/clock';
-import { applyCommand, type Command } from '../../src/sim/commands';
+import { FixedStepClock, TICK_MS } from '../../src/sim/clock';
 import { Simulation } from '../../src/sim/simulation';
-import { createInitialState } from '../../src/sim/state';
-
-describe('createInitialState', () => {
-  it('beginnt bei Tick 0 und läuft', () => {
-    expect(createInitialState()).toEqual({ tick: 0, paused: false });
-  });
-
-  it('liefert jedes Mal ein neues Objekt', () => {
-    expect(createInitialState()).not.toBe(createInitialState());
-  });
-});
-
-describe('applyCommand', () => {
-  it('setzt die Pause', () => {
-    const state = createInitialState();
-    applyCommand(state, { type: 'setPaused', paused: true });
-    expect(state.paused).toBe(true);
-    applyCommand(state, { type: 'setPaused', paused: false });
-    expect(state.paused).toBe(false);
-  });
-
-  it('meldet unbekannte Befehle als Fehler', () => {
-    const unknown = { type: 'unknown' } as unknown as Command;
-    expect(() => { applyCommand(createInitialState(), unknown); }).toThrow(/Unhandled command/);
-  });
-});
 
 describe('Simulation', () => {
   it('zählt pro vergangener Tick-Dauer einen Tick', () => {
@@ -60,18 +33,26 @@ describe('Simulation', () => {
     const sim = new Simulation();
     sim.send({ type: 'setPaused', paused: true });
     sim.send({ type: 'setPaused', paused: false });
-    sim.step();
+    sim.update(TICK_MS);
     expect(sim.state.paused).toBe(false);
     expect(sim.state.tick).toBe(1);
+  });
+
+  it('wendet Befehle schon im ersten von mehreren Ticks eines Frames an', () => {
+    const sim = new Simulation();
+    sim.send({ type: 'setPaused', paused: true });
+    sim.update(TICK_MS * 2);
+    expect(sim.state.tick).toBe(0);
+    expect(sim.state.paused).toBe(true);
   });
 
   it('wendet jeden Befehl nur einmal an', () => {
     const sim = new Simulation();
     sim.send({ type: 'setPaused', paused: true });
-    sim.step();
+    sim.update(TICK_MS);
     sim.send({ type: 'setPaused', paused: false });
-    sim.step();
-    sim.step();
+    sim.update(TICK_MS);
+    sim.update(TICK_MS);
     expect(sim.state.paused).toBe(false);
     expect(sim.state.tick).toBe(2);
   });
@@ -86,16 +67,29 @@ describe('Simulation', () => {
     expect(sim.state.paused).toBe(true);
 
     sim.send({ type: 'setPaused', paused: false });
-    sim.step();
+    sim.update(TICK_MS);
     expect(sim.state.tick).toBe(3);
   });
 
   it('übernimmt einen vorgegebenen Zustand und eine eigene Uhr', () => {
     const sim = new Simulation({ tick: 41, paused: false }, new FixedStepClock({ ticksPerSecond: 1 }));
+    expect(sim.tickMs).toBe(1000);
     sim.update(999);
     expect(sim.state.tick).toBe(41);
     sim.update(1);
     expect(sim.state.tick).toBe(42);
+  });
+
+  it('kopiert den Startzustand, damit ihn niemand von außen ändert', () => {
+    const initial = { tick: 5, paused: false };
+    const sim = new Simulation(initial);
+    initial.tick = 1000;
+    initial.paused = true;
+    expect(sim.state).toEqual({ tick: 5, paused: false });
+  });
+
+  it('meldet die Tick-Dauer der Uhr', () => {
+    expect(new Simulation().tickMs).toBe(TICK_MS);
   });
 
   it('ist deterministisch: gleiche Eingaben ergeben gleichen Zustand', () => {

@@ -4,8 +4,9 @@
  * The display runs at a variable frame rate, the simulation always advances in
  * fixed ticks (default: 10 per second). Frame time is collected in an
  * accumulator; every full tick worth of time produces one simulation tick.
- * The remainder is reported as `alpha` in [0, 1) so the display can
- * interpolate between the previous and the current simulation state.
+ * The remainder is reported as `alpha` in [0, 1): the time elapsed since the
+ * last tick as a fraction of one tick. The display uses it to move smoothly
+ * between ticks (see `Simulation.update`).
  *
  * Pure TypeScript: no Phaser, no DOM, no wall clock – the caller passes the
  * elapsed frame time in.
@@ -34,7 +35,7 @@ export interface ClockOptions {
 export interface ClockAdvance {
   /** Number of fixed ticks the simulation has to run for this frame. */
   readonly ticks: number;
-  /** Progress towards the next tick in [0, 1), used for interpolation. */
+  /** Time since the last tick as a fraction of one tick, in [0, 1). */
   readonly alpha: number;
 }
 
@@ -82,7 +83,7 @@ export class FixedStepClock {
     return { ticks, alpha: this.alpha };
   }
 
-  /** Progress towards the next tick in [0, 1). */
+  /** Time since the last tick as a fraction of one tick, in [0, 1). */
   get alpha(): number {
     return this.accumulatorMs / this.tickMs;
   }

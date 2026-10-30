@@ -1,6 +1,5 @@
 import Phaser from 'phaser';
 import { t } from '../data/texts';
-import { TICK_MS } from '../sim/clock';
 import type { Simulation } from '../sim/simulation';
 import { createLabel, setLabelSize } from '../ui/label';
 import { COLORS, clamp, rgb } from '../ui/style';
@@ -19,8 +18,9 @@ const WAVE_COUNT = 3;
  *
  * This scene drives the simulation – `simulation.update()` is called here and
  * nowhere else. The display only reads the state; the waves are drawn from the
- * interpolated simulation time, so they move smoothly although the simulation
- * only ticks 10 times per second.
+ * smooth simulation time `(tick + alpha) * tickMs`, so they move fluidly
+ * although the simulation only ticks 10 times per second, and stand still
+ * while the simulation is paused.
  */
 export class IslandScene extends Phaser.Scene {
   private readonly simulation: Simulation;
@@ -58,7 +58,7 @@ export class IslandScene extends Phaser.Scene {
 
   override update(_time: number, delta: number): void {
     const alpha = this.simulation.update(delta);
-    const seconds = ((this.simulation.state.tick + alpha) * TICK_MS) / 1000;
+    const seconds = ((this.simulation.state.tick + alpha) * this.simulation.tickMs) / 1000;
     this.drawWaves(seconds);
   }
 

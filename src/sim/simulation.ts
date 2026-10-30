@@ -1,5 +1,6 @@
 import { FixedStepClock } from './clock';
 import { applyCommand, type Command } from './commands';
+import type { DeepReadonly } from './readonly';
 import { createInitialState, type SimState } from './state';
 
 /**
@@ -8,7 +9,8 @@ import { createInitialState, type SimState } from './state';
  * Usage from a scene (once per frame, in exactly one place):
  *
  *   const alpha = simulation.update(deltaMs);
- *   // read simulation.state and draw it, interpolating with alpha
+ *   const simTimeMs = (simulation.state.tick + alpha) * simulation.tickMs;
+ *   // read simulation.state and draw it
  *
  * Changes only via {@link Simulation.send}; commands are queued and applied at
  * the start of the next tick, in the order they were sent.
@@ -18,14 +20,20 @@ export class Simulation {
   private readonly clock: FixedStepClock;
   private queue: Command[] = [];
 
+  /** `initialState` is copied, so nobody outside keeps a writable reference. */
   constructor(initialState: SimState = createInitialState(), clock: FixedStepClock = new FixedStepClock()) {
-    this.current = initialState;
+    this.current = structuredClone(initialState);
     this.clock = clock;
   }
 
-  /** Read-only view of the current state. */
-  get state(): Readonly<SimState> {
+  /** Read-only view of the current state (at every depth). */
+  get state(): DeepReadonly<SimState> {
     return this.current;
+  }
+
+  /** Duration of one tick in milliseconds. */
+  get tickMs(): number {
+    return this.clock.tickMs;
   }
 
   /** Queues a command; it takes effect at the start of the next tick. */
@@ -34,9 +42,15 @@ export class Simulation {
   }
 
   /**
-   * Advances the simulation by the elapsed frame time.
-   * Returns the interpolation alpha in [0, 1); 0 while paused, because the
-   * simulated time stands still then.
+   * Advances the simulation by the elapsed frame time and runs the ticks that
+   * are due.
+   *
+   * Returns `alpha` in [0, 1): the time elapsed since the last tick as a
+   * fraction of one tick. `(state.tick + alpha) * tickMs` is a smoothly
+   * running simulation time for the display. The simulation keeps only the
+   * current state – a display that wants to blend between two ticks has to
+   * remember the previous state itself. While paused, alpha is 0, so the
+   * simulation time stands still.
    */
   update(frameMs: number): number {
     const { ticks, alpha } = this.clock.advance(frameMs);
@@ -47,7 +61,7 @@ export class Simulation {
   }
 
   /** Runs exactly one tick: apply queued commands, then advance the world. */
-  step(): void {
+  private step(): void {
     const commands = this.queue;
     this.queue = [];
     for (const command of commands) {
