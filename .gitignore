@@ -1,0 +1,21 @@
+# Abhängigkeiten und Build
+node_modules/
+dist/
+coverage/
+*.tsbuildinfo
+
+# Logs
+npm-debug.log*
+*.log
+
+# Editor / System
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
+
+# Lokale Umgebung
+.env
+.env.*
+!.env.example
