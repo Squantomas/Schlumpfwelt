@@ -18,6 +18,8 @@ export interface WorldCameraOptions {
    * through the `tile-tap` event, not through their own input.
    */
   readonly blocksCamera: (object: Phaser.GameObjects.GameObject) => boolean;
+  /** Presses on a panel (toolbar, picker) also belong to the UI, even between its buttons. Point in CSS px. */
+  readonly blocksPoint?: (x: number, y: number) => boolean;
   /** A tap on the world (not on a button): the world point and the screen point (CSS px). */
   readonly onTap: (world: Point, screen: Point) => void;
 }
@@ -128,10 +130,14 @@ export class WorldCameraController {
 
   private readonly onDown = (pointer: Phaser.Input.Pointer, currentlyOver: readonly Phaser.GameObjects.GameObject[]): void => {
     // Buttons handle their own presses; only the left mouse button drags.
-    if (currentlyOver.some(this.options.blocksCamera) || (!pointer.wasTouch && !pointer.leftButtonDown())) {
+    const { x, y } = this.cssPoint(pointer);
+    if (
+      currentlyOver.some(this.options.blocksCamera) ||
+      this.options.blocksPoint?.(x, y) === true ||
+      (!pointer.wasTouch && !pointer.leftButtonDown())
+    ) {
       return;
     }
-    const { x, y } = this.cssPoint(pointer);
     this.tracker.down(pointer.id, x, y, this.timeOf(pointer));
   };
 

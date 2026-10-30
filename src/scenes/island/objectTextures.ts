@@ -23,7 +23,7 @@ export const RING_OUTER_FRACTION = 0.89;
 /** Where the object touches the ground, as fraction of the texture (for `setOrigin`). */
 export const OBJECT_ORIGIN = { tree: { x: 0.5, y: 0.92 }, rock: { x: 0.5, y: 0.86 } } as const;
 
-type Draw = (ctx: CanvasRenderingContext2D, width: number, height: number) => void;
+export type Draw = (ctx: CanvasRenderingContext2D, width: number, height: number) => void;
 
 /** Creates all object textures (once; later scenes reuse them). */
 export function registerIslandTextures(scene: Phaser.Scene): void {
@@ -37,7 +37,7 @@ export function registerIslandTextures(scene: Phaser.Scene): void {
   make(scene, RING_KEY, RING_SIZE, RING_SIZE, drawRing);
 }
 
-function make(scene: Phaser.Scene, key: string, width: number, height: number, draw: Draw): void {
+export function make(scene: Phaser.Scene, key: string, width: number, height: number, draw: Draw): void {
   if (scene.textures.exists(key)) {
     return;
   }
@@ -51,14 +51,14 @@ function make(scene: Phaser.Scene, key: string, width: number, height: number, d
   texture.refresh();
 }
 
-function circle(ctx: CanvasRenderingContext2D, x: number, y: number, radius: number, color: string): void {
+export function circle(ctx: CanvasRenderingContext2D, x: number, y: number, radius: number, color: string): void {
   ctx.fillStyle = color;
   ctx.beginPath();
   ctx.arc(x, y, radius, 0, Math.PI * 2);
   ctx.fill();
 }
 
-function ellipse(
+export function ellipse(
   ctx: CanvasRenderingContext2D,
   x: number,
   y: number,
@@ -73,7 +73,7 @@ function ellipse(
   ctx.fill();
 }
 
-function roundedBox(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number, color: string): void {
+export function roundedBox(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number, color: string): void {
   ctx.fillStyle = color;
   ctx.beginPath();
   ctx.moveTo(x + r, y);

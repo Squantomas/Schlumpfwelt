@@ -42,3 +42,39 @@ export function markCamera(info: {
 export function markTap(tile: { readonly x: number; readonly y: number }): void {
   document.documentElement.dataset.lastTap = `${String(tile.x)},${String(tile.y)}`;
 }
+
+/** Publishes the building state for tests (`<html data-tool data-preview data-buildings …>`, only on change). */
+export function markVillage(info: {
+  readonly tool: string;
+  readonly variant: string;
+  /** `none`, or `place:ok`, `path:2/1`, … – what the preview says. */
+  readonly preview: string;
+  readonly hint: string;
+  readonly markers: number;
+  /** `[id, type, x, y, connected]` per building. */
+  readonly buildings: string;
+  /** Path tiles as `x,y;x,y;…`. */
+  readonly paths: string;
+  /** Terrain letters per tile, row by row (`w` water, `s` sand, `g` grass, `f` forest, `r` rock). */
+  readonly terrain: string;
+  /** Controls on screen: `{ name: { x, y, enabled } }` in CSS px. */
+  readonly ui: string;
+}): void {
+  const data = document.documentElement.dataset;
+  const next = {
+    tool: info.tool,
+    variant: info.variant,
+    preview: info.preview,
+    hint: info.hint,
+    markers: String(info.markers),
+    buildings: info.buildings,
+    paths: info.paths,
+    terrain: info.terrain,
+    ui: info.ui,
+  };
+  for (const [key, value] of Object.entries(next)) {
+    if (data[key] !== value) {
+      data[key] = value;
+    }
+  }
+}

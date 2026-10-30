@@ -1,15 +1,18 @@
 import Phaser from 'phaser';
 import { CAMERA_CONFIG } from '../data/camera';
 import { t } from '../data/texts';
+import { isConnected } from '../sim/buildings';
 import { hash2 } from '../sim/random';
 import type { Simulation } from '../sim/simulation';
 import { isLand, landBounds, terrainAt } from '../sim/world';
-import { growRect, tileAtWorld, visibleRect, type CameraBounds, type Point, type Rect } from '../ui/cameraMath';
+import { BuildTool, type Preview } from '../ui/buildTool';
+import { growRect, tileAtWorld, visibleRect, worldToScreen, type CameraBounds, type Point, type Rect } from '../ui/cameraMath';
 import { landRegions } from '../ui/cameraRegions';
 import { createLabel, setLabelSize } from '../ui/label';
 import { RoundButton } from '../ui/RoundButton';
 import { COLORS, MIN_TAP_SIZE, TILE_SIZE, clamp, rgb } from '../ui/style';
 import { onViewportChange, type ViewSize } from '../ui/viewport';
+import { BuildUI, type UiSpot } from './island/BuildUI';
 import { groundSize, paintGround } from './island/groundTexture';
 import {
   GLINT_KEY,
@@ -22,9 +25,10 @@ import {
   TREE_KEYS,
   registerIslandTextures,
 } from './island/objectTextures';
+import { VillageView } from './island/VillageView';
 import { WorldCameraController } from './island/WorldCameraController';
 import { ISLAND_EVENTS, SCENES, type TileTapEvent } from './keys';
-import { markActiveScene, markCamera, markTap } from './sceneMarker';
+import { markActiveScene, markCamera, markTap, markVillage } from './sceneMarker';
 
 /** How long the greeting stays fully visible, then it fades away (ms). */
 const GREETING_SHOW_MS = 3500;
@@ -73,6 +77,18 @@ export class IslandScene extends Phaser.Scene {
   private groundKey = '';
   private cameraKey = '';
   private landInView = 0;
+  private buildTool!: BuildTool;
+  private village!: VillageView;
+  private buildUI!: BuildUI;
+  private greeting!: Phaser.GameObjects.Text;
+  private preview: Preview = { kind: 'none' };
+  private previewKey = '';
+  private publishedRevision = -1;
+  private buildings = '[]';
+  private paths = '';
+  private terrain = '';
+  private zoomRect: Rect = { x: 0, y: 0, width: 0, height: 0 };
+  private zoomSpots: Record<string, UiSpot> = {};
 
   constructor(simulation: Simulation) {
     super(SCENES.island);
@@ -89,6 +105,9 @@ export class IslandScene extends Phaser.Scene {
     this.objects.clear();
     this.ringTween = undefined;
     this.ringFade = undefined;
+    this.previewKey = '';
+    this.publishedRevision = -1;
+    this.preview = { kind: 'none' };
 
     this.worldLayer = this.add.layer();
     this.uiLayer = this.add.layer();
@@ -102,6 +121,15 @@ export class IslandScene extends Phaser.Scene {
     this.buildGround(seed);
     this.buildObjects(seed);
     this.buildGlints(seed);
+    this.village = new VillageView(this, this.worldLayer, this.simulation);
+    this.village.sync();
+    this.buildTool = new BuildTool(
+      () => this.simulation.state,
+      (command) => {
+        this.simulation.send(command);
+      },
+    );
+    this.terrain = terrainLetters(world);
     this.ring = this.add.image(0, 0, RING_KEY).setDepth(TOP_DEPTH).setVisible(false);
     this.worldLayer.add(this.ring);
 
@@ -122,10 +150,12 @@ export class IslandScene extends Phaser.Scene {
       tapMaxMovePx: CAMERA_CONFIG.tapMaxMovePx,
       wheelZoomPerPixel: CAMERA_CONFIG.wheelZoomPerPixel,
       blocksCamera: (object) => object.displayList === this.uiLayer,
+      blocksPoint: (x, y) => this.buildUI.coversPoint(x, y),
       onTap: (point) => this.handleTap(point),
     });
 
     const greeting = createLabel(this, t('island.greeting'), 64);
+    this.greeting = greeting;
     this.uiLayer.add(greeting);
     this.tweens.add({ targets: greeting, alpha: 0, delay: GREETING_SHOW_MS, duration: GREETING_FADE_MS });
 
@@ -140,6 +170,9 @@ export class IslandScene extends Phaser.Scene {
       onTap: () => this.controller.zoomBy(1 / CAMERA_CONFIG.buttonZoomFactor),
     });
     this.uiLayer.add([zoomIn, zoomOut]);
+    this.buildUI = new BuildUI(this, this.uiLayer, this.buildTool, () => {
+      this.previewKey = '';
+    });
 
     onViewportChange(this, ({ width, height }: ViewSize) => {
       this.controller.layout({ width, height });
@@ -148,9 +181,21 @@ export class IslandScene extends Phaser.Scene {
       setLabelSize(greeting, clamp(m * 0.07, 26, 64), width * 0.9);
       greeting.setPosition(width / 2, Math.max(14, height * 0.04) + greeting.height / 2);
 
+      // The zoom buttons sit at the top right; the bottom belongs to the toolbar.
       const radius = Math.max(ZOOM_BUTTON_RADIUS, MIN_TAP_SIZE / 2);
-      zoomOut.setRadius(radius).setPosition(width - ZOOM_BUTTON_MARGIN - radius, height - ZOOM_BUTTON_MARGIN - radius);
-      zoomIn.setRadius(radius).setPosition(zoomOut.x, zoomOut.y - 2 * radius - ZOOM_BUTTON_GAP);
+      zoomIn.setRadius(radius).setPosition(width - ZOOM_BUTTON_MARGIN - radius, ZOOM_BUTTON_MARGIN + radius);
+      zoomOut.setRadius(radius).setPosition(zoomIn.x, zoomIn.y + 2 * radius + ZOOM_BUTTON_GAP);
+      this.zoomRect = {
+        x: zoomIn.x - radius,
+        y: zoomIn.y - radius,
+        width: 2 * radius,
+        height: zoomOut.y + radius - (zoomIn.y - radius),
+      };
+      this.buildUI.layout({ width, height }, this.zoomRect);
+      this.zoomSpots = {
+        'zoom-in': { x: zoomIn.x, y: zoomIn.y, enabled: true },
+        'zoom-out': { x: zoomOut.x, y: zoomOut.y, enabled: true },
+      };
     });
 
     const fade = rgb(COLORS.waterDeep);
@@ -168,6 +213,7 @@ export class IslandScene extends Phaser.Scene {
 
     this.controller.update(delta);
     this.publishCamera();
+    this.updateVillage(seconds, delta);
 
     for (const { sprite, phase } of this.glints) {
       const wave = 0.5 + 0.5 * Math.sin(seconds * 1.6 + phase);
@@ -286,8 +332,80 @@ export class IslandScene extends Phaser.Scene {
     const event: TileTapEvent = tile;
     markTap(tile);
     this.events.emit(ISLAND_EVENTS.tileTap, event);
-    this.showRing(tile);
+    if (this.buildTool.tool === 'view') {
+      this.showRing(tile);
+    }
+    const notice = this.buildTool.tap(tile);
+    if (notice) {
+      this.buildUI.showNotice(notice);
+    } else if (this.buildTool.tool === 'view' && this.village.markerAt(world.x, world.y) !== undefined) {
+      // The sign above a house is tapped too: say what is missing.
+      this.buildUI.showNotice('hint.needsPath');
+    }
   }
+
+  /** Keeps the drawn village and the building controls in line with the state and the tool. */
+  private updateVillage(seconds: number, deltaMs: number): void {
+    if (this.village.sync()) {
+      this.buildTool.refresh();
+    }
+    this.buildUI.update();
+    // A tool is on: the greeting makes room for the hint bar.
+    if (this.buildTool.tool !== 'view') {
+      this.greeting.setVisible(false);
+    }
+
+    const { revision } = this.simulation.state;
+    const key = `${String(this.buildTool.version)}|${String(revision)}`;
+    if (key !== this.previewKey) {
+      this.previewKey = key;
+      this.preview = this.buildTool.preview();
+      this.village.setPreview(this.preview);
+    }
+    this.village.update(seconds, deltaMs, this.controller.view.zoom);
+    this.buildUI.placeConfirm(this.previewOnScreen());
+    this.publishVillage(revision);
+  }
+
+  /** The preview as a rectangle on screen (CSS px). */
+  private previewOnScreen(): Rect | undefined {
+    const bounds = this.village.previewBounds(this.preview);
+    if (!bounds) {
+      return undefined;
+    }
+    const view = this.controller.view;
+    const size = this.controller.viewSize;
+    const topLeft = worldToScreen(view, size, { x: bounds.x, y: bounds.y });
+    return { x: topLeft.x, y: topLeft.y, width: bounds.width * view.zoom, height: bounds.height * view.zoom };
+  }
+
+  /** Publishes the building state for tests (`<html data-tool data-buildings …>`). */
+  private publishVillage(revision: number): void {
+    const state = this.simulation.state;
+    if (revision !== this.publishedRevision) {
+      this.publishedRevision = revision;
+      this.buildings = JSON.stringify(state.buildings.map((b) => [b.id, b.type, b.x, b.y, isConnected(state, b.id) ? 1 : 0]));
+      const tiles: string[] = [];
+      state.paths.forEach((isPathTile, index) => {
+        if (isPathTile) {
+          tiles.push(`${String(index % state.world.width)},${String(Math.floor(index / state.world.width))}`);
+        }
+      });
+      this.paths = tiles.join(';');
+    }
+    markVillage({
+      tool: this.buildTool.tool,
+      variant: this.buildTool.variant ?? '',
+      preview: describePreview(this.preview),
+      hint: this.buildUI.shownHint,
+      markers: this.village.markerCount,
+      buildings: this.buildings,
+      paths: this.paths,
+      terrain: this.terrain,
+      ui: JSON.stringify({ ...this.zoomSpots, ...this.buildUI.spots() }),
+    });
+  }
+
 
   private showRing(tile: TileTapEvent): void {
     this.ringTween?.stop();
@@ -347,4 +465,34 @@ function islandFocus(world: Parameters<typeof landBounds>[0]): Rect {
     width: (land.maxX - land.minX + 1 + 2 * pad) * TILE_SIZE,
     height: (land.maxY - land.minY + 1 + 2 * pad) * TILE_SIZE,
   };
+}
+
+/** Terrain as one letter per tile, row by row (for tests): w, s, g, f, r. */
+function terrainLetters(world: Parameters<typeof landBounds>[0]): string {
+  const letters = { water: 'w', sand: 's', grass: 'g', forest: 'f', rock: 'r' } as const;
+  let text = '';
+  for (let y = 0; y < world.height; y += 1) {
+    for (let x = 0; x < world.width; x += 1) {
+      text += letters[terrainAt(world, x, y)];
+    }
+  }
+  return text;
+}
+
+/** What the preview says, in a few characters (for tests). */
+function describePreview(preview: Preview): string {
+  switch (preview.kind) {
+    case 'none':
+      return 'none';
+    case 'place':
+      return `place:${preview.result}`;
+    case 'path': {
+      const count = (status: string): number => preview.tiles.filter((tile) => tile.status === status).length;
+      return `path:ok=${String(count('ok'))},blocked=${String(count('blocked'))},existing=${String(count('existing'))}`;
+    }
+    case 'move':
+      return preview.target ? `move:${preview.target.result}` : 'move:chosen';
+    case 'demolish':
+      return `demolish:${String(preview.tiles.length)}`;
+  }
 }
