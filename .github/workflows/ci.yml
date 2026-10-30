@@ -1,19 +1,16 @@
-# Baut und testet jeden Pull Request und jeden Push auf Branches außer main
-# (main wird vom Pages-Workflow geprüft, bevor er veröffentlicht).
+# Baut und testet jeden Pull Request (bei jedem neuen Push auf den PR-Branch).
+# main prüft der Pages-Workflow, bevor er veröffentlicht.
 name: CI
 
 on:
   pull_request:
-  push:
-    branches-ignore:
-      - main
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.event_name }}-${{ github.ref }}
+  group: ci-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
