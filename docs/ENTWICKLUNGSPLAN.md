@@ -27,7 +27,7 @@ Ein gemütliches Aufbauspiel im Browser für **Kinder von 6 bis 10 Jahren**: Auf
 | Hosting | GitHub Pages (Repository ist öffentlich) | Automatisches Deployment bei jedem Push auf `main`, Adresse: squantomas.github.io/Schlumpfwelt |
 | Grafik | KI-generiert | Stilvorgabe früh festlegen, bis dahin Platzhalter |
 | Thema | Schlümpfe, nicht kommerziell | Seite ist öffentlich erreichbar → Markenrecht Peyo/IMPS beachten: Name, Figuren und Texte in einer Theme-Datei bündeln, damit ein Umbenennen jederzeit möglich ist |
-| Arbeitsweise | Claude baut, Projektleitung testet und entscheidet | Kleine Meilensteine, jeder sofort im Browser spielbar |
+| Arbeitsweise | M0–M9 laufen autonom (Claude-Agententeam, siehe `docs/PROMPT_M0-M9.md`), Projektleitung prüft nach M9 | Kleine Meilensteine, jeder sofort im Browser spielbar; Entscheidungen in `docs/ENTSCHEIDUNGEN.md` |
 
 ## 3. Spieldesign
 
@@ -112,13 +112,13 @@ Jeder Meilenstein endet mit einer Version, die auf GitHub Pages läuft und auf d
 | — | **🎉 Erster Spieltest mit den Kindern** | Komplettes Spiel mit Tutorial, Grafik und Sound. Beobachten statt erklären, Erkenntnisse als Issues → fließen in M10 |
 | **M10** | Ausbau | Insel-Erweiterungen, Aufträge, Ereignisse (Händlerschiff, Regenbogen), Jahreszeiten |
 
-**Begründung der Reihenfolge:** Gestalten (M2) kommt vor der Wirtschaft, weil es der Kern-Spaß ist. Die laufenden Schlümpfe (M6) sind der technisch aufwendigste Teil und kommen erst, wenn die Grundschleife trägt. **Die Kinder testen erst nach M9**, damit ihr erster Eindruck ein fertig wirkendes Spiel mit Grafik, Sound und Tutorial ist – Platzhaltergrafik würde das Urteil verfälschen. Bis dahin testet die Projektleitung allein.
+**Begründung der Reihenfolge:** Gestalten (M2) kommt vor der Wirtschaft, weil es der Kern-Spaß ist. Die laufenden Schlümpfe (M6) sind der technisch aufwendigste Teil und kommen erst, wenn die Grundschleife trägt. **Die Kinder testen erst nach M9**, damit ihr erster Eindruck ein fertig wirkendes Spiel mit Grafik, Sound und Tutorial ist – Platzhaltergrafik würde das Urteil verfälschen. Bis dahin übernehmen automatische Tests, ein Reviewer- und ein Spieletester-Agent die Qualitätssicherung.
 
 ## 6. Arbeitsweise
 
-- Ein GitHub Issue und ein Branch pro Meilenstein, Pull Request, Projektleitung testet die Vorschau und gibt frei
+- Ein GitHub Issue und ein Branch pro Meilenstein, Pull Request mit Review und Spieltest durch Agenten, Merge nach bestandenem Qualitäts-Tor ohne manuelle Freigabe
 - Tests für `src/sim/`, die Oberfläche wird durch Spielen getestet
-- Bis M9: Projektleitung testet jeden Meilenstein selbst (auch auf dem Tablet), Beobachtungen als Issues
+- Bis M9: kein manueller Test nötig; Fortschritt in `docs/FORTSCHRITT.md`, Projektleitung kann jederzeit auf GitHub Pages reinschauen
 - Nach M9: Spieltests mit den Kindern; Risiko: Erkenntnisse zur Kindertauglichkeit kommen spät – deshalb Bedienung und Texte schon vorher kritisch aus Kinderperspektive prüfen
 
 ## 7. Noch offen (klärbar später)
