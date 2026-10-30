@@ -1,0 +1,32 @@
+{
+  "width": 48,
+  "height": 48,
+  "borderWater": 3,
+  "island": {
+    "radius": 1.05,
+    "falloffPower": 2.2,
+    "noiseScale": 9,
+    "noiseOctaves": 3,
+    "noiseStrength": 0.6,
+    "landThreshold": 0.42
+  },
+  "beach": {
+    "widenNoiseScale": 4,
+    "widenThreshold": 0.55
+  },
+  "village": {
+    "clearRadius": 6
+  },
+  "forest": {
+    "noiseScale": 6,
+    "noiseOctaves": 2,
+    "share": 0.3,
+    "minShoreDistance": 2
+  },
+  "rock": {
+    "noiseScale": 3.5,
+    "noiseOctaves": 2,
+    "share": 0.09,
+    "minShoreDistance": 3
+  }
+}
