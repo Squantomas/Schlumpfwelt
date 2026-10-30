@@ -57,6 +57,46 @@ export const COLORS = {
   buttonShade: 0xe9a91f,
   buttonRim: 0xffffff,
   buttonIcon: 0x8a4f12,
+  pathFill: 0xe4cf9c,
+  pathRim: 0xb8975a,
+  pathStone: 0xf3e6c0,
+  pathStoneDark: 0xcfb57f,
+  stem: 0xfff1d6,
+  stemShade: 0xe6cfa3,
+  door: 0x9a5f2e,
+  doorDark: 0x6e4220,
+  doorKnob: 0xffe066,
+  window: 0xbfe6ff,
+  windowFrame: 0x9a5f2e,
+  wood: 0xb5833f,
+  woodDark: 0x8a5f2b,
+  woodLight: 0xd9a95d,
+  iron: 0x4a4f5c,
+  lampGlow: 0xfff2a0,
+  berry: 0xe84a5f,
+  stone: 0xd2d6db,
+  stoneDark: 0xa4a9b0,
+  stoneLight: 0xeef0f2,
+  fountainWater: 0x7fd3f5,
+  fountainWaterLight: 0xcdeefc,
+  stalk: 0x4a9a3a,
+  ghostOk: 0x5ee06a,
+  ghostBad: 0xff5a5a,
+  selected: 0xffe066,
+  puff: 0xffffff,
+  markerFill: 0xfff3c4,
+  markerRim: 0xffa63c,
+  markerIcon: 0x9a6a2e,
+  markerMark: 0xff8a1e,
+  panel: 0x2a6f97,
+  toolFace: 0xfff6dc,
+  toolFaceShade: 0xd9c9a0,
+  toolActive: 0xffc93c,
+  toolActiveRim: 0xffffff,
+  confirm: 0x4fc65a,
+  confirmShade: 0x2f9a3c,
+  cancel: 0xff7a6b,
+  cancelShade: 0xd9503f,
   textFill: 0xffffff,
   textOutline: 0x2a6f97,
   textShadow: 0x1b4a66,
@@ -70,6 +110,13 @@ export const FONT_FAMILY =
 export function cssColor(color: number): string {
   return `#${color.toString(16).padStart(6, '0')}`;
 }
+
+/** Colours of the placeholder mushroom houses (`look.palette` in `buildings.json`). */
+export const HOUSE_PALETTES: Readonly<Record<string, { readonly cap: number; readonly capShade: number; readonly dot: number }>> = {
+  red: { cap: 0xe65a5a, capShade: 0xc23f3f, dot: 0xffffff },
+  blue: { cap: 0x4f8fe0, capShade: 0x3a6cb8, dot: 0xffffff },
+  yellow: { cap: 0xf6c63a, capShade: 0xd9a21a, dot: 0xffffff },
+};
 
 /** Petal colours of the meadow flowers. */
 export const FLOWER_PETALS: readonly number[] = [0xff86bd, 0xffffff, 0xffe066, 0xffb3d9];
