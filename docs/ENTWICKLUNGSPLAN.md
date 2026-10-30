@@ -105,20 +105,22 @@ Jeder Meilenstein endet mit einer Version, die auf GitHub Pages läuft und auf d
 | **M3** | Wirtschaft | Produktionsgebäude, Lager, Markt → Geld, Baukosten |
 | **M4** | Shop | Häuser, Deko, Gebäude kaufen und freischalten |
 | **M5** | Speichern | IndexedDB-Autosave, Export/Import, als Web-App installierbar |
-| — | **🎉 Prototyp mit den Kindern testen** | Macht Gestalten + Geldverdienen Spaß? |
+| — | **Prototyp-Check (ohne Kinder)** | Projektleitung spielt selbst: Trägt die Schleife Gestalten + Geldverdienen? |
 | **M6** | Schlümpfe | Namen, Berufe, laufen auf Wegen, tragen Waren, Einladen im Shop, Ankunft per Boot |
 | **M7** | Wohnen & Stimmung | Häuser zuweisen, Wegelänge, Essen, Deko-Bonus, Stimmung → Arbeitstempo |
 | **M8** | Kinderfreundlich | Tutorial (erste 5 Min), Eltern-Menü mit PIN und Tageslimit, Gute-Nacht-Sequenz |
 | **M9** | Look & Sound | Stil-Leitfaden, KI-Grafiken, Animationen, Musik, Geräusche |
+| — | **🎉 Erster Spieltest mit den Kindern** | Komplettes Spiel mit Tutorial, Grafik und Sound. Beobachten statt erklären, Erkenntnisse als Issues → fließen in M10 |
 | **M10** | Ausbau | Insel-Erweiterungen, Aufträge, Ereignisse (Händlerschiff, Regenbogen), Jahreszeiten |
 
-**Begründung der Reihenfolge:** Gestalten (M2) kommt vor der Wirtschaft, weil es der Kern-Spaß ist und den Kindern sofort etwas zum Spielen gibt. Die laufenden Schlümpfe (M6) sind der technisch aufwendigste Teil und kommen erst, wenn die Grundschleife trägt. Den Grafikstil (M9) früh festzulegen wäre auch möglich, falls Platzhalter die Kinder beim Testen stören.
+**Begründung der Reihenfolge:** Gestalten (M2) kommt vor der Wirtschaft, weil es der Kern-Spaß ist. Die laufenden Schlümpfe (M6) sind der technisch aufwendigste Teil und kommen erst, wenn die Grundschleife trägt. **Die Kinder testen erst nach M9**, damit ihr erster Eindruck ein fertig wirkendes Spiel mit Grafik, Sound und Tutorial ist – Platzhaltergrafik würde das Urteil verfälschen. Bis dahin testet die Projektleitung allein.
 
 ## 6. Arbeitsweise
 
 - Ein GitHub Issue und ein Branch pro Meilenstein, Pull Request, Projektleitung testet die Vorschau und gibt frei
 - Tests für `src/sim/`, die Oberfläche wird durch Spielen getestet
-- Nach jedem Meilenstein: kurzer Spieltest mit den Kindern, Beobachtungen als Issues
+- Bis M9: Projektleitung testet jeden Meilenstein selbst (auch auf dem Tablet), Beobachtungen als Issues
+- Nach M9: Spieltests mit den Kindern; Risiko: Erkenntnisse zur Kindertauglichkeit kommen spät – deshalb Bedienung und Texte schon vorher kritisch aus Kinderperspektive prüfen
 
 ## 7. Noch offen (klärbar später)
 
