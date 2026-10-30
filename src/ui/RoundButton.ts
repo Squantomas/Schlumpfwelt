@@ -33,13 +33,15 @@ export class RoundButton extends Phaser.GameObjects.Container {
       this.pressed = false;
       this.face.setScale(1);
     });
-    this.on(Phaser.Input.Events.GAMEOBJECT_POINTER_UP, () => {
+    this.on(Phaser.Input.Events.GAMEOBJECT_POINTER_UP, (pointer: Phaser.Input.Pointer) => {
       this.face.setScale(1);
-      // Only a press that started on this button counts (not a drag that ends here).
-      if (this.pressed) {
+      // Only a press that started on this button counts (not a drag that ends here),
+      // and not a touch the system interrupted (touchcancel).
+      if (this.pressed && !pointer.wasCanceled) {
         this.pressed = false;
         options.onTap();
       }
+      this.pressed = false;
     });
 
     scene.add.existing(this);

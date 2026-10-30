@@ -19,6 +19,8 @@ export function markCamera(info: {
   readonly centerY: number;
   readonly minZoom: number;
   readonly maxZoom: number;
+  /** Number of land tiles that are at least partly in view. */
+  readonly landInView: number;
 }): void {
   const data = document.documentElement.dataset;
   const next = {
@@ -27,6 +29,7 @@ export function markCamera(info: {
     cameraY: info.centerY.toFixed(1),
     cameraMinZoom: info.minZoom.toFixed(4),
     cameraMaxZoom: info.maxZoom.toFixed(4),
+    cameraLand: String(info.landInView),
   };
   for (const [key, value] of Object.entries(next)) {
     if (data[key] !== value) {

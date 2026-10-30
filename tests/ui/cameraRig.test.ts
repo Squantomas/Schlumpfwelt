@@ -177,6 +177,22 @@ describe('Nachgleiten', () => {
     expect(rig.animating).toBe(false);
   });
 
+  it('meldet das Nachgleiten (gliding), bis es zur Ruhe kommt oder angehalten wird', () => {
+    expect(rig.gliding).toBe(false);
+    rig.fling(-2, 0);
+    expect(rig.gliding).toBe(true);
+    rig.stop();
+    expect(rig.gliding).toBe(false);
+    rig.fling(-2, 0);
+    runFor(8000);
+    expect(rig.gliding).toBe(false);
+  });
+
+  it('ein weicher Zoom zählt nicht als Nachgleiten', () => {
+    rig.zoomBy(1.5, { x: 512, y: 384 });
+    expect(rig.gliding).toBe(false);
+  });
+
   it('ein Griff mit dem Finger hält es an', () => {
     rig.fling(-2, 0);
     runFor(48);

@@ -16,8 +16,12 @@ import type { Point } from './cameraMath';
  */
 
 export interface GestureHandlers {
-  /** A new gesture starts (first pointer down): stop inertia and the like. */
-  begin(): void;
+  /**
+   * A new gesture starts (first pointer down): stop inertia and the like.
+   * Return true if this touch only stopped a moving picture – it then never
+   * counts as a tap (stopping the map must not select a tile).
+   */
+  begin(): boolean;
   /** Drag by this many screen pixels since the last call. */
   pan(dx: number, dy: number): void;
   /** The middle between the fingers moved from `from` to `to`, the distance changed by `scale`. */
@@ -63,6 +67,8 @@ export class GestureTracker {
   private samples: Sample[] = [];
   private lastX = 0;
   private lastY = 0;
+  /** False when this touch stopped a gliding picture. */
+  private tapAllowed = true;
 
   constructor(
     private readonly handlers: GestureHandlers,
@@ -80,7 +86,7 @@ export class GestureTracker {
     }
     this.pointers.set(id, { x, y, startX: x, startY: y });
     if (this.pointers.size === 1) {
-      this.handlers.begin();
+      this.tapAllowed = !this.handlers.begin();
       this.mode = 'pending';
       this.lastX = x;
       this.lastY = y;
@@ -134,7 +140,12 @@ export class GestureTracker {
     switch (this.mode) {
       case 'pending':
         this.mode = 'idle';
-        this.handlers.tap({ x, y });
+        // The moves may have been merged into this one event: check the distance again.
+        if (Math.hypot(x - pointer.startX, y - pointer.startY) > this.options.tapMaxMovePx) {
+          this.handlers.pan(x - this.lastX, y - this.lastY);
+        } else if (this.tapAllowed) {
+          this.handlers.tap({ x, y });
+        }
         break;
       case 'pan':
         this.mode = 'idle';

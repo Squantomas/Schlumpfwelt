@@ -62,7 +62,23 @@ function landmasses(world: World): number {
   return count;
 }
 
+/** FNV-1a über die Gelände-Nummern aller Kacheln: ändert sich, sobald sich irgendeine Kachel ändert. */
+function mapHash(world: World): string {
+  let hash = 0x811c9dc5;
+  for (const char of world.tiles.map((terrain) => TERRAINS.indexOf(terrain)).join('')) {
+    hash ^= char.charCodeAt(0);
+    hash = Math.imul(hash, 0x01000193) >>> 0;
+  }
+  return hash.toString(16).padStart(8, '0');
+}
+
 describe('generateIsland', () => {
+  it('liefert feste Referenzkarten (ändert sich der Generator, ändern sich gespeicherte Inseln – bewusst anpassen)', () => {
+    expect(mapHash(generateIsland(1))).toBe('2987b40c');
+    expect(mapHash(generateIsland(42))).toBe('51383fca');
+    expect(mapHash(generateIsland(12345))).toBe('ae5e039f');
+  });
+
   it('hat die Größe aus world.json (48×48)', () => {
     const world = generateIsland(1);
     expect(world.width).toBe(DEFAULT_WORLD_PARAMS.width);

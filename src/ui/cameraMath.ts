@@ -25,6 +25,17 @@ export interface Rect {
   readonly height: number;
 }
 
+/**
+ * The area the camera may show. The screen never shows anything outside the
+ * rectangle; in addition the *centre* of the screen can be limited to
+ * `centerRegions` (a union of rectangles, for example the tiles of the island
+ * plus one tile around it). That keeps land in view at every zoom: without it,
+ * a zoomed-in view could be dragged into a corner of the map and show only sea.
+ */
+export interface CameraBounds extends Rect {
+  readonly centerRegions?: readonly Rect[];
+}
+
 export interface CameraView {
   readonly centerX: number;
   readonly centerY: number;
@@ -104,20 +115,66 @@ function clampAxis(center: number, start: number, length: number, visibleLength:
  * screen never shows anything outside `bounds`. If the screen is bigger than
  * the bounds on an axis, the bounds are centred on that axis.
  */
-export function clampView(view: CameraView, viewSize: Size, bounds: Rect, limits: ZoomLimits): CameraView {
+export function clampView(view: CameraView, viewSize: Size, bounds: CameraBounds, limits: ZoomLimits): CameraView {
   const zoom = clamp(Number.isFinite(view.zoom) ? view.zoom : limits.min, limits.min, limits.max);
-  return {
-    zoom,
-    centerX: clampAxis(view.centerX, bounds.x, bounds.width, viewSize.width / zoom),
-    centerY: clampAxis(view.centerY, bounds.y, bounds.height, viewSize.height / zoom),
-  };
+  const centerX = clampAxis(view.centerX, bounds.x, bounds.width, viewSize.width / zoom);
+  const centerY = clampAxis(view.centerY, bounds.y, bounds.height, viewSize.height / zoom);
+  const regions = bounds.centerRegions;
+  if (!regions || regions.length === 0) {
+    return { zoom, centerX, centerY };
+  }
+  // The centre may only be where the screen stays inside the bounds (the range
+  // of this axis) *and* inside one of the regions: take the closest such point.
+  const rangeX = centerRange(bounds.x, bounds.width, viewSize.width / zoom);
+  const rangeY = centerRange(bounds.y, bounds.height, viewSize.height / zoom);
+  const nearest = nearestInRegions({ x: centerX, y: centerY }, regions, rangeX, rangeY);
+  return { zoom, centerX: nearest.x, centerY: nearest.y };
+}
+
+/** Allowed range of the centre on one axis: `[start + half, start + length - half]`, or the middle if the view is bigger. */
+function centerRange(start: number, length: number, visibleLength: number): readonly [number, number] {
+  if (length <= visibleLength) {
+    return [start + length / 2, start + length / 2];
+  }
+  return [start + visibleLength / 2, start + length - visibleLength / 2];
+}
+
+/** The point of the regions (cut to the given ranges) that is closest to `point`; `point` itself if no region qualifies. */
+function nearestInRegions(
+  point: Point,
+  regions: readonly Rect[],
+  rangeX: readonly [number, number],
+  rangeY: readonly [number, number],
+): Point {
+  let best: Point | undefined;
+  let bestDistance = Number.POSITIVE_INFINITY;
+  for (const region of regions) {
+    const minX = Math.max(region.x, rangeX[0]);
+    const maxX = Math.min(region.x + region.width, rangeX[1]);
+    const minY = Math.max(region.y, rangeY[0]);
+    const maxY = Math.min(region.y + region.height, rangeY[1]);
+    if (minX > maxX || minY > maxY) {
+      continue;
+    }
+    const x = clamp(point.x, minX, maxX);
+    const y = clamp(point.y, minY, maxY);
+    const distance = (x - point.x) ** 2 + (y - point.y) ** 2;
+    if (distance < bestDistance) {
+      best = { x, y };
+      bestDistance = distance;
+      if (distance === 0) {
+        break;
+      }
+    }
+  }
+  return best ?? point;
 }
 
 /** Moves the picture by (dx, dy) screen pixels, as if dragging it with a finger. */
 export function panView(
   view: CameraView,
   viewSize: Size,
-  bounds: Rect,
+  bounds: CameraBounds,
   limits: ZoomLimits,
   dx: number,
   dy: number,
@@ -144,7 +201,7 @@ export function panView(
 export function transformView(
   view: CameraView,
   viewSize: Size,
-  bounds: Rect,
+  bounds: CameraBounds,
   limits: ZoomLimits,
   from: Point,
   to: Point,
@@ -168,7 +225,7 @@ export function transformView(
 export function zoomAt(
   view: CameraView,
   viewSize: Size,
-  bounds: Rect,
+  bounds: CameraBounds,
   limits: ZoomLimits,
   anchor: Point,
   zoom: number,

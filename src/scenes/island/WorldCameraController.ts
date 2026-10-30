@@ -12,6 +12,12 @@ export interface WorldCameraOptions {
   readonly maxTileCssPx: number;
   readonly tapMaxMovePx: number;
   readonly wheelZoomPerPixel: number;
+  /**
+   * Presses on such objects (the +/− buttons) belong to the object and never
+   * move the camera. Only UI objects count: things in the world are picked
+   * through the `tile-tap` event, not through their own input.
+   */
+  readonly blocksCamera: (object: Phaser.GameObjects.GameObject) => boolean;
   /** A tap on the world (not on a button): the world point and the screen point (CSS px). */
   readonly onTap: (world: Point, screen: Point) => void;
 }
@@ -41,7 +47,11 @@ export class WorldCameraController {
     this.rig = new CameraRig(options);
     this.tracker = new GestureTracker(
       {
-        begin: () => this.rig.stop(),
+        begin: () => {
+          const wasGliding = this.rig.gliding;
+          this.rig.stop();
+          return wasGliding;
+        },
         pan: (dx, dy) => this.rig.pan(dx, dy),
         pinch: (from, to, scale) => this.rig.pinch(from, to, scale),
         tap: (at) => options.onTap(screenToWorld(this.rig.view, this.rig.viewSize, at), at),
@@ -50,22 +60,31 @@ export class WorldCameraController {
       { tapMaxMovePx: options.tapMaxMovePx },
     );
 
-    // The first touch pointer exists already; two more allow a pinch plus a stray finger.
-    scene.input.addPointer(2);
+    // Three touch pointers allow a pinch plus a stray finger. Pointers stay after a scene restart: add only what is missing.
+    const missing = 3 - scene.input.manager.pointersTotal;
+    if (missing > 0) {
+      scene.input.addPointer(missing);
+    }
     scene.input.on(Phaser.Input.Events.POINTER_DOWN, this.onDown);
     scene.input.on(Phaser.Input.Events.POINTER_MOVE, this.onMove);
     scene.input.on(Phaser.Input.Events.POINTER_UP, this.onUp);
+    scene.input.on(Phaser.Input.Events.POINTER_UP_OUTSIDE, this.onUpOutside);
     scene.input.on(Phaser.Input.Events.POINTER_WHEEL, this.onWheel);
     scene.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
       scene.input.off(Phaser.Input.Events.POINTER_DOWN, this.onDown);
       scene.input.off(Phaser.Input.Events.POINTER_MOVE, this.onMove);
       scene.input.off(Phaser.Input.Events.POINTER_UP, this.onUp);
+      scene.input.off(Phaser.Input.Events.POINTER_UP_OUTSIDE, this.onUpOutside);
       scene.input.off(Phaser.Input.Events.POINTER_WHEEL, this.onWheel);
     });
   }
 
   get view(): CameraRig['view'] {
     return this.rig.view;
+  }
+
+  get viewSize(): Size {
+    return this.rig.viewSize;
   }
 
   get limits(): CameraRig['limits'] {
@@ -109,7 +128,7 @@ export class WorldCameraController {
 
   private readonly onDown = (pointer: Phaser.Input.Pointer, currentlyOver: readonly Phaser.GameObjects.GameObject[]): void => {
     // Buttons handle their own presses; only the left mouse button drags.
-    if (currentlyOver.length > 0 || (!pointer.wasTouch && !pointer.leftButtonDown())) {
+    if (currentlyOver.some(this.options.blocksCamera) || (!pointer.wasTouch && !pointer.leftButtonDown())) {
       return;
     }
     const { x, y } = this.cssPoint(pointer);
@@ -125,8 +144,22 @@ export class WorldCameraController {
   };
 
   private readonly onUp = (pointer: Phaser.Input.Pointer): void => {
+    // An interrupted touch (touchcancel) is neither a tap nor a swipe.
+    if (pointer.wasCanceled) {
+      this.tracker.cancel(pointer.id);
+      return;
+    }
+    // Releasing another mouse button (right click while dragging) does not end the left-button gesture.
+    if (!pointer.wasTouch && pointer.button !== 0) {
+      return;
+    }
     const { x, y } = this.cssPoint(pointer);
     this.tracker.up(pointer.id, x, y, this.timeOf(pointer));
+  };
+
+  /** Released outside the canvas (and the browser window): the gesture is over, without a tap. */
+  private readonly onUpOutside = (pointer: Phaser.Input.Pointer): void => {
+    this.tracker.cancel(pointer.id);
   };
 
   private readonly onWheel = (pointer: Phaser.Input.Pointer, _over: unknown, _dx: number, deltaY: number): void => {

@@ -5,6 +5,7 @@ import {
   panView,
   transformView,
   zoomLimits,
+  type CameraBounds,
   type CameraView,
   type Point,
   type Rect,
@@ -13,8 +14,8 @@ import {
 } from './cameraMath';
 
 export interface CameraRigOptions {
-  /** The area the camera may show (map plus some water around it), in world pixels. */
-  readonly bounds: Rect;
+  /** The area the camera may show (map plus some water around it) and where its centre may be, in world pixels. */
+  readonly bounds: CameraBounds;
   /** The area that should be well visible at the start (the island), in world pixels. */
   readonly focus: Rect;
   /** Free space around the focus area at the start, in CSS pixels. */
@@ -120,6 +121,11 @@ export class CameraRig {
   stop(): void {
     this.cancelAnimations();
     this.targetZoom = this.current.zoom;
+  }
+
+  /** True while the picture glides on after a drag (inertia). */
+  get gliding(): boolean {
+    return this.velocity.x !== 0 || this.velocity.y !== 0;
   }
 
   /** True while inertia or a smooth zoom is running. */

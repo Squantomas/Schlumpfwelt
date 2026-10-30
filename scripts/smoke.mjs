@@ -14,11 +14,12 @@
  *     Drehen.
  *   - Desktop: Ziehen mit der linken Maustaste (rechte Taste zieht nicht),
  *     Mausrad-Zoom um den Mauszeiger, Tippen.
- *   - Beide: Die Kamera stoppt an der Grenze (Weltrand plus Wasser-Rand) und
- *     lässt sich nicht aus der Insel hinaus zoomen; Pinch und Ziehen lösen
- *     kein Tippen aus.
+ *   - Beide: Die Kamera stoppt an der Grenze (Weltrand plus Wasser-Rand), und
+ *     bei Maximalzoom bleibt auch in allen Ecken Land im Bild (`data-camera-land`);
+ *     Pinch und Ziehen lösen kein Tippen aus; der Tipp-Ring ist nach dem
+ *     Tippen im Screenshot sichtbar (Vergleich mit dem Bild nach dem Ausblenden).
  * Den Kamerazustand liest der Test aus `<html data-camera-*>` und `data-last-tap`.
- * Screenshots: Start, Insel, Insel hochkant, herangezoomt, Grenze erreicht.
+ * Screenshots: Start, Insel, Insel hochkant, herangezoomt, Grenze erreicht, Ecke bei Maximalzoom, Tipp-Ring.
  * Exitcode ≠ 0 bei Konsolenfehlern, Seitenfehlern, fehlgeschlagenen Requests,
  * fehlgeschlagenen Kamera-Prüfungen oder wenn das Spiel nicht in die
  * Insel-Szene wechselt.
@@ -27,7 +28,7 @@
  * global vorinstallierte Paket (NODE_PATH oder `npm root -g`).
  */
 import { execSync, spawn, spawnSync } from 'node:child_process';
-import { mkdir } from 'node:fs/promises';
+import { mkdir, writeFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -123,6 +124,7 @@ async function readCamera(page) {
       y: Number(d.cameraY),
       min: Number(d.cameraMinZoom),
       max: Number(d.cameraMaxZoom),
+      land: Number(d.cameraLand),
       lastTap: d.lastTap,
     };
   });
@@ -155,6 +157,7 @@ function checkInsideBounds(cam, size, check, when) {
   check(cam.x >= minX - slack && cam.x <= maxX + slack, `${when}: Kamera x=${cam.x} außerhalb [${minX.toFixed(1)}, ${maxX.toFixed(1)}]`);
   check(cam.y >= minY - slack && cam.y <= maxY + slack, `${when}: Kamera y=${cam.y} außerhalb [${minY.toFixed(1)}, ${maxY.toFixed(1)}]`);
   check(cam.zoom >= cam.min - 1e-3 && cam.zoom <= cam.max + 1e-3, `${when}: Zoom ${cam.zoom} außerhalb [${cam.min}, ${cam.max}]`);
+  check(cam.land > 0, `${when}: kein Land im Bild (Kamera ${cam.x}, ${cam.y}, Zoom ${cam.zoom})`);
 }
 
 /** Die Kachel unter einem Bildschirmpunkt, aus dem Kamerazustand berechnet. */
@@ -203,6 +206,53 @@ function touchDevice(cdp) {
       await send('touchEnd', []);
     },
   };
+}
+
+/**
+ * Der weiche Ring auf der angetippten Kachel ist im Screenshot direkt nach dem Tippen zu sehen:
+ * Das Bild des Ausschnitts unterscheidet sich vom Bild nach dem Ausblenden. Headless rendert nur mit
+ * etwa 8 fps, deshalb bis zu drei Versuche. Der Screenshot mit Ring landet als `<name>-ring.png` im Ordner.
+ */
+async function checkTapRing({ page, check, tap, point, name }) {
+  const clip = { x: Math.max(0, point.x - 110), y: Math.max(0, point.y - 110), width: 220, height: 220 };
+  const grab = () => page.screenshot({ clip, scale: 'css' });
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    await sleep(2000); // der Ring vom letzten Versuch ist weg
+    await tap(point);
+    const during = await grab();
+    await sleep(2500);
+    const after = await grab();
+    if (!during.equals(after)) {
+      await writeFile(path.join(SCREENSHOT_DIR, `${name}-ring.png`), during);
+      return;
+    }
+  }
+  check(false, 'Tipp-Ring war im Screenshot nach dem Tippen nicht zu sehen');
+}
+
+/**
+ * Bei Maximalzoom in alle vier Ecken ziehen: Es bleibt immer Land im Bild (die Insel verschwindet nie).
+ * `dragBy(dx, dy)` zieht mit dem Finger oder der Maus um (dx, dy); die Kamera bewegt sich entgegengesetzt.
+ */
+async function checkCorners({ page, check, shot, size, dragBy, name }) {
+  const toCorner = async (fx, fy, label) => {
+    let previous = await readCamera(page);
+    for (let i = 0; i < 12; i += 1) {
+      await dragBy(fx * size.width * 0.8, fy * size.height * 0.8);
+      const current = await waitForCameraRest(page);
+      checkInsideBounds(current, size, check, `Ecke ${label}`);
+      if (Math.abs(current.x - previous.x) < 0.2 && Math.abs(current.y - previous.y) < 0.2) return current;
+      previous = current;
+    }
+    check(false, `Ecke ${label}: Kamera kam nicht zur Ruhe`);
+    return previous;
+  };
+  const topLeft = await toCorner(1, 1, 'links oben');
+  await shot(`${name}-ecke`);
+  const topRight = await toCorner(-1, 1, 'rechts oben');
+  const bottomRight = await toCorner(-1, -1, 'rechts unten');
+  const bottomLeft = await toCorner(1, -1, 'links unten');
+  check(topRight.x > topLeft.x + 300 && bottomRight.y > topRight.y + 300 && bottomLeft.x < bottomRight.x - 300, 'Ecken: Kamera hat sich nicht durch alle vier Ecken bewegt');
 }
 
 /** Tablet: Ziehen, Pinch, Tippen, Knöpfe und Grenzen mit Touch. */
@@ -255,6 +305,7 @@ async function testTouchCamera({ page, context, check, shot, size }) {
   const swiped = await waitForCameraRest(page);
   check(swiped.x - dragged.x >= 400 / near.zoom - 8, `Wischen: Kamera x ${dragged.x} → ${swiped.x}, mindestens ${(400 / near.zoom).toFixed(1)} erwartet`);
   checkInsideBounds(swiped, size, check, 'nach Wischen');
+  await checkTapRing({ page, check, tap: (p) => page.touchscreen.tap(p.x, p.y), point: centre, name: 'tablet' });
 
   // Etwas herauszoomen, damit die Ränder mit wenigen Zügen erreicht sind.
   await touch.pinch(centre, 400, 120);
@@ -271,23 +322,35 @@ async function testTouchCamera({ page, context, check, shot, size }) {
       cam = next;
       if (moved < 0.2) return cam;
     }
+    check(false, `Grenze ${label}: Kamera kam auch nach vielen Zügen nicht zur Ruhe`);
     return cam;
   };
   const left = await reachEdge(size.width * 0.9, 0, 'x', 'links');
-  const [minX, maxX] = centerRange(size.width, left.zoom);
-  check(Math.abs(left.x - minX) < 1.5, `Grenze links: Kamera x=${left.x}, erwartet ${minX.toFixed(1)}`);
+  check(left.x < near.x - 100, `Grenze links: Kamera x=${left.x} nicht links von ${near.x}`);
   await touch.drag({ x: centre.x - 300, y: centre.y }, { x: centre.x + 300, y: centre.y }, { steps: 6, pauseMs: 20, holdMs: 200 });
   const stillLeft = await waitForCameraRest(page);
   check(Math.abs(stillLeft.x - left.x) < 0.3, `Grenze links: weiteres Ziehen verschob die Kamera (${left.x} → ${stillLeft.x})`);
   await shot('tablet-grenze'); // linker Rand: Insel rechts, Wasser links
   const top = await reachEdge(0, size.height * 0.9, 'y', 'oben');
-  const [minY] = centerRange(size.height, top.zoom);
-  check(Math.abs(top.y - minY) < 1.5, `Grenze oben: Kamera y=${top.y}, erwartet ${minY.toFixed(1)}`);
+  check(top.y < near.y - 100, `Grenze oben: Kamera y=${top.y} nicht über ${near.y}`);
   const right = await reachEdge(-size.width * 0.9, 0, 'x', 'rechts');
-  check(Math.abs(right.x - maxX) < 1.5, `Grenze rechts: Kamera x=${right.x}, erwartet ${maxX.toFixed(1)}`);
+  check(right.x > left.x + 500, `Grenze rechts: Kamera x=${right.x} nicht rechts von ${left.x}`);
   const bottom = await reachEdge(0, -size.height * 0.9, 'y', 'unten');
-  const [, maxY] = centerRange(size.height, bottom.zoom);
-  check(Math.abs(bottom.y - maxY) < 1.5, `Grenze unten: Kamera y=${bottom.y}, erwartet ${maxY.toFixed(1)}`);
+  check(bottom.y > top.y + 500, `Grenze unten: Kamera y=${bottom.y} nicht unter ${top.y}`);
+
+  // --- Maximalzoom: in alle Ecken ziehen, es bleibt Land im Bild ---
+  await touch.pinch(centre, 100, 500);
+  await touch.pinch(centre, 100, 500);
+  const maxed = await waitForCameraRest(page);
+  check(Math.abs(maxed.zoom - maxed.max) < 1e-3, `Ecken: Maximalzoom nicht erreicht (${maxed.zoom} statt ${maxed.max})`);
+  await checkCorners({
+    page,
+    check,
+    shot,
+    size,
+    name: 'tablet',
+    dragBy: (dx, dy) => touch.drag({ x: centre.x - dx / 2, y: centre.y - dy / 2 }, { x: centre.x + dx / 2, y: centre.y + dy / 2 }, { steps: 6, pauseMs: 20, holdMs: 200 }),
+  });
 
   // --- Tippen: meldet die Kachel unter dem Finger ---
   const tapPoint = { x: size.width * 0.4, y: size.height * 0.4 };
@@ -388,6 +451,23 @@ async function testMouseCamera({ page, check, shot, size }) {
   await page.mouse.up({ button: 'right' });
   const afterRight = await waitForCameraRest(page);
   check(Math.abs(afterRight.x - dragged.x) < 0.2 && Math.abs(afterRight.y - dragged.y) < 0.2, 'Rechte Maustaste hat die Kamera verschoben');
+  check(afterRight.lastTap === undefined, 'Rechte Maustaste löste einen Tipp aus');
+
+  // --- Linke Taste halten und ziehen, dabei rechts klicken: die Links-Geste läuft weiter und wird kein Tipp ---
+  const beforeBoth = await readCamera(page);
+  await page.mouse.move(centre.x, centre.y);
+  await page.mouse.down();
+  await page.mouse.move(centre.x + 40, centre.y, { steps: 4 });
+  await page.mouse.down({ button: 'right' });
+  await page.mouse.up({ button: 'right' });
+  await page.mouse.move(centre.x + 100, centre.y, { steps: 4 });
+  await sleep(300);
+  await page.mouse.up();
+  const afterBoth = await waitForCameraRest(page);
+  check(Math.abs(afterBoth.x - beforeBoth.x) > 90 / beforeBoth.zoom, `Rechtsklick während des Ziehens beendete die Geste (x ${beforeBoth.x} → ${afterBoth.x})`);
+  check(afterBoth.lastTap === undefined, 'Rechtsklick während der Links-Geste endete als Tipp');
+
+  await checkTapRing({ page, check, tap: (p) => page.mouse.click(p.x, p.y), point: centre, name: 'desktop' });
 
   // --- Grenzen: nach links, oben, rechts, unten ziehen (erst etwas herauszoomen: weniger Züge bis zum Rand) ---
   await page.mouse.move(centre.x, centre.y);
@@ -413,19 +493,44 @@ async function testMouseCamera({ page, check, shot, size }) {
       cam = next;
       if (moved < 0.2) return cam;
     }
+    check(false, `Grenze ${label}: Kamera kam auch nach vielen Zügen nicht zur Ruhe`);
     return cam;
   };
   const left = await reachEdge(size.width * 0.8, 0, 'x', 'links');
-  const [minX, maxX] = centerRange(size.width, left.zoom);
-  check(Math.abs(left.x - minX) < 1.5, `Grenze links: Kamera x=${left.x}, erwartet ${minX.toFixed(1)}`);
+  check(left.x < near.x - 100, `Grenze links: Kamera x=${left.x} nicht links von ${near.x}`);
   await shot('desktop-grenze'); // linker Rand: Insel rechts, Wasser links
   const top = await reachEdge(0, size.height * 0.8, 'y', 'oben');
-  const [minY, maxY] = centerRange(size.height, top.zoom);
-  check(Math.abs(top.y - minY) < 1.5, `Grenze oben: Kamera y=${top.y}, erwartet ${minY.toFixed(1)}`);
+  check(top.y < near.y - 100, `Grenze oben: Kamera y=${top.y} nicht über ${near.y}`);
   const right = await reachEdge(-size.width * 0.8, 0, 'x', 'rechts');
-  check(Math.abs(right.x - maxX) < 1.5, `Grenze rechts: Kamera x=${right.x}, erwartet ${maxX.toFixed(1)}`);
+  check(right.x > left.x + 500, `Grenze rechts: Kamera x=${right.x} nicht rechts von ${left.x}`);
   const bottom = await reachEdge(0, -size.height * 0.8, 'y', 'unten');
-  check(Math.abs(bottom.y - maxY) < 1.5, `Grenze unten: Kamera y=${bottom.y}, erwartet ${maxY.toFixed(1)}`);
+  check(bottom.y > top.y + 500, `Grenze unten: Kamera y=${bottom.y} nicht unter ${top.y}`);
+
+  // --- Maximalzoom: in alle Ecken ziehen, es bleibt Land im Bild ---
+  await page.mouse.move(centre.x, centre.y);
+  for (let i = 0; i < 12; i += 1) {
+    await page.mouse.wheel(0, -240);
+    await sleep(40);
+  }
+  const maxed = await waitForCameraRest(page);
+  check(Math.abs(maxed.zoom - maxed.max) < 1e-3, `Ecken: Maximalzoom nicht erreicht (${maxed.zoom} statt ${maxed.max})`);
+  await checkCorners({
+    page,
+    check,
+    shot,
+    size,
+    name: 'desktop',
+    dragBy: async (dx, dy) => {
+      await page.mouse.move(centre.x - dx / 2, centre.y - dy / 2);
+      await page.mouse.down();
+      for (let step = 1; step <= 6; step += 1) {
+        await page.mouse.move(centre.x - dx / 2 + (dx * step) / 6, centre.y - dy / 2 + (dy * step) / 6);
+        await sleep(25);
+      }
+      await sleep(250);
+      await page.mouse.up();
+    },
+  });
 
   // --- Klicken meldet die Kachel ---
   const clickPoint = { x: size.width * 0.3, y: size.height * 0.4 };

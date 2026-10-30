@@ -1,5 +1,5 @@
 import type Phaser from 'phaser';
-import { COLORS, cssColor } from '../../ui/style';
+import { COLORS, cssColor, cssRgba } from '../../ui/style';
 
 /**
  * Placeholder textures for the things that stand on the ground, drawn with
@@ -13,7 +13,7 @@ import { COLORS, cssColor } from '../../ui/style';
 export const TEXTURE_SCALE = 2;
 
 export const TREE_KEYS = ['tree-round', 'tree-pine', 'tree-blossom'] as const;
-export const ROCK_KEYS = ['rock-big', 'rock-small'] as const;
+export const ROCK_KEYS = ['rock-big', 'rock-pair', 'rock-small'] as const;
 export const GLINT_KEY = 'water-glint';
 export const RING_KEY = 'tap-ring';
 /** Logical size of the ring texture and the share of it that the ring's outer edge covers. */
@@ -30,8 +30,9 @@ export function registerIslandTextures(scene: Phaser.Scene): void {
   make(scene, TREE_KEYS[0], 84, 108, drawRoundTree);
   make(scene, TREE_KEYS[1], 72, 120, drawPineTree);
   make(scene, TREE_KEYS[2], 84, 104, drawBlossomTree);
-  make(scene, ROCK_KEYS[0], 76, 60, drawBigRock);
-  make(scene, ROCK_KEYS[1], 60, 48, drawSmallRock);
+  make(scene, ROCK_KEYS[0], 96, 78, drawBigRock);
+  make(scene, ROCK_KEYS[1], 100, 66, drawRockPair);
+  make(scene, ROCK_KEYS[2], 72, 58, drawSmallRock);
   make(scene, GLINT_KEY, 28, 12, drawGlint);
   make(scene, RING_KEY, RING_SIZE, RING_SIZE, drawRing);
 }
@@ -84,12 +85,13 @@ function roundedBox(ctx: CanvasRenderingContext2D, x: number, y: number, w: numb
   ctx.fill();
 }
 
-const SHADOW = 'rgba(40, 100, 30, 0.3)';
+const SHADOW = cssRgba(COLORS.treeShadow, 0.3);
+const ROCK_SHADOW = cssRgba(COLORS.rockShadow, 0.35);
 const CROWN = cssColor(COLORS.treeCrown);
 const CROWN_LIGHT = cssColor(COLORS.treeCrownLight);
-const CROWN_DARK = '#3b8c30';
+const CROWN_DARK = cssColor(COLORS.crownDark);
 const TRUNK = cssColor(COLORS.treeTrunk);
-const TRUNK_DARK = '#7c5230';
+const TRUNK_DARK = cssColor(COLORS.trunkDark);
 
 /** Trunk standing at the bottom centre; the texture's ground point is 92 % down. */
 function trunk(ctx: CanvasRenderingContext2D, cx: number, groundY: number, width: number, height: number): void {
@@ -165,25 +167,36 @@ function drawBlossomTree(ctx: CanvasRenderingContext2D, width: number, height: n
     [-10, 62],
   ];
   for (const [dx, dy] of blossoms) {
-    circle(ctx, cx + dx, dy, 4.2, '#ffb3d9');
-    circle(ctx, cx + dx, dy, 1.8, '#ff86bd');
+    circle(ctx, cx + dx, dy, 4.2, cssColor(COLORS.blossom));
+    circle(ctx, cx + dx, dy, 1.8, cssColor(COLORS.blossomCenter));
   }
 }
 
+/** One big boulder with a smaller one beside it. */
 function drawBigRock(ctx: CanvasRenderingContext2D, width: number, height: number): void {
   const cx = width / 2;
   const ground = height * 0.86;
-  ellipse(ctx, cx + 2, ground - 1, 32, 9, 'rgba(60, 80, 60, 0.3)');
-  boulder(ctx, cx - 8, ground - 14, 26, 21);
-  boulder(ctx, cx + 16, ground - 8, 15, 12);
+  ellipse(ctx, cx + 2, ground - 1, 40, 11, ROCK_SHADOW);
+  boulder(ctx, cx - 8, ground - 20, 33, 27);
+  boulder(ctx, cx + 22, ground - 10, 19, 15);
+}
+
+/** Two similar boulders next to each other. */
+function drawRockPair(ctx: CanvasRenderingContext2D, width: number, height: number): void {
+  const cx = width / 2;
+  const ground = height * 0.86;
+  ellipse(ctx, cx, ground - 1, 44, 10, ROCK_SHADOW);
+  boulder(ctx, cx - 16, ground - 15, 25, 20);
+  boulder(ctx, cx + 20, ground - 12, 22, 17);
+  boulder(ctx, cx + 2, ground - 5, 11, 8);
 }
 
 function drawSmallRock(ctx: CanvasRenderingContext2D, width: number, height: number): void {
   const cx = width / 2;
   const ground = height * 0.86;
-  ellipse(ctx, cx, ground - 1, 24, 7, 'rgba(60, 80, 60, 0.3)');
-  boulder(ctx, cx - 3, ground - 11, 20, 16);
-  boulder(ctx, cx + 14, ground - 5, 9, 7);
+  ellipse(ctx, cx, ground - 1, 30, 8, ROCK_SHADOW);
+  boulder(ctx, cx - 4, ground - 14, 24, 19);
+  boulder(ctx, cx + 18, ground - 6, 11, 8);
 }
 
 /** A rounded boulder centred at (x, y) with half sizes rx/ry: shadowed underside, lit top. */
@@ -191,7 +204,7 @@ function boulder(ctx: CanvasRenderingContext2D, x: number, y: number, rx: number
   ellipse(ctx, x, y + ry * 0.12, rx, ry, cssColor(COLORS.rockShade));
   ellipse(ctx, x, y - ry * 0.04, rx * 0.97, ry * 0.9, cssColor(COLORS.rock));
   ellipse(ctx, x - rx * 0.3, y - ry * 0.42, rx * 0.42, ry * 0.3, cssColor(COLORS.rockLight), -0.4);
-  ctx.strokeStyle = 'rgba(100, 106, 122, 0.55)';
+  ctx.strokeStyle = cssRgba(COLORS.rockCrack, 0.6);
   ctx.lineWidth = 1.6;
   ctx.lineCap = 'round';
   ctx.beginPath();
@@ -202,21 +215,26 @@ function boulder(ctx: CanvasRenderingContext2D, x: number, y: number, rx: number
 }
 
 function drawGlint(ctx: CanvasRenderingContext2D, width: number, height: number): void {
-  ellipse(ctx, width / 2, height / 2, width * 0.42, height * 0.18, 'rgba(255,255,255,0.9)');
-  ellipse(ctx, width / 2, height / 2, width * 0.5 - 1, height * 0.3, 'rgba(255,255,255,0.25)');
+  ellipse(ctx, width / 2, height / 2, width * 0.42, height * 0.18, cssRgba(COLORS.foam, 0.9));
+  ellipse(ctx, width / 2, height / 2, width * 0.5 - 1, height * 0.3, cssRgba(COLORS.foam, 0.25));
 }
 
+/** Soft but clearly visible ring: a dark halo for contrast on light ground, then thick white lines. */
 function drawRing(ctx: CanvasRenderingContext2D, width: number): void {
   const c = width / 2;
-  for (const [radius, lineWidth, alpha] of [
-    [c - 14, 14, 0.18],
-    [c - 14, 8, 0.4],
-    [c - 14, 3.5, 0.95],
-  ] as const) {
-    ctx.strokeStyle = `rgba(255,255,255,${String(alpha)})`;
+  const radius = c - 18;
+  const lines: readonly [number, number, number, number][] = [
+    // [color, line width, alpha, y shift]
+    [COLORS.ringShadow, 22, 0.28, 2],
+    [COLORS.ringGlow, 20, 0.35, 0],
+    [COLORS.ringGlow, 12, 0.7, 0],
+    [COLORS.ringGlow, 7, 1, 0],
+  ];
+  for (const [color, lineWidth, alpha, shift] of lines) {
+    ctx.strokeStyle = cssRgba(color, alpha);
     ctx.lineWidth = lineWidth;
     ctx.beginPath();
-    ctx.arc(c, c, radius, 0, Math.PI * 2);
+    ctx.arc(c, c + shift, radius, 0, Math.PI * 2);
     ctx.stroke();
   }
 }

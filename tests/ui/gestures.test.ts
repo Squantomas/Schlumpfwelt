@@ -12,12 +12,16 @@ interface Log {
 
 let log: Log;
 let tracker: GestureTracker;
+/** Was `begin` zurückgibt: true = „die Berührung hat nur das Nachgleiten angehalten“. */
+let swallowNextTap = false;
 
 beforeEach(() => {
   log = { begins: 0, pans: [], pinches: [], taps: [], flings: [] };
+  swallowNextTap = false;
   const handlers: GestureHandlers = {
     begin: () => {
       log.begins += 1;
+      return swallowNextTap;
     },
     pan: (dx, dy) => log.pans.push([dx, dy]),
     pinch: (from, to, scale) => log.pinches.push({ from, to, scale }),
@@ -70,6 +74,46 @@ describe('Tippen', () => {
   it('meldet den Beginn einer Geste', () => {
     tracker.down(1, 0, 0, 0);
     expect(log.begins).toBe(1);
+  });
+});
+
+describe('Tippen: Randfälle', () => {
+  it('loslassen weit vom Start ohne Bewegungsereignis ist kein Tipp (zusammengefasste Moves)', () => {
+    tracker.down(1, 100, 100, 0);
+    tracker.up(1, 160, 100, 80);
+    expect(log.taps).toEqual([]);
+    expect(log.pans).toEqual([[60, 0]]);
+  });
+
+  it('loslassen knapp innerhalb der Schwelle ist ein Tipp', () => {
+    tracker.down(1, 100, 100, 0);
+    tracker.up(1, 106, 108, 80);
+    expect(log.taps).toEqual([{ x: 106, y: 108 }]);
+  });
+
+  it('eine Berührung, die nur das Nachgleiten anhält, ist kein Tipp', () => {
+    swallowNextTap = true;
+    tracker.down(1, 100, 100, 0);
+    tracker.up(1, 100, 100, 60);
+    expect(log.taps).toEqual([]);
+    expect(log.begins).toBe(1);
+  });
+
+  it('die nächste Berührung ohne Nachgleiten tippt wieder', () => {
+    swallowNextTap = true;
+    tracker.down(1, 100, 100, 0);
+    tracker.up(1, 100, 100, 60);
+    swallowNextTap = false;
+    tracker.down(1, 100, 100, 500);
+    tracker.up(1, 100, 100, 560);
+    expect(log.taps).toEqual([{ x: 100, y: 100 }]);
+  });
+
+  it('eine Berührung, die das Nachgleiten anhält und dann zieht, zieht trotzdem', () => {
+    swallowNextTap = true;
+    tracker.down(1, 100, 100, 0);
+    tracker.move(1, 150, 100, 20);
+    expect(log.pans).toEqual([[50, 0]]);
   });
 });
 
@@ -237,6 +281,14 @@ describe('Zwei Finger (Pinch)', () => {
 });
 
 describe('Abbrechen', () => {
+  it('nach einem Abbruch geht die nächste Berührung mit derselben Nummer wieder', () => {
+    tracker.down(1, 100, 100, 0);
+    tracker.cancel(1);
+    tracker.down(1, 50, 50, 100);
+    tracker.up(1, 50, 50, 150);
+    expect(log.taps).toEqual([{ x: 50, y: 50 }]);
+  });
+
   it('ein abgebrochener Zeiger gibt weder Tipp noch Nachgleiten', () => {
     tracker.down(1, 100, 100, 0);
     tracker.cancel(1);

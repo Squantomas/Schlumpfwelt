@@ -23,10 +23,31 @@ export const COLORS = {
   sandShade: 0xe6cb83,
   grass: 0x8ad463,
   grassShade: 0x69b946,
-  rock: 0xb4b9c4,
-  rockLight: 0xd6dae2,
-  rockShade: 0x8a90a0,
+  forestFloor: 0x5aa844,
+  forestFloorDark: 0x468f36,
+  forestMoss: 0x86c45a,
+  forestNeedle: 0x3a7a30,
+  mushroomCap: 0xe65a5a,
+  mushroomStem: 0xfff1d6,
+  rockFloor: 0xbeb29c,
+  rockFloorLight: 0xd3c9b5,
+  rockFloorDark: 0x9b8f7a,
+  rock: 0xa9a195,
+  rockLight: 0xd3ccc0,
+  rockShade: 0x827a6f,
+  rockCrack: 0x6b645a,
+  rockShadow: 0x3c3a30,
   ringGlow: 0xffffff,
+  ringShadow: 0x1f5a2e,
+  treeShadow: 0x286419,
+  crownDark: 0x3b8c30,
+  trunkDark: 0x7c5230,
+  blossom: 0xffb3d9,
+  blossomCenter: 0xff86bd,
+  sandSpeck: 0xbe9646,
+  shell: 0xfff6e4,
+  patchLight: 0xffffff,
+  patchDark: 0x286e1e,
   treeTrunk: 0x9a6a3c,
   treeCrown: 0x4fa83d,
   treeCrownLight: 0x72c95a,
@@ -48,6 +69,15 @@ export const FONT_FAMILY =
 /** `0x2a6f97` → `"#2a6f97"` (Phaser text styles want CSS colors). */
 export function cssColor(color: number): string {
   return `#${color.toString(16).padStart(6, '0')}`;
+}
+
+/** Petal colours of the meadow flowers. */
+export const FLOWER_PETALS: readonly number[] = [0xff86bd, 0xffffff, 0xffe066, 0xffb3d9];
+
+/** `0x2a6f97, 0.5` → `"rgba(42,111,151,0.5)"` (canvas fill and stroke styles). */
+export function cssRgba(color: number, alpha: number): string {
+  const [r, g, b] = rgb(color);
+  return `rgba(${String(r)},${String(g)},${String(b)},${String(alpha)})`;
 }
 
 /** Splits `0xrrggbb` into channels, e.g. for camera fades. */
