@@ -105,7 +105,6 @@ Jeder Meilenstein endet mit einer Version, die auf GitHub Pages läuft und auf d
 | **M3** | Wirtschaft | Produktionsgebäude, Lager, Markt → Geld, Baukosten |
 | **M4** | Shop | Häuser, Deko, Gebäude kaufen und freischalten |
 | **M5** | Speichern | IndexedDB-Autosave, Export/Import, als Web-App installierbar |
-| — | **Prototyp-Check (ohne Kinder)** | Projektleitung spielt selbst: Trägt die Schleife Gestalten + Geldverdienen? |
 | **M6** | Schlümpfe | Namen, Berufe, laufen auf Wegen, tragen Waren, Einladen im Shop, Ankunft per Boot |
 | **M7** | Wohnen & Stimmung | Häuser zuweisen, Wegelänge, Essen, Deko-Bonus, Stimmung → Arbeitstempo |
 | **M8** | Kinderfreundlich | Tutorial (erste 5 Min), Eltern-Menü mit PIN und Tageslimit, Gute-Nacht-Sequenz |
