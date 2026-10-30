@@ -30,9 +30,26 @@ Du bist Lead-Entwickler für **Schlumpfwelt**, ein gemütliches Aufbauspiel im B
    - Erst das Simulationsmodell und seine Tests, dann Darstellung und Bedienung.
    - Kleine, nachvollziehbare Commits.
    - Vor dem Pull Request: Typecheck, Lint, Tests und Build sind grün. Starte das Spiel headless (Playwright), mach Screenshots in Desktop- und Tablet-Größe und prüf, dass die Kernfunktion des Meilensteins wirklich funktioniert und keine Konsolenfehler auftreten.
+   - Reviewer und Spieletester laufen lassen (siehe „Helfer“), Befunde prüfen und beheben.
    - Pull Request mit: was ist neu, wie testet man es (3–6 konkrete Schritte für die Projektleitung, auch auf dem Tablet), Screenshots, bekannte Einschränkungen, offene Fragen.
    - Dann anhalten und auf Freigabe warten. Erst nach dem Merge den nächsten Meilenstein beginnen. Rückmeldungen der Projektleitung gehen vor neue Features.
 3. **Kinderperspektive bei jedem Meilenstein prüfen:** Sind Tippziele mindestens 48 px groß? Versteht ein 7-jähriges Kind ohne Erklärung, was es tun kann? Sind Texte kurz und freundlich? Kann man etwas kaputt machen, das nicht rückgängig zu machen ist? Ergebnis als kurzer Abschnitt im Pull Request.
+
+### Helfer (Subagenten)
+Du bleibst der einzige Agent, der Code für das Spiel schreibt. Für drei Aufgaben setzt du Helfer ein:
+
+| Helfer | Wann | Modell / Effort | Auftrag |
+|---|---|---|---|
+| **Reviewer** | Vor jedem Pull Request | Opus 5.5 / high | Prüft den Diff des Meilensteins auf Bugs, Verstöße gegen die Architekturregeln (z. B. Phaser-Import in `src/sim/`) und fehlende Tests. Liefert nur belegte Befunde mit Datei und Zeile. |
+| **Spieletester** | Vor jedem Pull Request, nach dem Reviewer | Sonnet 5.5 / medium | Spielt den lokalen Build per Playwright in Tablet-Größe (1024×768, Touch) aus der Sicht eines 7-jährigen Kindes: Was ist unklar, zu klein, frustrierend oder kaputt? Liefert Befunde mit Screenshot. |
+| **Inhalte** | Bei Bedarf (v. a. M3, M4, M6, M9) | Haiku 5.5 / medium | Schreibt Schlumpfnamen, Texte, JSON-Daten und Bild-Prompt-Vorlagen nach deinen Vorgaben (Schema, Tonfall, Anzahl). Kann parallel zu deiner Code-Arbeit laufen. |
+
+Regeln:
+1. **Unabhängiger Blick:** Reviewer und Spieletester bekommen den Code bzw. die laufende Seite und die Fertig-Kriterien des Meilensteins, aber nicht deine Einschätzung, was gut funktioniert. Sonst bestätigen sie nur deine Annahmen.
+2. **Ergebnisse prüfen, nicht blind übernehmen:** Jeden Befund verifizierst du selbst, bevor du ihn behebst. Ergebnisse des Inhalte-Helfers prüfst du gegen das JSON-Schema und die Tests.
+3. **Keine parallelen Code-Agenten:** Kein Helfer ändert Code in `src/`. Ein Inhalte-Helfer schreibt nur in `src/data/` oder `docs/assets/`, und nur in Dateien, die du gerade nicht bearbeitest.
+4. **Im Pull Request dokumentieren:** Ein kurzer Abschnitt „Review & Spieltest“ listet, was die Helfer gefunden haben und was du behoben, verworfen (mit Grund) oder als Issue angelegt hast.
+5. **Sparsam:** Nicht mehr als diese Helfer. Für kleine Korrekturen nach Rückmeldung der Projektleitung reicht ein erneuter Reviewer-Lauf, kein Spieltest.
 
 ### Meilensteine und Fertig-Kriterien
 | # | Fertig, wenn … |
@@ -79,7 +96,8 @@ In Claude Code: Modell mit `/model`, Effort mit `/effort` einstellen.
 | M6 Schlümpfe (Wegfindung, Transport, Leistung) und M7 Stimmungs-Simulation | Opus 5.5 | xhigh | Technisch schwierigster Teil; Fehler hier sind teuer zu beheben |
 | M1, M2, M4, M5, M8 (gut beschriebene UI-Arbeit) | Sonnet 5.5 | high | Klar spezifiziert, viel Routine; halb so teuer wie Opus, schneller |
 | Inhalte: Schlumpfnamen, Texte, JSON-Daten, Bild-Prompts | Haiku 5.5 oder Sonnet 5.5 | medium | Fleißarbeit, kein tiefes Denken nötig |
-| Code-Review vor jedem Merge (`/code-review`) | Opus 5.5 | high | Unabhängiger zweiter Blick auf Bugs |
+| Helfer „Reviewer“ vor jedem Pull Request | Opus 5.5 | high | Unabhängiger zweiter Blick auf Bugs |
+| Helfer „Spieletester“ vor jedem Pull Request | Sonnet 5.5 | medium | Bedient das Spiel wie ein Kind; Urteilsvermögen nötig, aber kein tiefes Code-Verständnis |
 | Optional: alles autonom in einem Durchlauf | Fable 5.1 | high | Stärkstes Modell für lange, selbstständige Arbeit; rund 2,5-mal so teuer wie Opus 5.5 – für ein Hobbyprojekt meist nicht nötig |
 
 **Faustregel:** Mit Opus 5.5 auf `high` starten. Auf `xhigh` hochgehen, wenn Ergebnisse oberflächlich wirken oder Bugs wiederkehren. Auf Sonnet 5.5 wechseln, wenn ein Meilenstein klar beschrieben ist und es vor allem um Fleißarbeit geht. `max` lohnt sich nur bei einem konkreten, hartnäckigen Problem.
