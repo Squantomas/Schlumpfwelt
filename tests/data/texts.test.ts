@@ -1,0 +1,84 @@
+import { describe, expect, it } from 'vitest';
+import texts from '../../src/data/texts.de.json';
+import theme from '../../src/data/theme.json';
+import { format, placeholdersOf, t, themeValues, type TextKey } from '../../src/data/texts';
+
+/**
+ * Placeholders that are filled at runtime via `t(key, params)` instead of the
+ * theme. Add new names here when a text needs one (e.g. `count`).
+ */
+const RUNTIME_PLACEHOLDERS = new Set<string>([]);
+
+const keys = Object.keys(texts) as TextKey[];
+
+describe('t()', () => {
+  it('liefert die Texte aus texts.de.json', () => {
+    expect(t('island.greeting')).toBe('Hallo Insel!');
+    expect(t('boot.tapToPlay')).toBe('Tippen zum Spielen');
+  });
+
+  it('füllt den Spielnamen aus dem Theme', () => {
+    expect(t('app.title')).toBe(theme.gameName);
+    expect(t('boot.title')).toBe(theme.gameName);
+  });
+});
+
+describe('format()', () => {
+  it('füllt alle Begriffe aus dem Theme', () => {
+    expect(format('{creatures} im {village}')).toBe(`${theme.terms.creatures} im ${theme.terms.village}`);
+  });
+
+  it('füllt Parameter und formatiert Zahlen deutsch', () => {
+    expect(format('{name} hat {count} Beeren', { name: 'Ole', count: 1234 })).toBe('Ole hat 1.234 Beeren');
+  });
+
+  it('lässt Parameter Vorrang vor dem Theme', () => {
+    expect(format('{gameName}', { gameName: 'Testwelt' })).toBe('Testwelt');
+  });
+
+  it('lässt unbekannte Platzhalter sichtbar stehen', () => {
+    expect(format('Hallo {niemand}!')).toBe('Hallo {niemand}!');
+  });
+
+  it('greift nicht auf geerbte Eigenschaften zu', () => {
+    expect(format('{toString}')).toBe('{toString}');
+    expect(format('{constructor}', {})).toBe('{constructor}');
+  });
+
+  it('ersetzt mehrfach vorkommende Platzhalter', () => {
+    expect(format('{a}-{a}', { a: 1 })).toBe('1-1');
+  });
+});
+
+describe('placeholdersOf()', () => {
+  it('findet alle Platzhalter ohne Doppelte', () => {
+    expect(placeholdersOf('{a} und {b} und {a}')).toEqual(['a', 'b']);
+    expect(placeholdersOf('kein Platzhalter')).toEqual([]);
+  });
+});
+
+describe('texts.de.json', () => {
+  it('enthält nur nicht-leere Texte', () => {
+    for (const key of keys) {
+      expect(texts[key].trim(), key).not.toBe('');
+    }
+  });
+
+  it('verwendet nur Platzhalter aus dem Theme oder bekannte Laufzeit-Parameter', () => {
+    for (const key of keys) {
+      for (const name of placeholdersOf(texts[key])) {
+        const known = themeValues.has(name) || RUNTIME_PLACEHOLDERS.has(name);
+        expect(known, `${key}: unbekannter Platzhalter {${name}}`).toBe(true);
+      }
+    }
+  });
+});
+
+describe('theme.json', () => {
+  it('hat einen Spielnamen und nur nicht-leere Begriffe', () => {
+    expect(theme.gameName.trim()).not.toBe('');
+    for (const [name, value] of Object.entries(theme.terms)) {
+      expect(value.trim(), name).not.toBe('');
+    }
+  });
+});
