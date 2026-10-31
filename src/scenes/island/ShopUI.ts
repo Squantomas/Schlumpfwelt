@@ -96,6 +96,9 @@ class CardFooter extends Phaser.GameObjects.Container {
   }
 }
 
+/** The sentence in the line is never smaller than this (CSS px). */
+const MIN_LINE_FONT = 12;
+
 /** One card of the grid: the button plus the things drawn over it (lock, star). */
 interface Card {
   readonly typeId: string;
@@ -372,30 +375,30 @@ export class ShopUI {
     }
   }
 
-  /** The fixed line at the bottom of the panel: a slot that holds the sentence of a locked card, as big as it fits. */
+  /**
+   * The fixed line at the bottom of the panel: the sentence of a locked card, or – while nothing was tapped – a calm standing
+   * sentence. At least 12 px: a long sentence gets two lines where the line is high enough, and every sentence fits one
+   * line at 12 px on the narrowest screen (a test checks their length).
+   */
   private drawLine(): void {
     const layout = this.layoutData;
     this.tipPanel.clear().setVisible(layout !== undefined);
-    this.tipLabel.setVisible(layout !== undefined && this.tip !== '');
+    this.tipLabel.setVisible(layout !== undefined);
     if (!layout) {
       return;
     }
     const { x, y, width, height } = layout.line;
     const filled = this.tip !== '';
-    this.tipPanel.fillStyle(filled ? COLORS.cardFace : COLORS.black, filled ? 0.98 : 0.12).fillRoundedRect(x, y, width, height, Math.min(16, height / 2));
+    const radius = Math.min(16, height / 2);
+    this.tipPanel.fillStyle(filled ? COLORS.cardFace : COLORS.black, filled ? 0.98 : 0.12).fillRoundedRect(x, y, width, height, radius);
     if (filled) {
-      this.tipPanel.lineStyle(3, COLORS.markerRim, 1).strokeRoundedRect(x, y, width, height, Math.min(16, height / 2));
-      // As big as fits (two lines at most in the slot), never under 11 px.
-      const maxW = width - 20;
-      let size = clamp(height * 0.42, 12, 20);
-      this.tipLabel.setWordWrapWidth(maxW).setText(this.tip);
-      setLabelSize(this.tipLabel, size, maxW);
-      while (this.tipLabel.height > height - 6 && size > 11) {
-        size -= 1;
-        setLabelSize(this.tipLabel, size, maxW);
-      }
-      this.tipLabel.setPosition(x + width / 2, y + height / 2);
+      this.tipPanel.lineStyle(3, COLORS.markerRim, 1).strokeRoundedRect(x, y, width, height, radius);
     }
+    const maxW = width - 20;
+    const size = clamp(height * 0.42, MIN_LINE_FONT, 20);
+    this.tipLabel.setWordWrapWidth(maxW).setText(filled ? this.tip : t('shop.lineDefault')).setAlpha(filled ? 1 : 0.85);
+    setLabelSize(this.tipLabel, size, maxW);
+    this.tipLabel.setPosition(x + width / 2, y + height / 2);
   }
 
   /** The sentence that is shown in the line now (for tests). */

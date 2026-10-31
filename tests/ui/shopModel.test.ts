@@ -79,6 +79,18 @@ describe('Sätze und Symbole für gesperrte Karten', () => {
     }
   });
 
+  it('jeder Satz für eine gesperrte Karte passt in einer Zeile bei 12 px in die Zeile des schmalsten Handys quer (höchstens 56 Zeichen)', () => {
+    for (const category of SHOP_CATEGORIES) {
+      for (const type of shopItems(category)) {
+        const unlock = unlockOf(type.id);
+        if (unlock) {
+          expect(unlockSentenceText(unlock).length, type.id).toBeLessThanOrEqual(56);
+        }
+      }
+    }
+    expect(t('shop.lineDefault').length).toBeLessThanOrEqual(56);
+  });
+
   it('zeigen als Symbol das Gebäude, ein Haus oder Markt und Taler', () => {
     expect(unlockIcons({ kind: 'count', building: 'lumberjack', count: 1 })).toEqual([{ kind: 'building', id: 'lumberjack' }]);
     expect(unlockIcons({ kind: 'houses', count: 3 })).toEqual([{ kind: 'building', id: 'house-red' }]);

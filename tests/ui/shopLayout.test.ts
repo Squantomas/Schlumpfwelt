@@ -92,7 +92,7 @@ describe('Shop-Layout: nichts überlappt, nichts ragt über den Rand', () => {
 
         // Die feste Zeile unten (Satz einer gesperrten Karte): im Feld, hoch genug für Text, überdeckt nichts.
         expect(inside(shop.line, shop.rect), 'Zeile im Feld').toBe(true);
-        expect(shop.line.height, 'Zeile Höhe').toBeGreaterThanOrEqual(height < 400 ? 26 : 44);
+        expect(shop.line.height, 'Zeile Höhe').toBeGreaterThanOrEqual(height < 400 ? 30 : 44);
         expect(shop.line.width, 'Zeile Breite').toBeGreaterThanOrEqual(120);
         expect(intersects(shop.line, shop.grid), 'Zeile überdeckt das Gitter').toBe(false);
         for (const [name, rect] of header) {

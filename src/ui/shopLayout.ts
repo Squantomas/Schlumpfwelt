@@ -84,7 +84,10 @@ export function shopLayout(input: ShopLayoutInput): ShopLayout {
   const headerH = Math.max(tabH, closeSize);
   const innerW = panelW - 2 * SHOP_PAD;
   const tabW = Math.min(MAX_TAB_WIDTH, (innerW - closeSize - tabCount * SHOP_GAP) / tabCount);
-  const headerY = top + SHOP_PAD;
+  // On low screens (a phone held sideways) every pixel counts: a slimmer frame above and below.
+  const padTop = low ? 6 : SHOP_PAD;
+  const padBottom = low ? 4 : SHOP_PAD;
+  const headerY = top + padTop;
   const tabs: Rect[] = Array.from({ length: tabCount }, (_, index) => ({
     x: panelX + SHOP_PAD + index * (tabW + SHOP_GAP),
     y: headerY + (headerH - tabH) / 2,
@@ -94,10 +97,10 @@ export function shopLayout(input: ShopLayoutInput): ShopLayout {
   const close: Rect = { x: panelX + panelW - SHOP_PAD - closeSize, y: headerY + (headerH - closeSize) / 2, width: closeSize, height: closeSize };
 
   // The bottom line: one line on low screens (a phone held sideways), two lines on narrow ones.
-  const lineH = low ? 26 : width < 400 ? 46 : 44;
+  const lineH = low ? 30 : width < 400 ? 46 : 44;
   const gridTop = headerY + headerH + SHOP_GAP;
   const availW = panelW - 2 * SHOP_PAD;
-  const availH = bottom - SHOP_PAD - gridTop;
+  const availH = bottom - padBottom - gridTop;
   const need = (rows: number, cellH: number): number => rows * cellH + (rows - 1) * SHOP_GAP;
   const colsFor = (cellW: number): number => Math.max(1, Math.min(count, Math.floor((availW + SHOP_GAP) / (cellW + SHOP_GAP))));
 
@@ -140,7 +143,7 @@ export function shopLayout(input: ShopLayoutInput): ShopLayout {
   const grid: Rect = { x: panelX + SHOP_PAD, y: gridTop, width: availW, height: gridH };
   const bar = choice.paged ? barH : lineH;
   const barY = gridTop + gridH + BAR_GAP;
-  const rect: Rect = { x: panelX, y: top, width: panelW, height: barY + bar + SHOP_PAD - top };
+  const rect: Rect = { x: panelX, y: top, width: panelW, height: barY + bar + padBottom - top };
 
   let prev: Rect | undefined;
   let next: Rect | undefined;

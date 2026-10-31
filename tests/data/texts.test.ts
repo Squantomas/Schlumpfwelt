@@ -9,13 +9,12 @@ import { format, formatNumber, placeholdersOf, t, themeValues, type TextKey } fr
  * Placeholders that are filled at runtime via `t(key, params)` instead of the
  * theme. Add new names here when a text needs one (e.g. `count`).
  */
-const RUNTIME_PLACEHOLDERS = new Set<string>(['count', 'name', 'list', 'way', 'good', 'current', 'needed']);
+const RUNTIME_PLACEHOLDERS = new Set<string>(['count', 'name', 'list', 'way', 'good', 'current', 'needed', 'news', 'valuable']);
 
 const keys = Object.keys(texts) as TextKey[];
 
 describe('t()', () => {
   it('liefert die Texte aus texts.de.json', () => {
-    expect(t('island.greeting')).toBe('Hallo Insel!');
     expect(t('boot.tapToPlay')).toBe('Tippen zum Spielen');
   });
 

@@ -118,5 +118,5 @@ export function valuableGoodOf(typeIds: readonly string[]): string | undefined {
 export function newItemsText(typeIds: readonly string[]): string {
   const base = t('shop.newItem', { list: nameList(typeIds.slice(0, MAX_NAMED)) });
   const good = valuableGoodOf(typeIds);
-  return good === undefined ? base : `${base} ${t('shop.newValuable', { good: itemName(good) })}`;
+  return good === undefined ? base : t('shop.newValuableJoin', { news: base, valuable: t('shop.newValuable', { good: itemName(good) }) });
 }
