@@ -2493,7 +2493,7 @@ async function testPwa({ context, page, check, shot, size, profile, waitForScene
     return { state: registration.active?.state, scope: registration.scope, script: registration.active?.scriptURL, names, urls };
   });
   check(worker.state === 'activated' && worker.scope === URL && worker.script === `${URL}sw.js`, `Service Worker: ${JSON.stringify({ state: worker.state, scope: worker.scope, script: worker.script })}`);
-  check(worker.names.length === 1 && /^village-[0-9a-f]{12}$/.test(worker.names[0]), `Cache: ${JSON.stringify(worker.names)}`);
+  check(worker.names.length === 1 && /^village:\/Schlumpfwelt\/:[0-9a-f]{12}$/.test(worker.names[0]), `Cache: ${JSON.stringify(worker.names)}`);
   check(['/Schlumpfwelt/', '/Schlumpfwelt/index.html', '/Schlumpfwelt/manifest.webmanifest', '/Schlumpfwelt/icons/icon-192.png'].every((url) => worker.urls.includes(url)) && worker.urls.some((url) => /\/assets\/index-.*\.js$/.test(url)), `Cache enthält nicht alle Dateien: ${worker.urls.join(', ')}`);
   await page.reload({ waitUntil: 'load' });
   await waitForScene('boot');

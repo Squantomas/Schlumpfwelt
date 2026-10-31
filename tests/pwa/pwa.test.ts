@@ -140,8 +140,8 @@ describe('Service Worker', () => {
   it('legt beim Installieren alle Dateien in einen Cache mit der Version im Namen und übernimmt sofort', async () => {
     const world = makeWorld(files);
     await world.fire('install');
-    expect([...world.store.keys()]).toEqual(['village-v-test']);
-    expect([...(world.store.get('village-v-test')?.keys() ?? [])]).toEqual([
+    expect([...world.store.keys()]).toEqual(['village:/Schlumpfwelt/:v-test']);
+    expect([...(world.store.get('village:/Schlumpfwelt/:v-test')?.keys() ?? [])]).toEqual([
       'https://example.org/Schlumpfwelt/',
       'https://example.org/Schlumpfwelt/index.html',
       'https://example.org/Schlumpfwelt/assets/index-abc.js',
@@ -150,14 +150,16 @@ describe('Service Worker', () => {
     expect(world.log.skipWaiting).toBe(1);
   });
 
-  it('räumt beim Aktivieren alte Caches des Spiels weg, fremde bleiben', async () => {
+  it('räumt beim Aktivieren alte Caches dieses Spiels weg, die anderer Kopien und fremde bleiben', async () => {
     const world = makeWorld(files);
-    world.store.set('village-alt', new Map());
-    world.store.set('village-aelter', new Map());
+    world.store.set('village:/Schlumpfwelt/:alt', new Map());
+    world.store.set('village:/Schlumpfwelt/:aelter', new Map());
+    // Another copy of the game on the same origin and something else entirely: not ours, not touched.
+    world.store.set('village:/Schlumpfwelt-beta/:v1', new Map());
     world.store.set('anderes', new Map());
     await world.fire('install');
     await world.fire('activate');
-    expect([...world.store.keys()].sort()).toEqual(['anderes', 'village-v-test']);
+    expect([...world.store.keys()].sort()).toEqual(['anderes', 'village:/Schlumpfwelt-beta/:v1', 'village:/Schlumpfwelt/:v-test']);
     expect(world.log.claimed).toBe(1);
   });
 

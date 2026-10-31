@@ -9,11 +9,13 @@
  */
 const VERSION = '__VERSION__';
 const FILES = __FILES__;
-const CACHE_PREFIX = 'village-';
-const CACHE = CACHE_PREFIX + VERSION;
 
 /** The address of the game (the scope of this worker), always with a trailing slash. */
 const scopeUrl = () => new URL(self.registration.scope);
+
+// The path is part of the name: another copy of the game on the same origin keeps its own caches (and never deletes ours).
+const CACHE_PREFIX = 'village:' + scopeUrl().pathname + ':';
+const CACHE = CACHE_PREFIX + VERSION;
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
