@@ -99,7 +99,7 @@ function drawMushroomHouse(ctx: CanvasRenderingContext2D, width: number, height:
   for (const side of [-1, 1]) {
     circle(ctx, cx + side * 21, 132, 8.5, css(COLORS.windowFrame));
     circle(ctx, cx + side * 21, 132, 6, css(COLORS.window));
-    ctx.fillStyle = cssRgba(0xffffff, 0.7);
+    ctx.fillStyle = cssRgba(COLORS.white, 0.7);
     ctx.fillRect(cx + side * 21 - 0.7, 126, 1.4, 12);
     ctx.fillRect(cx + side * 21 - 6, 131.3, 12, 1.4);
   }
@@ -134,7 +134,7 @@ function drawMushroomHouse(ctx: CanvasRenderingContext2D, width: number, height:
   ctx.clip();
   ellipse(ctx, cx, capY + 4, 70, 66, css(palette.capShade));
   ellipse(ctx, cx - 2, capY + 1, 67, 62, css(palette.cap));
-  ellipse(ctx, cx - 26, capY - 36, 20, 11, cssRgba(0xffffff, 0.28), -0.5);
+  ellipse(ctx, cx - 26, capY - 36, 20, 11, cssRgba(COLORS.white, 0.28), -0.5);
   const dots: readonly [number, number, number][] = [
     // [dx, y, radius]
     [-38, 70, 9],
@@ -203,7 +203,7 @@ function drawBush(ctx: CanvasRenderingContext2D, width: number, height: number):
   circle(ctx, cx - 6, base - 25, 8, css(COLORS.treeCrownLight));
   for (const [dx, dy] of [[-16, -8], [9, -10], [-2, -28], [20, -17]] as const) {
     circle(ctx, cx + dx, base + dy, 3.4, css(COLORS.berry));
-    circle(ctx, cx + dx - 1, base + dy - 1, 1, cssRgba(0xffffff, 0.8));
+    circle(ctx, cx + dx - 1, base + dy - 1, 1, cssRgba(COLORS.white, 0.8));
   }
 }
 
@@ -295,7 +295,7 @@ function drawFountain(ctx: CanvasRenderingContext2D, width: number, height: numb
   ctx.stroke();
   circle(ctx, cx, ground - 92, 3.4, css(COLORS.fountainWaterLight));
   for (const side of [-1, 1]) {
-    ellipse(ctx, cx + side * 32, ground - 38, 7, 2.6, cssRgba(0xffffff, 0.75));
+    ellipse(ctx, cx + side * 32, ground - 38, 7, 2.6, cssRgba(COLORS.white, 0.75));
   }
 }
 
@@ -346,7 +346,7 @@ function drawMarker(ctx: CanvasRenderingContext2D, width: number, height: number
   const cx = width / 2;
   const cy = MARKER_BUBBLE / 2 + 5;
   const r = MARKER_BUBBLE / 2;
-  ellipse(ctx, cx, height - 3, 12, 3.2, cssRgba(0x000000, 0.18));
+  ellipse(ctx, cx, height - 3, 12, 3.2, cssRgba(COLORS.black, 0.18));
   // Tail.
   ctx.fillStyle = css(COLORS.markerRim);
   ctx.beginPath();
@@ -381,10 +381,10 @@ function drawMarker(ctx: CanvasRenderingContext2D, width: number, height: number
   // Exclamation badge at the top right.
   const bx = cx + r - 8;
   const by = cy - r + 8;
-  circle(ctx, bx, by, 11.5, css(0xffffff));
+  circle(ctx, bx, by, 11.5, css(COLORS.white));
   circle(ctx, bx, by, 9.5, css(COLORS.markerMark));
-  roundedBox(ctx, bx - 1.9, by - 6.5, 3.8, 8.5, 1.9, css(0xffffff));
-  circle(ctx, bx, by + 5.2, 2.1, css(0xffffff));
+  roundedBox(ctx, bx - 1.9, by - 6.5, 3.8, 8.5, 1.9, css(COLORS.white));
+  circle(ctx, bx, by + 5.2, 2.1, css(COLORS.white));
 }
 
 function drawPuff(ctx: CanvasRenderingContext2D, width: number): void {

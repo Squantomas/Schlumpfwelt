@@ -1,8 +1,7 @@
 import Phaser from 'phaser';
 import { buildingType } from '../../data/buildings';
-import { buildingAt, isPath, tileIndex, unconnectedBuildings, type Tile } from '../../sim/buildings';
+import { buildingAt, tileIndex, unconnectedBuildings } from '../../sim/buildings';
 import type { Simulation } from '../../sim/simulation';
-import type { Rect } from '../../ui/cameraMath';
 import type { PathPreviewTile, Preview } from '../../ui/buildTool';
 import { COLORS, TILE_SIZE } from '../../ui/style';
 import {
@@ -55,6 +54,8 @@ export class VillageView {
   private readonly pathImages = new Map<number, Phaser.GameObjects.Image>();
   private readonly markers = new Map<number, Marker>();
   private readonly overlay: Phaser.GameObjects.Graphics;
+  /** The ✓ / ✕ signs of the preview, above the ghost. */
+  private readonly badges: Phaser.GameObjects.Graphics;
   private readonly ghost: Phaser.GameObjects.Image;
   private revision = -1;
   private liftedId: number | undefined;
@@ -68,7 +69,8 @@ export class VillageView {
     registerBuildingTextures(scene);
     this.overlay = scene.add.graphics().setDepth(OVERLAY_DEPTH);
     this.ghost = scene.add.image(0, 0, PUFF_KEY).setDepth(GHOST_DEPTH).setVisible(false);
-    layer.add([this.overlay, this.ghost]);
+    this.badges = scene.add.graphics().setDepth(GHOST_DEPTH + 1);
+    layer.add([this.overlay, this.ghost, this.badges]);
   }
 
   /** Number of signs ("this house needs a path") that are showing. */
@@ -160,13 +162,15 @@ export class VillageView {
   }
 
   private syncPaths(animate: boolean): void {
-    const state = this.simulation.state;
-    const { width, height } = state.world;
+    const { world, paths } = this.simulation.state;
+    const { width, height } = world;
+    const laid = new Set<number>(paths);
+    const isPath = (x: number, y: number): boolean => x >= 0 && y >= 0 && x < width && y < height && laid.has(y * width + x);
     for (let y = 0; y < height; y += 1) {
       for (let x = 0; x < width; x += 1) {
-        const index = tileIndex(state.world, x, y);
+        const index = tileIndex(world, x, y);
         const image = this.pathImages.get(index);
-        if (!isPath(state, x, y)) {
+        if (!isPath(x, y)) {
           if (image) {
             if (animate) {
               this.puff((x + 0.5) * TILE_SIZE, (y + 0.5) * TILE_SIZE, 0.7);
@@ -176,7 +180,7 @@ export class VillageView {
           }
           continue;
         }
-        const mask = (isPath(state, x, y - 1) ? 1 : 0) | (isPath(state, x + 1, y) ? 2 : 0) | (isPath(state, x, y + 1) ? 4 : 0) | (isPath(state, x - 1, y) ? 8 : 0);
+        const mask = (isPath(x, y - 1) ? 1 : 0) | (isPath(x + 1, y) ? 2 : 0) | (isPath(x, y + 1) ? 4 : 0) | (isPath(x - 1, y) ? 8 : 0);
         const key = pathTextureKey(mask);
         if (!image) {
           const created = this.scene.add
@@ -252,51 +256,10 @@ export class VillageView {
     }
   }
 
-  /** The world rectangle (px) that the preview covers, including how far the picture reaches up. */
-  previewBounds(preview: Preview): Rect | undefined {
-    const T = TILE_SIZE;
-    const state = this.simulation.state;
-    switch (preview.kind) {
-      case 'none':
-        return undefined;
-      case 'place': {
-        const type = buildingType(preview.typeId);
-        return type ? box(preview.x, preview.y, type.footprint.w, type.footprint.h, type.look.rise) : undefined;
-      }
-      case 'path':
-        return tilesBox(preview.tiles);
-      case 'move': {
-        const type = buildingType(preview.typeId);
-        const at = preview.target ?? preview.from;
-        return type ? box(at.x, at.y, type.footprint.w, type.footprint.h, type.look.rise) : undefined;
-      }
-      case 'demolish': {
-        const first = preview.tiles[0];
-        const building = first ? buildingAt(state, first.x, first.y) : undefined;
-        const rise = (building ? buildingType(building.type)?.look.rise : 0) ?? 0;
-        const bounds = tilesBox(preview.tiles);
-        return bounds ? { x: bounds.x, y: bounds.y - rise, width: bounds.width, height: bounds.height + rise } : undefined;
-      }
-    }
-
-    function box(x: number, y: number, w: number, h: number, rise: number): Rect {
-      return { x: x * T, y: y * T - rise, width: w * T, height: h * T + rise };
-    }
-    function tilesBox(tiles: readonly Tile[]): Rect | undefined {
-      if (tiles.length === 0) {
-        return undefined;
-      }
-      const xs = tiles.map((tile) => tile.x);
-      const ys = tiles.map((tile) => tile.y);
-      const minX = Math.min(...xs);
-      const minY = Math.min(...ys);
-      return { x: minX * T, y: minY * T, width: (Math.max(...xs) - minX + 1) * T, height: (Math.max(...ys) - minY + 1) * T };
-    }
-  }
-
   /** Shows what the child is about to build, move or demolish (green = fits, red = does not). */
   setPreview(preview: Preview): void {
     const g = this.overlay.clear();
+    this.badges.clear();
     this.ghost.setVisible(false);
     this.resetHighlights();
 
@@ -328,6 +291,12 @@ export class VillageView {
         for (const tile of preview.tiles) {
           fillTiles(g, tile.x, tile.y, 1, 1, COLORS.ghostBad, 0.5);
         }
+        const last = preview.tiles[preview.tiles.length - 1];
+        if (last) {
+          const left = Math.min(...preview.tiles.map((tile) => tile.x));
+          const right = Math.max(...preview.tiles.map((tile) => tile.x)) + 1;
+          drawBadge(this.badges, ((left + right) / 2) * TILE_SIZE, (last.y + 0.5) * TILE_SIZE, false);
+        }
         const first = preview.tiles[0];
         const building = first ? buildingAt(this.simulation.state, first.x, first.y) : undefined;
         const sprite = building ? this.sprites.get(building.id) : undefined;
@@ -358,15 +327,18 @@ export class VillageView {
       return;
     }
     const color = fits ? COLORS.ghostOk : COLORS.ghostBad;
-    fillTiles(this.overlay, x, y, type.footprint.w, type.footprint.h, color, 0.42);
+    // The ground under the ghost is green or red, with a ✓ or ✕ sign on top: no colour guessing needed.
+    fillTiles(this.overlay, x, y, type.footprint.w, type.footprint.h, color, 0.55);
+    drawBadge(this.badges, (x + type.footprint.w / 2) * TILE_SIZE, (y + type.footprint.h - 0.5) * TILE_SIZE, fits);
     const origin = buildingOrigin(type);
+    // The picture keeps its own colours (a tint would turn yellow-on-red orange).
     this.ghost
       .setTexture(buildingTextureKey(typeId))
       .setOrigin(origin.x, origin.y)
       .setScale(1 / TEXTURE_SCALE)
       .setPosition((x + type.footprint.w / 2) * TILE_SIZE, (y + type.footprint.h) * TILE_SIZE)
-      .setAlpha(0.8)
-      .setTint(fits ? COLORS.ghostOkTint : COLORS.ghostBadTint)
+      .setAlpha(0.66)
+      .clearTint()
       .setVisible(true);
   }
 
@@ -378,8 +350,12 @@ export class VillageView {
     }
     const color = tile.status === 'ok' ? COLORS.ghostOk : COLORS.ghostBad;
     fillTiles(g, tile.x, tile.y, 1, 1, color, 0.55);
-    // A small stone in the middle of a tile that will get a path.
-    g.fillStyle(0xffffff, 0.9).fillCircle((tile.x + 0.5) * TILE_SIZE, (tile.y + 0.5) * TILE_SIZE, 6);
+    if (tile.status === 'blocked') {
+      drawBadge(this.badges, (tile.x + 0.5) * TILE_SIZE, (tile.y + 0.5) * TILE_SIZE, false, 0.6);
+    } else {
+      // A small stone in the middle of a tile that will get a path.
+      g.fillStyle(COLORS.white, 0.9).fillCircle((tile.x + 0.5) * TILE_SIZE, (tile.y + 0.5) * TILE_SIZE, 6);
+    }
   }
 
   private popIn(image: Phaser.GameObjects.Image): void {
@@ -419,4 +395,20 @@ function fillTiles(g: Phaser.GameObjects.Graphics, x: number, y: number, w: numb
   const top = y * TILE_SIZE + 3;
   g.fillStyle(color, alpha).fillRoundedRect(left, top, w * TILE_SIZE - 6, h * TILE_SIZE - 6, 10);
   g.lineStyle(3, color, 0.95).strokeRoundedRect(left, top, w * TILE_SIZE - 6, h * TILE_SIZE - 6, 10);
+}
+
+/** A round sign with a ✓ (fits) or ✕ (does not) – so the preview is clear without telling green from red. */
+function drawBadge(g: Phaser.GameObjects.Graphics, x: number, y: number, fits: boolean, scale = 1): void {
+  const r = 20 * scale;
+  g.fillStyle(COLORS.white, 1).fillCircle(x, y, r);
+  g.fillStyle(fits ? COLORS.confirm : COLORS.cancel, 1).fillCircle(x, y, r * 0.84);
+  g.lineStyle(r * 0.28, COLORS.white, 1);
+  g.beginPath();
+  if (fits) {
+    g.moveTo(x - r * 0.4, y + r * 0.02).lineTo(x - r * 0.1, y + r * 0.32).lineTo(x + r * 0.42, y - r * 0.3);
+  } else {
+    g.moveTo(x - r * 0.32, y - r * 0.32).lineTo(x + r * 0.32, y + r * 0.32);
+    g.moveTo(x - r * 0.32, y + r * 0.32).lineTo(x + r * 0.32, y - r * 0.32);
+  }
+  g.strokePath();
 }

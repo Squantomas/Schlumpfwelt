@@ -37,6 +37,8 @@ export const COLORS = {
   rockShade: 0x827a6f,
   rockCrack: 0x6b645a,
   rockShadow: 0x3c3a30,
+  white: 0xffffff,
+  black: 0x000000,
   ringGlow: 0xffffff,
   ringShadow: 0x1f5a2e,
   treeShadow: 0x286419,

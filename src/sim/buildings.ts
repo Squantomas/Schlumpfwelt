@@ -16,7 +16,7 @@
 import { buildingType, type BuildingType } from '../data/buildings';
 import type { DeepReadonly } from './readonly';
 import type { SimState } from './state';
-import { inBounds, terrainAt } from './world';
+import { inBounds, terrainAt, type Terrain } from './world';
 
 export interface Tile {
   readonly x: number;
@@ -40,7 +40,13 @@ export interface PlacedBuilding {
 export type PlacementResult = 'ok' | 'blocked' | 'terrain' | 'outOfMap';
 
 /** What the placement rules need: a read-only view of the state is enough. */
-export type PlacementView = DeepReadonly<Pick<SimState, 'world' | 'buildings' | 'paths'>>;
+export type PlacementView = DeepReadonly<Pick<SimState, 'world' | 'buildings' | 'paths' | 'revision'>>;
+
+/** The answer of {@link checkPlacement}: the result and, for `terrain`, the ground that is in the way. */
+export interface PlacementProblem {
+  readonly result: PlacementResult;
+  readonly terrain?: Terrain;
+}
 
 export function tileIndex(world: { readonly width: number }, x: number, y: number): number {
   return y * world.width + x;
@@ -57,8 +63,27 @@ export function footprintTiles(type: Pick<BuildingType, 'footprint'>, x: number,
   return tiles;
 }
 
+/** Position of `value` in the ascending list `sorted`, or the position where it would have to go (as `-1 - position`). */
+function search(sorted: readonly number[], value: number): number {
+  let low = 0;
+  let high = sorted.length - 1;
+  while (low <= high) {
+    const middle = (low + high) >> 1;
+    const current = sorted[middle] ?? 0;
+    if (current === value) {
+      return middle;
+    }
+    if (current < value) {
+      low = middle + 1;
+    } else {
+      high = middle - 1;
+    }
+  }
+  return -1 - low;
+}
+
 export function isPath(state: Pick<PlacementView, 'world' | 'paths'>, x: number, y: number): boolean {
-  return inBounds(state.world, x, y) && state.paths[tileIndex(state.world, x, y)] === true;
+  return inBounds(state.world, x, y) && search(state.paths, tileIndex(state.world, x, y)) >= 0;
 }
 
 /** The building that covers the tile, if any. */
@@ -77,27 +102,63 @@ export function findBuilding(state: Pick<PlacementView, 'buildings'>, id: number
 }
 
 /**
+ * The building whose picture covers the world point (px), if any. Pictures
+ * reach up over the footprint (`look.rise`), so a tap on a roof hits the house
+ * although the tile under the finger is behind it. When pictures overlap, the
+ * one in front (lower front edge) wins.
+ */
+export function buildingAtPoint(
+  state: Pick<PlacementView, 'buildings'>,
+  worldX: number,
+  worldY: number,
+  tileSize: number,
+): DeepReadonly<PlacedBuilding> | undefined {
+  let best: DeepReadonly<PlacedBuilding> | undefined;
+  let bestFront = Number.NEGATIVE_INFINITY;
+  for (const building of state.buildings) {
+    const type = buildingType(building.type);
+    if (!type) {
+      continue;
+    }
+    const left = building.x * tileSize;
+    const front = (building.y + type.footprint.h) * tileSize;
+    const top = building.y * tileSize - type.look.rise;
+    const hit = worldX >= left && worldX < left + type.footprint.w * tileSize && worldY >= top && worldY < front;
+    if (hit && front >= bestFront) {
+      best = building;
+      bestFront = front;
+    }
+  }
+  return best;
+}
+
+/**
  * Can a thing of type `typeId` stand with its top left tile on (x, y)?
  * `ignoreId` leaves one building out of the overlap check – the building that
  * is being moved may overlap its old place.
  *
  * Check order: unknown type → `blocked`, outside the map → `outOfMap`, wrong
- * ground → `terrain`, something in the way → `blocked`.
+ * ground → `terrain` (with the ground that is in the way), something in the
+ * way → `blocked`.
  */
-export function canPlace(state: PlacementView, typeId: string, x: number, y: number, ignoreId?: number): PlacementResult {
+export function checkPlacement(state: PlacementView, typeId: string, x: number, y: number, ignoreId?: number): PlacementProblem {
   const type = buildingType(typeId);
-  if (!type || !Number.isInteger(x) || !Number.isInteger(y)) {
-    return type ? 'outOfMap' : 'blocked';
+  if (!type) {
+    return { result: 'blocked' };
+  }
+  if (!Number.isInteger(x) || !Number.isInteger(y)) {
+    return { result: 'outOfMap' };
   }
   const tiles = footprintTiles(type, x, y);
   if (tiles.some((tile) => !inBounds(state.world, tile.x, tile.y))) {
-    return 'outOfMap';
+    return { result: 'outOfMap' };
   }
-  if (tiles.some((tile) => !type.terrains.includes(terrainAt(state.world, tile.x, tile.y)))) {
-    return 'terrain';
+  const wrong = tiles.map((tile) => terrainAt(state.world, tile.x, tile.y)).find((terrain) => !type.terrains.includes(terrain));
+  if (wrong !== undefined) {
+    return { result: 'terrain', terrain: wrong };
   }
   if (tiles.some((tile) => isPath(state, tile.x, tile.y))) {
-    return 'blocked';
+    return { result: 'blocked' };
   }
   for (const other of state.buildings) {
     const otherType = buildingType(other.type);
@@ -110,10 +171,14 @@ export function canPlace(state: PlacementView, typeId: string, x: number, y: num
       y < other.y + otherType.footprint.h &&
       other.y < y + type.footprint.h;
     if (overlaps) {
-      return 'blocked';
+      return { result: 'blocked' };
     }
   }
-  return 'ok';
+  return { result: 'ok' };
+}
+
+export function canPlace(state: PlacementView, typeId: string, x: number, y: number, ignoreId?: number): PlacementResult {
+  return checkPlacement(state, typeId, x, y, ignoreId).result;
 }
 
 /** Can a path be laid on this tile? Tiles that already are paths count as `blocked`. */
@@ -197,7 +262,8 @@ export function addPaths(state: SimState, tiles: readonly Tile[]): number {
     const x = (tile as Partial<Tile> | null | undefined)?.x;
     const y = (tile as Partial<Tile> | null | undefined)?.y;
     if (typeof x === 'number' && typeof y === 'number' && canPlacePath(state, x, y) === 'ok') {
-      state.paths[tileIndex(state.world, x, y)] = true;
+      const index = tileIndex(state.world, x, y);
+      state.paths.splice(-1 - search(state.paths, index), 0, index);
       laid += 1;
     }
   }
@@ -231,7 +297,7 @@ export function demolishAt(state: SimState, x: number, y: number): boolean {
     return true;
   }
   if (isPath(state, x, y)) {
-    state.paths[tileIndex(state.world, x, y)] = false;
+    state.paths.splice(search(state.paths, tileIndex(state.world, x, y)), 1);
     state.revision += 1;
     return true;
   }

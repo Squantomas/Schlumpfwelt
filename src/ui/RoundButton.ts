@@ -8,8 +8,8 @@ export type ButtonVariant = 'normal' | 'confirm' | 'cancel';
 
 const VARIANT_COLORS: Readonly<Record<ButtonVariant, { readonly face: number; readonly shade: number; readonly icon: number }>> = {
   normal: { face: COLORS.button, shade: COLORS.buttonShade, icon: COLORS.buttonIcon },
-  confirm: { face: COLORS.confirm, shade: COLORS.confirmShade, icon: 0xffffff },
-  cancel: { face: COLORS.cancel, shade: COLORS.cancelShade, icon: 0xffffff },
+  confirm: { face: COLORS.confirm, shade: COLORS.confirmShade, icon: COLORS.white },
+  cancel: { face: COLORS.cancel, shade: COLORS.cancelShade, icon: COLORS.white },
 };
 
 export interface RoundButtonOptions {
@@ -18,8 +18,8 @@ export interface RoundButtonOptions {
   readonly icon: ButtonIcon;
   /** Colours; default `normal` (yellow). */
   readonly variant?: ButtonVariant;
-  /** Called when the button is released (tap or click). */
-  readonly onTap: () => void;
+  /** Called when the button is released (tap or click), with the time of the browser event. */
+  readonly onTap: (eventTime: number) => void;
 }
 
 /** Big round button with an icon. Works the same with finger and mouse. */
@@ -52,7 +52,7 @@ export class RoundButton extends Phaser.GameObjects.Container {
       // and not a touch the system interrupted (touchcancel).
       if (this.pressed && !pointer.wasCanceled) {
         this.pressed = false;
-        options.onTap();
+        options.onTap(pointer.event?.timeStamp ?? this.scene.time.now);
       }
       this.pressed = false;
     });

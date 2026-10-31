@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { applyCommand, type Command } from '../../src/sim/commands';
 import type { SimState } from '../../src/sim/state';
-import { BuildTool, TOOLS, anchorFor } from '../../src/ui/buildTool';
+import { BuildTool, TOOLS, TOOL_CATEGORIES, anchorFor, problemHint } from '../../src/ui/buildTool';
 import { grassState, pathAt, run, setTerrainAt } from '../sim/helpers';
 
 /** A tool on a grass map whose commands are applied right away (the real game applies them at the next tick). */
@@ -26,13 +26,33 @@ describe('Werkzeuge', () => {
     expect(tool.hasPreview).toBe(false);
   });
 
-  it('schaltet ein Werkzeug ein und beim erneuten Antippen zurück auf Anschauen', () => {
+  it('schaltet ein Werkzeug ein; erneutes Antippen lässt es an (nur exitTool beendet es)', () => {
     const { tool } = setup();
     for (const id of TOOLS) {
       tool.selectTool(id);
       expect(tool.tool).toBe(id);
       tool.selectTool(id);
+      expect(tool.tool).toBe(id);
+      tool.exitTool();
       expect(tool.tool).toBe('view');
+    }
+  });
+
+  it('behält beim erneuten Antippen des Werkzeugs die Vorschau', () => {
+    const { tool } = setup();
+    tool.selectTool('deco');
+    tool.tap({ x: 3, y: 3 });
+    tool.selectTool('deco');
+    expect(tool.hasPreview).toBe(true);
+  });
+
+  it('ordnet Werkzeuge ihren Kategorien zu (datengetrieben)', () => {
+    expect(TOOL_CATEGORIES).toEqual({ house: 'house', deco: 'deco' });
+    const { tool } = setup();
+    for (const id of TOOLS) {
+      tool.selectTool(id);
+      expect(tool.variantCategory).toBe(TOOL_CATEGORIES[id]);
+      expect(tool.variant !== undefined).toBe(TOOL_CATEGORIES[id] !== undefined);
     }
   });
 
@@ -117,7 +137,7 @@ describe('Setzen: Haus und Deko', () => {
     tool.tap({ x: 3, y: 3 });
     expect(tool.preview()).toMatchObject({ kind: 'place', result: 'terrain' });
     expect(tool.canConfirm).toBe(false);
-    expect(tool.confirm()).toBe('hint.cantBuild');
+    expect(tool.confirm()).toBe('hint.water');
     expect(sent).toEqual([]);
     expect(tool.hasPreview).toBe(true);
   });
@@ -200,17 +220,17 @@ describe('Wege', () => {
     expect(preview.kind === 'path' && preview.tiles.map((t) => `${String(t.x)},${String(t.y)}`)).toEqual(['2,2', '3,2', '4,2', '4,3']);
   });
 
-  it('dreht die Ecke beim erneuten Antippen des Endes', () => {
+  it('versetzt das Ende beim Antippen einer anderen Kachel, auch der alten Endkachel', () => {
     const { tool } = setup();
     tool.selectTool('path');
     tool.tap({ x: 2, y: 2 });
     tool.tap({ x: 4, y: 3 });
-    tool.tap({ x: 4, y: 3 });
-    const preview = tool.preview();
-    expect(preview.kind === 'path' && preview.tiles.map((t) => `${String(t.x)},${String(t.y)}`)).toEqual(['2,2', '2,3', '3,3', '4,3']);
-    tool.tap({ x: 4, y: 3 });
-    const again = tool.preview();
-    expect(again.kind === 'path' && again.tiles[1]).toMatchObject({ x: 3, y: 2 });
+    tool.tap({ x: 2, y: 5 });
+    const moved = tool.preview();
+    expect(moved.kind === 'path' && moved.tiles.map((t) => t.y)).toEqual([2, 3, 4, 5]);
+    tool.tap({ x: 2, y: 5 });
+    const same = tool.preview();
+    expect(same.kind === 'path' && same.tiles).toHaveLength(4);
   });
 
   it('geht beim Antippen des Anfangs zurück auf eine Kachel', () => {
@@ -233,7 +253,7 @@ describe('Wege', () => {
     expect(preview.kind === 'path' && preview.tiles.map((t) => t.y)).toEqual([2, 3, 4, 5, 6]);
   });
 
-  it('baut beim ✓ alle erlaubten Kacheln und überspringt rote und vorhandene', () => {
+  it('führt den Weg um Hindernisse herum und baut nur neue Kacheln', () => {
     const state = grassState();
     setTerrainAt(state, 4, 2, 'water');
     const { tool, sent } = setup(state);
@@ -242,14 +262,59 @@ describe('Wege', () => {
     tool.tap({ x: 2, y: 2 });
     tool.tap({ x: 6, y: 2 });
     const preview = tool.preview();
-    expect(preview.kind === 'path' && preview.tiles.map((t) => t.status)).toEqual(['ok', 'existing', 'blocked', 'blocked', 'ok']);
-    expect(preview.kind === 'path' && preview.tiles.map((t) => t.reason)).toEqual([undefined, undefined, 'terrain', 'blocked', undefined]);
+    expect(preview.kind === 'path' && preview.error).toBeFalsy();
+    expect(preview.kind === 'path' && preview.tiles.every((t) => t.status !== 'blocked')).toBe(true);
+    expect(preview.kind === 'path' && preview.tiles.some((t) => t.status === 'existing' && t.x === 3 && t.y === 2)).toBe(true);
+    expect(tool.canConfirm).toBe(true);
     expect(tool.confirm()).toBeUndefined();
-    expect(sent).toEqual([{ type: 'placePaths', tiles: [{ x: 2, y: 2 }, { x: 6, y: 2 }] }]);
-    expect(pathAt(state, 2, 2) && pathAt(state, 6, 2)).toBe(true);
+    expect(sent).toHaveLength(1);
+    // Alle Kacheln der Route liegen auf Wiese, nichts auf Wasser oder unter dem Busch.
     expect(pathAt(state, 4, 2)).toBe(false);
+    expect(pathAt(state, 5, 2)).toBe(false);
+    expect(pathAt(state, 2, 2) && pathAt(state, 6, 2)).toBe(true);
     expect(tool.hasPreview).toBe(false);
     expect(tool.tool).toBe('path');
+  });
+
+  it('zeigt rot, sperrt ✓ und nennt den Grund, wenn es keine Route gibt', () => {
+    const state = grassState();
+    for (const [x, y] of [[8, 7], [10, 7], [9, 6], [9, 8]] as const) {
+      setTerrainAt(state, x, y, 'water');
+    }
+    const { tool, sent } = setup(state);
+    tool.selectTool('path');
+    tool.tap({ x: 2, y: 2 });
+    tool.tap({ x: 9, y: 7 });
+    const preview = tool.preview();
+    expect(preview.kind === 'path' && preview.error).toBe('noRoute');
+    expect(preview.kind === 'path' && preview.tiles.every((t) => t.status === 'blocked')).toBe(true);
+    expect(tool.canConfirm).toBe(false);
+    expect(tool.hint).toBe('hint.noRoute');
+    expect(tool.confirm()).toBe('hint.noRoute');
+    expect(sent).toEqual([]);
+  });
+
+  it('meldet zu lange Wege', () => {
+    const { tool } = setup(grassState(60));
+    tool.selectTool('path');
+    tool.tap({ x: 0, y: 0 });
+    tool.tap({ x: 50, y: 0 });
+    expect(tool.hint).toBe('hint.routeTooLong');
+    expect(tool.canConfirm).toBe(false);
+  });
+
+  it('nennt den Grund, wenn das Ende auf Wasser oder Wald liegt', () => {
+    const state = grassState();
+    setTerrainAt(state, 9, 2, 'water');
+    setTerrainAt(state, 9, 4, 'forest');
+    const { tool } = setup(state);
+    tool.selectTool('path');
+    tool.tap({ x: 2, y: 2 });
+    tool.tap({ x: 9, y: 2 });
+    expect(tool.hint).toBe('hint.water');
+    expect(tool.canConfirm).toBe(false);
+    tool.tap({ x: 9, y: 4 });
+    expect(tool.hint).toBe('hint.forest');
   });
 
   it('lässt das ✓ ins Leere laufen, wenn kein Feld erlaubt ist', () => {
@@ -259,7 +324,7 @@ describe('Wege', () => {
     tool.selectTool('path');
     tool.tap({ x: 3, y: 3 });
     expect(tool.canConfirm).toBe(false);
-    expect(tool.confirm()).toBe('hint.cantBuild');
+    expect(tool.confirm()).toBe('hint.water');
     expect(sent).toEqual([]);
   });
 });
@@ -305,7 +370,7 @@ describe('Verschieben', () => {
     tool.tap({ x: 10, y: 11 });
     expect(tool.preview()).toMatchObject({ target: { x: 10, y: 10, result: 'blocked' } });
     expect(tool.canConfirm).toBe(false);
-    expect(tool.confirm()).toBe('hint.cantBuild');
+    expect(tool.confirm()).toBe('hint.occupied');
     expect(sent).toEqual([]);
     expect(state.buildings[0]).toMatchObject({ x: 3, y: 3 });
   });
@@ -419,5 +484,148 @@ describe('Version', () => {
     tool.cancel();
     versions.add(tool.version);
     expect(versions.size).toBe(4);
+  });
+});
+
+describe('Tipp aufs Dach (Regression)', () => {
+  const T = 64;
+  /** Haus bei (5,5), davor nichts; auf der Kachel (5,4) hinter dem Haus liegt ein Weg. */
+  const withRoofPath = (): ReturnType<typeof setup> => {
+    const ctx = setup();
+    run(ctx.state, { type: 'placePaths', tiles: [{ x: 5, y: 4 }, { x: 6, y: 4 }] }, { type: 'placeBuilding', buildingType: 'house-red', x: 5, y: 5 });
+    return ctx;
+  };
+  /** Ein Tipp auf das Dach: die Kachel unter dem Finger ist (5,4), der Punkt liegt aber auf der Grafik des Hauses. */
+  const roof = { tile: { x: 5, y: 4 }, world: { x: 5.5 * T, y: 4.5 * T } };
+
+  it('reißt beim Abreißen das Haus ab und nicht den Weg dahinter', () => {
+    const { state, tool } = withRoofPath();
+    tool.selectTool('demolish');
+    tool.tap(roof.tile, roof.world);
+    expect(tool.preview()).toMatchObject({ kind: 'demolish', tiles: [{ x: 5, y: 5 }, { x: 6, y: 5 }, { x: 5, y: 6 }, { x: 6, y: 6 }] });
+    tool.confirm();
+    expect(state.buildings).toEqual([]);
+    expect(pathAt(state, 5, 4)).toBe(true);
+  });
+
+  it('wählt beim Verschieben das Haus und meldet nicht „Wege kann man nicht verschieben“', () => {
+    const { tool } = withRoofPath();
+    tool.selectTool('move');
+    expect(tool.tap(roof.tile, roof.world)).toBeUndefined();
+    expect(tool.preview()).toMatchObject({ kind: 'move', id: 1 });
+  });
+
+  it('sagt beim Anschauen auf dem Dach, dass das Haus einen Weg braucht', () => {
+    const { state, tool } = setup();
+    run(state, { type: 'placeBuilding', buildingType: 'house-red', x: 5, y: 5 });
+    expect(tool.tap({ x: 5, y: 4 }, { x: 5.5 * T, y: 4.5 * T })).toBe('hint.needsPath');
+    expect(tool.tap({ x: 5, y: 4 }, { x: 5.5 * T, y: 3 * T })).toBeUndefined();
+  });
+
+  it('trifft ohne Weltpunkt weiter über die Kachel', () => {
+    const { tool } = withRoofPath();
+    tool.selectTool('demolish');
+    tool.tap({ x: 5, y: 4 });
+    expect(tool.preview()).toEqual({ kind: 'demolish', tiles: [{ x: 5, y: 4 }] });
+  });
+
+  it('baut beim Platzieren weiter nach der Kachel, nicht nach der Grafik eines Hauses', () => {
+    const { tool } = withRoofPath();
+    tool.selectTool('deco');
+    tool.tap(roof.tile, roof.world);
+    expect(tool.preview()).toMatchObject({ kind: 'place', x: 5, y: 4, result: 'blocked' });
+  });
+});
+
+describe('Variantenwechsel (Regression)', () => {
+  it('rechnet den Anker mit der neuen Variante neu, aus der angetippten Kachel', () => {
+    const { tool } = setup();
+    tool.selectTool('deco');
+    tool.tap({ x: 6, y: 6 });
+    expect(tool.preview()).toMatchObject({ typeId: 'flower', x: 6, y: 6 });
+    tool.selectVariant('fountain');
+    expect(tool.preview()).toMatchObject({ typeId: 'fountain', x: 6, y: 5 });
+    tool.selectVariant('bench');
+    expect(tool.preview()).toMatchObject({ typeId: 'bench', x: 6, y: 6 });
+  });
+
+  it('baut die zuletzt gewählte Variante', () => {
+    const { state, tool } = setup();
+    tool.selectTool('deco');
+    tool.tap({ x: 6, y: 6 });
+    tool.selectVariant('fountain');
+    tool.confirm();
+    expect(state.buildings).toEqual([{ id: 1, type: 'fountain', x: 6, y: 5 }]);
+  });
+});
+
+describe('Grund in der Vorschau', () => {
+  const hintFor = (terrain: 'water' | 'forest' | 'rock' | 'sand', tool: 'deco' | 'house' = 'deco'): string | undefined => {
+    const state = grassState();
+    setTerrainAt(state, 6, 6, terrain);
+    const ctx = setup(state);
+    ctx.tool.selectTool(tool);
+    ctx.tool.tap({ x: 6, y: 6 });
+    return ctx.tool.hint;
+  };
+
+  it('nennt Wasser, Wald, Fels und Strand', () => {
+    expect(hintFor('water')).toBe('hint.water');
+    expect(hintFor('forest')).toBe('hint.forest');
+    expect(hintFor('rock')).toBe('hint.rock');
+    expect(hintFor('sand', 'house')).toBe('hint.sand');
+  });
+
+  it('nennt „schon etwas da“ und „zu nah am Rand“', () => {
+    const { state, tool } = setup();
+    run(state, { type: 'placeBuilding', buildingType: 'bush', x: 3, y: 3 });
+    tool.selectTool('deco');
+    tool.tap({ x: 3, y: 3 });
+    expect(tool.hint).toBe('hint.occupied');
+    tool.selectTool('house');
+    tool.tap({ x: 15, y: 15 });
+    expect(tool.hint).toBe('hint.edge');
+  });
+
+  it('zeigt bei grüner Vorschau wieder den normalen Hinweis', () => {
+    const { tool } = setup();
+    tool.selectTool('deco');
+    tool.tap({ x: 3, y: 3 });
+    expect(tool.hint).toBe('hint.place');
+  });
+
+  it('nennt den Grund auch beim Verschieben', () => {
+    const state = grassState();
+    setTerrainAt(state, 9, 9, 'water');
+    const { tool } = setup(state);
+    run(state, { type: 'placeBuilding', buildingType: 'flower', x: 2, y: 2 });
+    tool.selectTool('move');
+    tool.tap({ x: 2, y: 2 });
+    tool.tap({ x: 9, y: 9 });
+    expect(tool.hint).toBe('hint.water');
+  });
+
+  it('übersetzt jedes Ergebnis in einen Text', () => {
+    expect(problemHint({ result: 'ok' })).toBeUndefined();
+    expect(problemHint({ result: 'blocked' })).toBe('hint.occupied');
+    expect(problemHint({ result: 'outOfMap' })).toBe('hint.edge');
+    expect(problemHint({ result: 'terrain', terrain: 'water' })).toBe('hint.water');
+  });
+});
+
+describe('Zwischenspeicher', () => {
+  it('liefert dieselbe Vorschau, bis sich etwas ändert', () => {
+    const { state, tool } = setup();
+    tool.selectTool('deco');
+    tool.tap({ x: 3, y: 3 });
+    const first = tool.preview();
+    expect(tool.preview()).toBe(first);
+    expect(tool.canConfirm).toBe(true);
+    expect(tool.preview()).toBe(first);
+    run(state, { type: 'placeBuilding', buildingType: 'bush', x: 3, y: 3 });
+    const second = tool.preview();
+    expect(second).not.toBe(first);
+    expect(second).toMatchObject({ result: 'blocked' });
+    expect(tool.canConfirm).toBe(false);
   });
 });

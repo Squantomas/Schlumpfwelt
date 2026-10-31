@@ -28,5 +28,13 @@
   "hint.needsPath": "Dieses Haus braucht einen Weg.",
   "hint.pathNoMove": "Wege kann man nicht verschieben. Reiß sie ab und bau neu.",
   "hint.nothingToMove": "Hier steht nichts zum Verschieben.",
-  "hint.nothingToDemolish": "Hier gibt es nichts zum Abreißen."
+  "hint.nothingToDemolish": "Hier gibt es nichts zum Abreißen.",
+  "hint.water": "Hier ist Wasser.",
+  "hint.forest": "Im Wald kann man nicht bauen.",
+  "hint.rock": "Auf Felsen kann man nicht bauen.",
+  "hint.sand": "Am Strand kann man das nicht bauen.",
+  "hint.occupied": "Hier steht schon etwas.",
+  "hint.edge": "Das ist zu nah am Rand.",
+  "hint.noRoute": "Dahin kommt der Weg nicht.",
+  "hint.routeTooLong": "Der Weg ist zu lang."
 }

@@ -10,7 +10,7 @@ export interface SquareButtonOptions {
   /** Called whenever the button changes size: fit the picture into `width × height` (CSS px). */
   readonly fitContent: (content: Phaser.GameObjects.Image | Phaser.GameObjects.Graphics, width: number, height: number) => void;
   /** Called when the button is released after being pressed (tap or click). */
-  readonly onTap: () => void;
+  readonly onTap: (eventTime: number) => void;
 }
 
 /** Share of the button height that the picture may use; the rest is for the label. */
@@ -51,7 +51,7 @@ export class SquareButton extends Phaser.GameObjects.Container {
       this.setScale(1);
       if (this.pressed && !pointer.wasCanceled) {
         this.pressed = false;
-        options.onTap();
+        options.onTap(pointer.event?.timeStamp ?? this.scene.time.now);
       }
       this.pressed = false;
     });

@@ -49,7 +49,7 @@ function drawHouse(g: Phaser.GameObjects.Graphics, s: number): void {
   g.fillStyle(COLORS.door).fillRoundedRect(-s * 0.07, s * 0.2, s * 0.14, s * 0.22, s * 0.06);
   g.fillStyle(HOUSE_PALETTES['red']?.capShade ?? COLORS.mushroomCap).fillEllipse(0, -s * 0.04, s * 0.92, s * 0.26);
   g.fillStyle(COLORS.mushroomCap).fillEllipse(0, -s * 0.16, s * 0.88, s * 0.62);
-  g.fillStyle(0xffffff);
+  g.fillStyle(COLORS.white);
   for (const [x, y, r] of [[-0.24, -0.2, 0.08], [0.06, -0.32, 0.09], [0.27, -0.14, 0.065], [-0.04, -0.14, 0.05]] as const) {
     g.fillCircle(x * s, y * s, r * s);
   }

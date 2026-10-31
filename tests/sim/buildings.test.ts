@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest';
 import { BUILDING_TYPES, buildingType, typesOf } from '../../src/data/buildings';
 import {
   buildingAt,
+  buildingAtPoint,
   canPlace,
+  checkPlacement,
   footprintTiles,
   isConnected,
   lineTiles,
@@ -100,6 +102,71 @@ describe('canPlace', () => {
     const before = structuredClone(state);
     canPlace(state, 'house-red', 3, 3);
     expect(state).toEqual(before);
+  });
+});
+
+describe('checkPlacement', () => {
+  it('nennt den Untergrund, der im Weg ist', () => {
+    const state = grassState();
+    setTerrainAt(state, 4, 4, 'water');
+    setTerrainAt(state, 5, 4, 'forest');
+    expect(checkPlacement(state, 'flower', 4, 4)).toEqual({ result: 'terrain', terrain: 'water' });
+    expect(checkPlacement(state, 'flower', 5, 4)).toEqual({ result: 'terrain', terrain: 'forest' });
+    expect(checkPlacement(state, 'house-red', 4, 3)).toEqual({ result: 'terrain', terrain: 'water' });
+    expect(checkPlacement(state, 'flower', 1, 1)).toEqual({ result: 'ok' });
+    expect(checkPlacement(state, 'house-red', 15, 15)).toEqual({ result: 'outOfMap' });
+  });
+});
+
+describe('buildingAtPoint (Tipp auf die Grafik)', () => {
+  const T = 64;
+
+  it('trifft ein Haus auch auf dem Dach, über dem Grundriss', () => {
+    const state = run(grassState(), { type: 'placeBuilding', buildingType: 'house-red', x: 5, y: 5 });
+    // Grundriss 320…448 × 320…448, Dach ragt 84 px darüber (bis y = 236).
+    expect(buildingAtPoint(state, 6 * T, 5 * T - 40, T)?.id).toBe(1);
+    expect(buildingAtPoint(state, 6 * T, 5 * T - 83, T)?.id).toBe(1);
+    expect(buildingAtPoint(state, 6 * T, 5 * T - 85, T)).toBeUndefined();
+    expect(buildingAtPoint(state, 6 * T, 7 * T + 1, T)).toBeUndefined();
+    expect(buildingAtPoint(state, 5 * T - 1, 6 * T, T)).toBeUndefined();
+    expect(buildingAtPoint(state, 7 * T + 1, 6 * T, T)).toBeUndefined();
+  });
+
+  it('trifft das Dach vor einem Weg auf der Kachel dahinter', () => {
+    const state = run(grassState(), { type: 'placePaths', tiles: [{ x: 5, y: 4 }] }, { type: 'placeBuilding', buildingType: 'house-red', x: 5, y: 5 });
+    expect(buildingAt(state, 5, 4)).toBeUndefined();
+    expect(buildingAtPoint(state, 5.5 * T, 4.6 * T, T)?.id).toBe(1);
+  });
+
+  it('nimmt bei überlappenden Grafiken das vordere Gebäude', () => {
+    const state = run(
+      grassState(),
+      { type: 'placeBuilding', buildingType: 'house-red', x: 5, y: 3 },
+      { type: 'placeBuilding', buildingType: 'house-blue', x: 5, y: 5 },
+    );
+    // Das hintere Haus (id 1) ragt nicht in den Grundriss des vorderen, aber das vordere Dach über das hintere.
+    expect(buildingAtPoint(state, 6 * T, 5 * T - 20, T)?.id).toBe(2);
+    expect(buildingAtPoint(state, 6 * T, 3.5 * T, T)?.id).toBe(1);
+  });
+
+  it('trifft Deko nur an ihrer Grafik und nichts auf leerer Wiese', () => {
+    const state = run(grassState(), { type: 'placeBuilding', buildingType: 'lantern', x: 3, y: 3 });
+    expect(buildingAtPoint(state, 3.5 * T, 3 * T - 30, T)?.id).toBe(1);
+    expect(buildingAtPoint(state, 3.5 * T, 3 * T - 50, T)).toBeUndefined();
+    expect(buildingAtPoint(state, 9 * T, 9 * T, T)).toBeUndefined();
+  });
+});
+
+describe('Wege im Zustand', () => {
+  it('stehen sortiert und ohne Doppelte in `paths`', () => {
+    const state = run(
+      grassState(),
+      { type: 'placePaths', tiles: [{ x: 5, y: 5 }, { x: 1, y: 1 }, { x: 9, y: 0 }, { x: 5, y: 5 }, { x: 2, y: 7 }] },
+      { type: 'placePaths', tiles: [{ x: 0, y: 3 }] },
+      { type: 'demolish', x: 1, y: 1 },
+    );
+    expect(state.paths).toEqual([9, 3 * 16, 5 * 16 + 5, 7 * 16 + 2].sort((a, b) => a - b));
+    expect(JSON.parse(JSON.stringify(state.paths))).toEqual(state.paths);
   });
 });
 
@@ -203,7 +270,7 @@ describe('Befehl placeBuilding', () => {
 describe('Befehl placePaths', () => {
   it('legt eine L-Linie', () => {
     const state = run(grassState(), { type: 'placePaths', tiles: lineTiles({ x: 2, y: 2 }, { x: 5, y: 4 }) });
-    const laid = state.paths.filter(Boolean).length;
+    const laid = state.paths.length;
     expect(laid).toBe(6);
     for (const [x, y] of [[2, 2], [3, 2], [4, 2], [5, 2], [5, 3], [5, 4]] as const) {
       expect(pathAt(state, x, y)).toBe(true);
@@ -223,7 +290,7 @@ describe('Befehl placePaths', () => {
     expect(pathAt(state, 3, 2)).toBe(false);
     expect(pathAt(state, 5, 5)).toBe(false);
     expect(pathAt(state, 4, 2)).toBe(true);
-    expect(state.paths.filter(Boolean)).toHaveLength(2);
+    expect(state.paths).toHaveLength(2);
   });
 
   it('ändert die Revision nicht, wenn nichts gelegt wird (leer, doppelt, nur verbotene Kacheln)', () => {
@@ -235,7 +302,7 @@ describe('Befehl placePaths', () => {
 
   it('bleibt bei doppelten Kacheln in der Liste bei einem Weg', () => {
     const state = run(grassState(), { type: 'placePaths', tiles: [{ x: 2, y: 2 }, { x: 2, y: 2 }] });
-    expect(state.paths.filter(Boolean)).toHaveLength(1);
+    expect(state.paths).toHaveLength(1);
   });
 });
 
@@ -476,7 +543,7 @@ describe('Zustand und Determinismus', () => {
       expect(houses, `Seed ${String(seed)}`).toHaveLength(1);
       expect(state.buildings.length, `Seed ${String(seed)}`).toBeGreaterThanOrEqual(3);
       expect(unconnectedBuildings(state), `Seed ${String(seed)}`).toEqual([]);
-      expect(state.paths.some(Boolean)).toBe(true);
+      expect(state.paths.length).toBeGreaterThan(0);
     }
   });
 

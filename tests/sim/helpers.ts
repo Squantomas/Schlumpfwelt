@@ -11,7 +11,7 @@ export function grassState(size = 16): SimState {
     world: { width: size, height: size, tiles },
     buildings: [],
     nextBuildingId: 1,
-    paths: new Array<boolean>(size * size).fill(false),
+    paths: [],
     revision: 0,
   };
 }
@@ -28,5 +28,5 @@ export function run(state: SimState, ...commands: Command[]): SimState {
 }
 
 export function pathAt(state: SimState, x: number, y: number): boolean {
-  return state.paths[y * state.world.width + x] === true;
+  return state.paths.includes(y * state.world.width + x);
 }

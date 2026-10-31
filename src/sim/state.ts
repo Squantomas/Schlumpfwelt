@@ -24,8 +24,8 @@ export interface SimState {
   buildings: PlacedBuilding[];
   /** Id for the next building; ids are never reused. */
   nextBuildingId: number;
-  /** Path per tile (same index as `world.tiles`): `true` where a path lies. */
-  paths: boolean[];
+  /** Tiles with a path as tile indices (`y * width + x`), ascending and without duplicates. */
+  paths: number[];
   /**
    * Counts every change of buildings or paths. Scenes compare it with the
    * value they last drew and only redraw when it differs.
@@ -46,7 +46,7 @@ export function createInitialState(seed: number = DEFAULT_SEED): SimState {
     paused: false,
     buildings: [],
     nextBuildingId: 1,
-    paths: new Array<boolean>(world.width * world.height).fill(false),
+    paths: [],
     revision: 0,
   };
   buildStartVillage(state);

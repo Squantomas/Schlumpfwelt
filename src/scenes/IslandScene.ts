@@ -6,13 +6,13 @@ import { hash2 } from '../sim/random';
 import type { Simulation } from '../sim/simulation';
 import { isLand, landBounds, terrainAt } from '../sim/world';
 import { BuildTool, type Preview } from '../ui/buildTool';
-import { growRect, tileAtWorld, visibleRect, worldToScreen, type CameraBounds, type Point, type Rect } from '../ui/cameraMath';
+import { growRect, tileAtWorld, visibleRect, type CameraBounds, type Point, type Rect } from '../ui/cameraMath';
 import { landRegions } from '../ui/cameraRegions';
 import { createLabel, setLabelSize } from '../ui/label';
 import { RoundButton } from '../ui/RoundButton';
 import { COLORS, MIN_TAP_SIZE, TILE_SIZE, clamp, rgb } from '../ui/style';
 import { onViewportChange, type ViewSize } from '../ui/viewport';
-import { BuildUI, type UiSpot } from './island/BuildUI';
+import { BuildUI } from './island/BuildUI';
 import { groundSize, paintGround } from './island/groundTexture';
 import {
   GLINT_KEY,
@@ -87,8 +87,7 @@ export class IslandScene extends Phaser.Scene {
   private buildings = '[]';
   private paths = '';
   private terrain = '';
-  private zoomRect: Rect = { x: 0, y: 0, width: 0, height: 0 };
-  private zoomSpots: Record<string, UiSpot> = {};
+  private previewText = 'none';
 
   constructor(simulation: Simulation) {
     super(SCENES.island);
@@ -151,7 +150,7 @@ export class IslandScene extends Phaser.Scene {
       wheelZoomPerPixel: CAMERA_CONFIG.wheelZoomPerPixel,
       blocksCamera: (object) => object.displayList === this.uiLayer,
       blocksPoint: (x, y) => this.buildUI.coversPoint(x, y),
-      onTap: (point) => this.handleTap(point),
+      onTap: (point, _screen, time) => this.handleTap(point, time),
     });
 
     const greeting = createLabel(this, t('island.greeting'), 64);
@@ -185,17 +184,13 @@ export class IslandScene extends Phaser.Scene {
       const radius = Math.max(ZOOM_BUTTON_RADIUS, MIN_TAP_SIZE / 2);
       zoomIn.setRadius(radius).setPosition(width - ZOOM_BUTTON_MARGIN - radius, ZOOM_BUTTON_MARGIN + radius);
       zoomOut.setRadius(radius).setPosition(zoomIn.x, zoomIn.y + 2 * radius + ZOOM_BUTTON_GAP);
-      this.zoomRect = {
-        x: zoomIn.x - radius,
-        y: zoomIn.y - radius,
-        width: 2 * radius,
-        height: zoomOut.y + radius - (zoomIn.y - radius),
-      };
-      this.buildUI.layout({ width, height }, this.zoomRect);
-      this.zoomSpots = {
-        'zoom-in': { x: zoomIn.x, y: zoomIn.y, enabled: true },
-        'zoom-out': { x: zoomOut.x, y: zoomOut.y, enabled: true },
-      };
+      this.buildUI.layout(
+        { width, height },
+        {
+          'zoom-in': { x: zoomIn.x, y: zoomIn.y, enabled: true },
+          'zoom-out': { x: zoomOut.x, y: zoomOut.y, enabled: true },
+        },
+      );
     });
 
     const fade = rgb(COLORS.waterDeep);
@@ -323,7 +318,11 @@ export class IslandScene extends Phaser.Scene {
   }
 
   /** A short touch on the world: announce the tile and show a soft ring on it. */
-  private handleTap(world: Point): void {
+  private handleTap(world: Point, eventTime: number): void {
+    // Right after ✓ or ✕ (double taps) a tap on the world must not start a new preview.
+    if (this.buildUI.worldTapsPaused(eventTime)) {
+      return;
+    }
     const map = this.simulation.state.world;
     const tile = tileAtWorld(world, TILE_SIZE, map);
     if (!tile) {
@@ -335,7 +334,7 @@ export class IslandScene extends Phaser.Scene {
     if (this.buildTool.tool === 'view') {
       this.showRing(tile);
     }
-    const notice = this.buildTool.tap(tile);
+    const notice = this.buildTool.tap(tile, world);
     if (notice) {
       this.buildUI.showNotice(notice);
     } else if (this.buildTool.tool === 'view' && this.village.markerAt(world.x, world.y) !== undefined) {
@@ -360,23 +359,11 @@ export class IslandScene extends Phaser.Scene {
     if (key !== this.previewKey) {
       this.previewKey = key;
       this.preview = this.buildTool.preview();
+      this.previewText = describePreview(this.preview);
       this.village.setPreview(this.preview);
     }
     this.village.update(seconds, deltaMs, this.controller.view.zoom);
-    this.buildUI.placeConfirm(this.previewOnScreen());
     this.publishVillage(revision);
-  }
-
-  /** The preview as a rectangle on screen (CSS px). */
-  private previewOnScreen(): Rect | undefined {
-    const bounds = this.village.previewBounds(this.preview);
-    if (!bounds) {
-      return undefined;
-    }
-    const view = this.controller.view;
-    const size = this.controller.viewSize;
-    const topLeft = worldToScreen(view, size, { x: bounds.x, y: bounds.y });
-    return { x: topLeft.x, y: topLeft.y, width: bounds.width * view.zoom, height: bounds.height * view.zoom };
   }
 
   /** Publishes the building state for tests (`<html data-tool data-buildings …>`). */
@@ -386,23 +373,21 @@ export class IslandScene extends Phaser.Scene {
       this.publishedRevision = revision;
       this.buildings = JSON.stringify(state.buildings.map((b) => [b.id, b.type, b.x, b.y, isConnected(state, b.id) ? 1 : 0]));
       const tiles: string[] = [];
-      state.paths.forEach((isPathTile, index) => {
-        if (isPathTile) {
-          tiles.push(`${String(index % state.world.width)},${String(Math.floor(index / state.world.width))}`);
-        }
-      });
+      for (const index of state.paths) {
+        tiles.push(`${String(index % state.world.width)},${String(Math.floor(index / state.world.width))}`);
+      }
       this.paths = tiles.join(';');
     }
     markVillage({
       tool: this.buildTool.tool,
       variant: this.buildTool.variant ?? '',
-      preview: describePreview(this.preview),
+      preview: this.previewText,
       hint: this.buildUI.shownHint,
       markers: this.village.markerCount,
       buildings: this.buildings,
       paths: this.paths,
       terrain: this.terrain,
-      ui: JSON.stringify({ ...this.zoomSpots, ...this.buildUI.spots() }),
+      ui: this.buildUI.spots,
     });
   }
 
