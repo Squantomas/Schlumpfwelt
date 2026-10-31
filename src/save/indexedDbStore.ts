@@ -50,11 +50,11 @@ function transactionDone(transaction: IDBTransaction): Promise<void> {
  * and the browser completes it even when the page is gone. The check still happens, but afterwards (see `save`).
  *
  * - `load` reads the village of the owner (or the old single key `main`, which tests and old versions wrote).
- * - `claim` makes this window the owner and copies the village of the former owner into its own key; old keys are tidied up.
+ * - `claim` makes this window the owner and copies the village of the former owner into its own key, tidying up old keys in the same transaction.
  * - `save` writes the own key; if the owner is someone else by then, it says so (`OwnerLostError`) – what it wrote is in
  *   the own key, where nobody reads it, so a window that was taken over can never write over the newer village.
  */
-class IndexedDbStore implements SaveStore {
+export class IndexedDbStore implements SaveStore {
   readonly kind = 'indexedDb';
   private readonly dataKey: string;
   private abandoned = false;
@@ -81,7 +81,13 @@ class IndexedDbStore implements SaveStore {
     return { owner, data: legacy };
   }
 
-  /** Takes over the saving for this window (the newest window wins) and keeps the village as it is. */
+  /**
+   * Takes over the saving for this window (the newest window wins) and keeps the village as it is – **all in one
+   * transaction**: copy the village of the former owner into the own key, name this window the owner, and only then
+   * remove the villages of earlier windows (and the old single key). Nothing is deleted unless the copy and the owner
+   * entry are written in the same step, so two windows that claim at nearly the same time (the transactions run one
+   * after the other) always leave exactly one readable village with the owner.
+   */
   async claim(): Promise<void> {
     const transaction = this.db.transaction(STORE_NAME, 'readwrite');
     const objects = transaction.objectStore(STORE_NAME);
@@ -90,12 +96,16 @@ class IndexedDbStore implements SaveStore {
     if (data !== undefined) {
       objects.put(data, this.dataKey);
     }
+    const keys = await requestPromise(objects.getAllKeys());
+    for (const key of keys) {
+      if (key === KEY || (typeof key === 'string' && key.startsWith(DATA_PREFIX) && key !== this.dataKey)) {
+        objects.delete(key);
+      }
+    }
     await transactionDone(transaction);
     this.claimed = { previousOwner: owner };
     if (this.abandoned) {
       await this.restore();
-    } else {
-      await this.tidy();
     }
   }
 
@@ -107,12 +117,24 @@ class IndexedDbStore implements SaveStore {
     }
   }
 
+  /**
+   * Gives the saving back to the former owner, again in one transaction and with the same rule: the own key (which holds
+   * the village) is deleted only after the village is written to where the former owner is read from – unless that key
+   * still has a village (the former window may have written on), which then stays as it is. If another window has
+   * claimed in the meantime it is the owner, and only this window's own key is removed.
+   */
   private async restore(): Promise<void> {
     const previous = this.claimed?.previousOwner;
     const transaction = this.db.transaction(STORE_NAME, 'readwrite');
     const objects = transaction.objectStore(STORE_NAME);
     const owner: unknown = await requestPromise(objects.get(OWNER_KEY));
     if (owner === this.session) {
+      const mine: unknown = await requestPromise(objects.get(this.dataKey));
+      const target = typeof previous === 'string' ? `${DATA_PREFIX}${previous}` : KEY;
+      const existing: unknown = await requestPromise(objects.get(target));
+      if (existing === undefined && mine !== undefined) {
+        objects.put(mine, target);
+      }
       if (typeof previous === 'string') {
         objects.put(previous, OWNER_KEY);
       } else {
@@ -121,23 +143,6 @@ class IndexedDbStore implements SaveStore {
     }
     objects.delete(this.dataKey);
     await transactionDone(transaction);
-  }
-
-  /** Removes the villages of earlier windows (and the old single key): this window has a copy. */
-  private async tidy(): Promise<void> {
-    try {
-      const transaction = this.db.transaction(STORE_NAME, 'readwrite');
-      const objects = transaction.objectStore(STORE_NAME);
-      const keys = await requestPromise(objects.getAllKeys());
-      for (const key of keys) {
-        if (key === KEY || (typeof key === 'string' && key.startsWith(DATA_PREFIX) && key !== this.dataKey)) {
-          objects.delete(key);
-        }
-      }
-      await transactionDone(transaction);
-    } catch {
-      // Tidying is not needed for the game to work.
-    }
   }
 
   async load(): Promise<unknown> {
