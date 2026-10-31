@@ -105,6 +105,35 @@ function less(a: Entry, b: Entry): boolean {
 }
 
 /**
+ * Search buffers, made once per map size and reused by every call (a fresh
+ * 5 MB allocation per preview was slow). A slot only counts when its `stamp`
+ * is the current `generation`, so nothing has to be cleared between calls and
+ * the result never depends on earlier calls.
+ */
+interface Buffers {
+  readonly best: Float64Array;
+  readonly previous: Int32Array;
+  readonly stamp: Uint32Array;
+  generation: number;
+}
+
+const bufferCache = new Map<number, Buffers>();
+
+function buffersFor(size: number): Buffers {
+  let buffers = bufferCache.get(size);
+  if (!buffers) {
+    buffers = { best: new Float64Array(size), previous: new Int32Array(size), stamp: new Uint32Array(size), generation: 0 };
+    bufferCache.set(size, buffers);
+  }
+  if (buffers.generation >= 0xfffffffe) {
+    buffers.stamp.fill(0);
+    buffers.generation = 0;
+  }
+  buffers.generation += 1;
+  return buffers;
+}
+
+/**
  * Finds the cheapest route from `from` to `to` (both included) that has at
  * most `maxLength` tiles. The length is part of the search (a state is tile,
  * direction and tiles used so far), so a long route over old paths can not
@@ -123,16 +152,30 @@ export function findRoute(state: PlacementView, from: Tile, to: Tile, maxLength:
     return { ok: false, reason: 'endBlocked' };
   }
 
+  // Cheap checks first: no way at all, or even the straight line is longer than allowed.
+  if (!reachable(world, passable, from, to)) {
+    return { ok: false, reason: 'noRoute' };
+  }
+  if (Math.abs(to.x - from.x) + Math.abs(to.y - from.y) + 1 > maxLength) {
+    return { ok: false, reason: 'tooLong' };
+  }
+
   // A search state is a tile, the direction we came in with (4 = start, no direction yet) and the tiles used so far.
   const layers = maxLength + 1;
   const stateCount = world.width * world.height * 5 * layers;
   const encode = (tile: number, direction: number, used: number): number => (tile * 5 + direction) * layers + used;
-  const best = new Float64Array(stateCount).fill(Number.POSITIVE_INFINITY);
-  const previous = new Int32Array(stateCount).fill(-1);
+  const buffers = buffersFor(stateCount);
+  const { best, previous, stamp, generation } = buffers;
+  const costOf = (state: number): number => (stamp[state] === generation ? (best[state] ?? Number.POSITIVE_INFINITY) : Number.POSITIVE_INFINITY);
+  const setState = (state: number, cost: number, via: number): void => {
+    stamp[state] = generation;
+    best[state] = cost;
+    previous[state] = via;
+  };
   const heap = new Heap();
   let order = 0;
   const startState = encode(tileIndex(world, from.x, from.y), 4, 1);
-  best[startState] = 0;
+  setState(startState, 0, -1);
   if (maxLength >= 1) {
     heap.push({ cost: 0, order: order++, state: startState });
   }
@@ -143,7 +186,7 @@ export function findRoute(state: PlacementView, from: Tile, to: Tile, maxLength:
     if (!entry) {
       break;
     }
-    if (entry.cost > (best[entry.state] ?? Number.POSITIVE_INFINITY)) {
+    if (entry.cost > costOf(entry.state)) {
       continue;
     }
     const used = entry.state % layers;
@@ -167,16 +210,16 @@ export function findRoute(state: PlacementView, from: Tile, to: Tile, maxLength:
       const turn = direction !== 4 && direction !== next ? TURN_COST : 0;
       const cost = entry.cost + step + turn;
       const nextState = encode(tileIndex(world, nx, ny), next, used + 1);
-      if (cost < (best[nextState] ?? Number.POSITIVE_INFINITY)) {
-        best[nextState] = cost;
-        previous[nextState] = entry.state;
+      if (cost < costOf(nextState)) {
+        setState(nextState, cost, entry.state);
         heap.push({ cost, order: order++, state: nextState });
       }
     });
   }
 
   if (goal < 0) {
-    return { ok: false, reason: reachable(world, passable, from, to) ? 'tooLong' : 'noRoute' };
+    // Reachable (checked above), but not within the limit.
+    return { ok: false, reason: 'tooLong' };
   }
   const tiles: Tile[] = [];
   for (let current = goal; current >= 0; current = previous[current] ?? -1) {

@@ -172,10 +172,32 @@ describe('findRoute', () => {
     expect(findRoute(state, { x: 8, y: 5 }, { x: 12, y: 5 }, 6)).toEqual({ ok: false, reason: 'tooLong' });
   });
 
-  it('bleibt auch auf einer großen freien Fläche schnell', () => {
-    const state = grassState(48);
-    const started = Date.now();
-    findRoute(state, { x: 2, y: 2 }, { x: 30, y: 30 });
-    expect(Date.now() - started).toBeLessThan(1500);
+  it('ist schnell: im Mittel unter 10 ms pro Aufruf (zu lang, kurz, ohne Route)', () => {
+    const state = run(grassState(48), { type: 'placeBuilding', buildingType: 'fountain', x: 12, y: 12 });
+    for (let x = 0; x < 48; x += 1) {
+      setTerrainAt(state, x, 40, 'water');
+    }
+    findRoute(state, { x: 2, y: 2 }, { x: 5, y: 5 }); // Puffer anlegen, zählt nicht
+    const cases: [Tile, Tile][] = [
+      [{ x: 2, y: 2 }, { x: 45, y: 30 }], // zu lang
+      [{ x: 2, y: 2 }, { x: 20, y: 18 }], // lange Suche mit Hindernis
+      [{ x: 2, y: 2 }, { x: 10, y: 45 }], // keine Route (Wasserwand)
+      [{ x: 14, y: 10 }, { x: 14, y: 16 }], // kurz, um den Brunnen
+    ];
+    const started = performance.now();
+    for (let i = 0; i < 20; i += 1) {
+      const [from, to] = cases[i % cases.length] ?? [{ x: 2, y: 2 }, { x: 5, y: 5 }];
+      findRoute(state, from, to);
+    }
+    // Großzügige Marge, damit langsame CI-Rechner nicht flackern (gemessen: etwa 1 ms).
+    expect((performance.now() - started) / 20).toBeLessThan(10);
+  });
+
+  it('liefert dasselbe Ergebnis, egal wie oft und womit vorher gesucht wurde (wiederverwendete Puffer)', () => {
+    const state = run(grassState(30), { type: 'placeBuilding', buildingType: 'house-red', x: 10, y: 10 });
+    const first = findRoute(state, { x: 2, y: 2 }, { x: 20, y: 18 });
+    findRoute(state, { x: 25, y: 3 }, { x: 4, y: 25 });
+    findRoute(state, { x: 1, y: 1 }, { x: 28, y: 28 });
+    expect(findRoute(state, { x: 2, y: 2 }, { x: 20, y: 18 })).toEqual(first);
   });
 });

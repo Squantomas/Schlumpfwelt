@@ -6,11 +6,12 @@ import { hash2 } from '../sim/random';
 import type { Simulation } from '../sim/simulation';
 import { isLand, landBounds, terrainAt } from '../sim/world';
 import { BuildTool, type Preview } from '../ui/buildTool';
+import { zoomLayout } from '../ui/buildLayout';
 import { growRect, tileAtWorld, visibleRect, type CameraBounds, type Point, type Rect } from '../ui/cameraMath';
 import { landRegions } from '../ui/cameraRegions';
 import { createLabel, setLabelSize } from '../ui/label';
 import { RoundButton } from '../ui/RoundButton';
-import { COLORS, MIN_TAP_SIZE, TILE_SIZE, clamp, rgb } from '../ui/style';
+import { COLORS, TILE_SIZE, clamp, rgb } from '../ui/style';
 import { onViewportChange, type ViewSize } from '../ui/viewport';
 import { BuildUI } from './island/BuildUI';
 import { groundSize, paintGround } from './island/groundTexture';
@@ -37,10 +38,6 @@ const GREETING_FADE_MS = 900;
 const RING_MS = 900;
 /** The ring stays fully visible this long before it fades (ms). */
 const RING_HOLD_MS = 500;
-/** Zoom buttons: size and distance to the screen corner, in CSS px. */
-const ZOOM_BUTTON_RADIUS = 34;
-const ZOOM_BUTTON_MARGIN = 16;
-const ZOOM_BUTTON_GAP = 12;
 /** Depth of things above all objects (their depth is their y position in the world). */
 const TOP_DEPTH = 1_000_000;
 
@@ -159,12 +156,12 @@ export class IslandScene extends Phaser.Scene {
     this.tweens.add({ targets: greeting, alpha: 0, delay: GREETING_SHOW_MS, duration: GREETING_FADE_MS });
 
     const zoomIn = new RoundButton(this, 0, 0, {
-      radius: ZOOM_BUTTON_RADIUS,
+      radius: 34, // the real size comes from `zoomLayout` in the layout callback
       icon: 'plus',
       onTap: () => this.controller.zoomBy(CAMERA_CONFIG.buttonZoomFactor),
     });
     const zoomOut = new RoundButton(this, 0, 0, {
-      radius: ZOOM_BUTTON_RADIUS,
+      radius: 34, // the real size comes from `zoomLayout` in the layout callback
       icon: 'minus',
       onTap: () => this.controller.zoomBy(1 / CAMERA_CONFIG.buttonZoomFactor),
     });
@@ -181,9 +178,9 @@ export class IslandScene extends Phaser.Scene {
       greeting.setPosition(width / 2, Math.max(14, height * 0.04) + greeting.height / 2);
 
       // The zoom buttons sit at the top right; the bottom belongs to the toolbar.
-      const radius = Math.max(ZOOM_BUTTON_RADIUS, MIN_TAP_SIZE / 2);
-      zoomIn.setRadius(radius).setPosition(width - ZOOM_BUTTON_MARGIN - radius, ZOOM_BUTTON_MARGIN + radius);
-      zoomOut.setRadius(radius).setPosition(zoomIn.x, zoomIn.y + 2 * radius + ZOOM_BUTTON_GAP);
+      const zoom = zoomLayout(width, height);
+      zoomIn.setRadius(zoom.radius).setPosition(zoom.zoomIn.x, zoom.zoomIn.y);
+      zoomOut.setRadius(zoom.radius).setPosition(zoom.zoomOut.x, zoom.zoomOut.y);
       this.buildUI.layout(
         { width, height },
         {

@@ -3,6 +3,7 @@ import { buildingType } from '../../data/buildings';
 import { buildingAt, tileIndex, unconnectedBuildings } from '../../sim/buildings';
 import type { Simulation } from '../../sim/simulation';
 import type { PathPreviewTile, Preview } from '../../ui/buildTool';
+import { markerY } from '../../ui/markerPosition';
 import { COLORS, TILE_SIZE } from '../../ui/style';
 import {
   MARKER_BUBBLE,
@@ -38,6 +39,8 @@ interface Marker {
   readonly phase: number;
   readonly baseX: number;
   readonly baseY: number;
+  /** Foot of the house (world px): the sign never slides lower than this. */
+  readonly houseBottomY: number;
   /** 0 … 1: how far the sign has popped in; going down means it is leaving. */
   appear: number;
   leaving: boolean;
@@ -227,7 +230,7 @@ export class VillageView {
         .setDepth(MARKER_DEPTH)
         .setScale(0);
       this.layer.add(image);
-      this.markers.set(id, { image, phase: id * 1.7, baseX, baseY, appear: animate ? 0 : 1, leaving: false });
+      this.markers.set(id, { image, phase: id * 1.7, baseX, baseY, houseBottomY: (building.y + type.footprint.h) * TILE_SIZE, appear: animate ? 0 : 1, leaving: false });
     }
     for (const [id, marker] of this.markers) {
       if (!missing.has(id)) {
@@ -250,8 +253,9 @@ export class VillageView {
       const pop = Phaser.Math.Easing.Back.Out(Math.max(0, marker.appear));
       const bob = Math.sin(seconds * 3 + marker.phase) * 4 * fit;
       // A house at the top of the screen: the sign slides down so it stays below the hint bar (`minWorldY`).
-      const lowest = minWorldY + MARKER_SIZE.height * fit * pop;
-      marker.image.setPosition(marker.baseX, Math.max(marker.baseY + bob - 4, lowest)).setScale((fit * pop) / TEXTURE_SCALE);
+      marker.image
+        .setPosition(marker.baseX, markerY(marker.baseY + bob - 4, minWorldY, MARKER_SIZE.height * fit * pop, marker.houseBottomY))
+        .setScale((fit * pop) / TEXTURE_SCALE);
     }
     const lifted = this.liftedId === undefined ? undefined : this.sprites.get(this.liftedId);
     if (lifted) {

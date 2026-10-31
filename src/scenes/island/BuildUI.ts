@@ -3,26 +3,19 @@ import { typesOf, type BuildingType } from '../../data/buildings';
 import { t, type TextKey } from '../../data/texts';
 import type { Rect } from '../../ui/cameraMath';
 import { TOOLS, TOOL_CATEGORIES, type BuildTool, type ToolId } from '../../ui/buildTool';
-import { CANCEL_DIAMETER, CONFIRM_DIAMETER, placeConfirmButtons } from '../../ui/confirmLayout';
+import { CHIP_H, CHIP_W, EXIT_RADIUS, HINT_MIN_HEIGHT, hintBarGeometry, layoutBuildUi, type BuildLayout } from '../../ui/buildLayout';
+import { CANCEL_DIAMETER, CONFIRM_DIAMETER } from '../../ui/confirmLayout';
 import { createLabel, setLabelSize } from '../../ui/label';
 import { RoundButton } from '../../ui/RoundButton';
 import { SquareButton } from '../../ui/SquareButton';
 import { worldTapIgnored } from '../../ui/tapPause';
 import { COLORS, clamp } from '../../ui/style';
 import { drawToolIcon } from '../../ui/toolIcons';
-import { PICKER_ARROW, PICKER_CELL_W, PICKER_GAP, PICKER_PAD, pickerLayout } from '../../ui/pickerLayout';
-import { TOOLBAR_EDGE, TOOLBAR_GAP, TOOLBAR_PAD, toolbarLayout } from '../../ui/toolbarLayout';
+import { PICKER_ARROW, PICKER_CELL_W, PICKER_GAP, PICKER_PAD } from '../../ui/pickerLayout';
+import { TOOLBAR_GAP, TOOLBAR_PAD } from '../../ui/toolbarLayout';
 import type { ViewSize } from '../../ui/viewport';
 import { buildingTextureKey } from './buildingTextures';
 
-const GAP = 8;
-/** The small chip that the picker folds into. */
-const CHIP_W = 76;
-const CHIP_H = 90;
-/** The ✕ in the hint bar (64 px). */
-const EXIT_RADIUS = 32;
-/** Width kept free at the right for the zoom buttons (CSS px). */
-const ZOOM_COLUMN = 92;
 /** How long a short explanation ("Hier geht das nicht.") stays. */
 const NOTICE_MS = 2800;
 
@@ -66,6 +59,7 @@ export class BuildUI {
   private pickerOpen = true;
   private pickerPage = 0;
   private hintAtBottom = false;
+  private layoutData: BuildLayout | undefined;
   private lastTool: ToolId = 'view';
   private hadPreview = false;
   private lastUiTap = Number.NEGATIVE_INFINITY;
@@ -189,6 +183,10 @@ export class BuildUI {
       onTap: (time) => {
         this.touched(time);
         if (kind === 'chip') {
+          // On a low screen the open picker has no room next to a preview: the preview is dropped first.
+          if (this.tool.hasPreview && this.layoutData?.pickerFitsWithPreview === false) {
+            this.tool.cancel();
+          }
           this.pickerOpen = true;
         } else {
           this.tool.selectVariant(type.id);
@@ -238,16 +236,35 @@ export class BuildUI {
   layout(size: ViewSize, zoomSpots: Record<string, UiSpot>): void {
     this.view = size;
     this.zoomSpots = zoomSpots;
-    const { width, height } = size;
+    this.refresh();
+  }
 
-    // Toolbar: big buttons, in several rows when the screen is too narrow.
-    const { size: button, cols, rows } = toolbarLayout(width, TOOLS.length, height);
-    const panelW = cols * button + (cols - 1) * TOOLBAR_GAP + 2 * TOOLBAR_PAD;
-    const panelH = rows * button + (rows - 1) * TOOLBAR_GAP + 2 * TOOLBAR_PAD;
-    const panelX = (width - panelW) / 2;
-    const panelY = height - TOOLBAR_EDGE - panelH;
-    this.toolbarRect = { x: panelX, y: panelY, width: panelW, height: panelH };
-    drawPanel(this.toolbarPanel, this.toolbarRect);
+  /** Sets the hint text and returns the height of the hint bar (0 if there is no text). */
+  private measureHint(): number {
+    const { width, height } = this.view;
+    const text = this.hintText();
+    this.hintLabel.setVisible(text !== undefined);
+    if (text === undefined) {
+      return 0;
+    }
+    const inTool = this.tool.tool !== 'view';
+    const exitSpace = inTool ? 2 * EXIT_RADIUS + 10 : 0;
+    const fontSize = clamp(Math.min(width, height) * 0.04, 16, 26);
+    // The text never runs under the ✕ button: wrap narrower than the free space and shrink if it is still too wide.
+    const textMax = Math.max(100, hintBarGeometry(width).width - exitSpace - 40);
+    setLabelSize(this.hintLabel.setWordWrapWidth(textMax - 12).setText(text), fontSize, textMax);
+    return Math.max(this.hintLabel.height + 20, inTool ? HINT_MIN_HEIGHT : 0);
+  }
+
+  /** Puts every control where {@link layoutBuildUi} says. */
+  private applyLayout(layout: BuildLayout): void {
+    const { width } = this.view;
+    this.layoutData = layout;
+
+    // Toolbar: big buttons, in several rows when the screen is too narrow or low.
+    const { size: button, cols, rect: bar } = layout.toolbar;
+    this.toolbarRect = bar;
+    drawPanel(this.toolbarPanel, bar);
     TOOLS.forEach((id, index) => {
       const row = Math.floor(index / cols);
       const inRow = Math.min(cols, TOOLS.length - row * cols);
@@ -256,28 +273,38 @@ export class BuildUI {
       this.toolButtons
         .get(id)
         ?.layoutTo(button, button)
-        .setPosition((width - rowW) / 2 + button / 2 + col * (button + TOOLBAR_GAP), panelY + TOOLBAR_PAD + button / 2 + row * (button + TOOLBAR_GAP));
+        .setPosition((width - rowW) / 2 + button / 2 + col * (button + TOOLBAR_GAP), bar.y + TOOLBAR_PAD + button / 2 + row * (button + TOOLBAR_GAP));
     });
-    this.refresh();
+
+    // Hint bar.
+    this.hintPanel.clear();
+    this.hintAtBottom = this.tool.tool === 'view';
+    this.hintRect = layout.hint ?? EMPTY;
+    this.exitButton.setVisible(layout.hint !== undefined && this.tool.tool !== 'view');
+    if (layout.hint) {
+      const hint = layout.hint;
+      const exitSpace = this.tool.tool !== 'view' ? 2 * EXIT_RADIUS + 10 : 0;
+      const textMax = Math.max(100, hint.width - exitSpace - 40);
+      drawPanel(this.hintPanel, hint);
+      this.hintLabel.setPosition(hint.x + 20 + textMax / 2, hint.y + hint.height / 2);
+      this.exitButton.setPosition(hint.x + hint.width - 8 - EXIT_RADIUS, hint.y + 4 + EXIT_RADIUS);
+    }
+
+    this.applyPicker(layout);
+
+    // ✓ and ✕ at their fixed place.
+    this.confirmButton.setVisible(layout.confirm !== undefined);
+    this.cancelButton.setVisible(layout.cancel !== undefined);
+    if (layout.confirm && layout.cancel) {
+      this.confirmButton.setPosition(layout.confirm.x + layout.confirm.width / 2, layout.confirm.y + layout.confirm.height / 2).setDimmed(!this.tool.canConfirm);
+      this.cancelButton.setPosition(layout.cancel.x + layout.cancel.width / 2, layout.cancel.y + layout.cancel.height / 2);
+    }
   }
 
-  /** Bottom of the hint bar (or of the space it would use), the picker must stay below it. */
-  private get belowHint(): number {
-    return (this.hintRect.height > 0 && !this.hintAtBottom ? this.hintRect.y + this.hintRect.height : 12 + 2 * EXIT_RADIUS + 8) + 8;
-  }
-
-  /** Bottom edge of the space above the toolbar that the picker, chip and ✓ / ✕ may use. */
-  private get aboveToolbar(): number {
-    return this.toolbarRect.y - GAP - (this.tool.hasPreview ? CONFIRM_DIAMETER + GAP : 0);
-  }
-
-  private layoutPicker(): void {
+  private applyPicker(layout: BuildLayout): void {
     const { width } = this.view;
     const category = this.tool.variantCategory;
     const types = category ? typesOf(category) : [];
-    const open = types.length > 0 && this.pickerOpen;
-    const bottom = this.aboveToolbar;
-
     this.pickerPanel.clear();
     this.pickerRect = EMPTY;
     for (const button of this.variantButtons.values()) {
@@ -285,14 +312,15 @@ export class BuildUI {
     }
     this.prevButton.setVisible(false);
     this.nextButton.setVisible(false);
-    if (open) {
-      const layout = pickerLayout(width, types.length, this.belowHint, bottom);
-      this.pickerPage = clamp(this.pickerPage, 0, layout.pages - 1);
-      this.pickerRect = layout.rect;
-      drawPanel(this.pickerPanel, layout.rect);
-      const shown = types.slice(this.pickerPage * layout.perPage, (this.pickerPage + 1) * layout.perPage);
-      const rowsShown = layout.paged ? 1 : layout.rows;
-      const cols = layout.paged ? layout.perPage : layout.cols;
+
+    const picker = layout.picker;
+    if (picker) {
+      this.pickerPage = clamp(this.pickerPage, 0, picker.pages - 1);
+      this.pickerRect = picker.rect;
+      drawPanel(this.pickerPanel, picker.rect);
+      const shown = types.slice(this.pickerPage * picker.perPage, (this.pickerPage + 1) * picker.perPage);
+      const rowsShown = picker.paged ? 1 : picker.rows;
+      const cols = picker.paged ? picker.perPage : picker.cols;
       shown.forEach((type, index) => {
         const row = Math.floor(index / cols);
         // The last row is centred when it is not full.
@@ -302,77 +330,32 @@ export class BuildUI {
         this.variantButtons
           .get(type.id)
           ?.setVisible(true)
-          .layoutTo(PICKER_CELL_W, layout.cellH)
+          .layoutTo(PICKER_CELL_W, picker.cellH)
           .setPosition(
             (width - rowW) / 2 + PICKER_CELL_W / 2 + col * (PICKER_CELL_W + PICKER_GAP),
-            layout.rect.y + PICKER_PAD + layout.cellH / 2 + row * (layout.cellH + PICKER_GAP),
+            picker.rect.y + PICKER_PAD + picker.cellH / 2 + row * (picker.cellH + PICKER_GAP),
           )
           .setHighlighted(this.tool.variant === type.id);
       });
-      if (layout.paged) {
-        const y = layout.rect.y + layout.rect.height / 2;
-        this.prevButton.setVisible(true).setPosition(layout.rect.x + PICKER_PAD + PICKER_ARROW / 2, y).setDimmed(this.pickerPage === 0);
+      if (picker.paged) {
+        const y = picker.rect.y + picker.rect.height / 2;
+        this.prevButton.setVisible(true).setPosition(picker.rect.x + PICKER_PAD + PICKER_ARROW / 2, y).setDimmed(this.pickerPage === 0);
         this.nextButton
           .setVisible(true)
-          .setPosition(layout.rect.x + layout.rect.width - PICKER_PAD - PICKER_ARROW / 2, y)
-          .setDimmed(this.pickerPage >= layout.pages - 1);
+          .setPosition(picker.rect.x + picker.rect.width - PICKER_PAD - PICKER_ARROW / 2, y)
+          .setDimmed(this.pickerPage >= picker.pages - 1);
       }
     }
 
     // The folded picker: a small chip with the chosen variant, bottom left.
-    this.chipRect = EMPTY;
+    this.chipRect = layout.chip ?? EMPTY;
     for (const [id, button] of this.chipButtons) {
-      const shown = types.length > 0 && !this.pickerOpen && this.tool.variant === id;
+      const shown = layout.chip !== undefined && this.tool.variant === id;
       button.setVisible(shown);
-      if (shown) {
-        this.chipRect = { x: TOOLBAR_EDGE, y: bottom - CHIP_H, width: CHIP_W, height: CHIP_H };
-        button.layoutTo(CHIP_W, CHIP_H).setPosition(TOOLBAR_EDGE + CHIP_W / 2, bottom - CHIP_H / 2).setHighlighted(true);
+      if (shown && layout.chip) {
+        button.layoutTo(CHIP_W, CHIP_H).setPosition(layout.chip.x + CHIP_W / 2, layout.chip.y + CHIP_H / 2).setHighlighted(true);
       }
     }
-  }
-
-  private layoutConfirm(): void {
-    const show = this.tool.hasPreview;
-    this.confirmButton.setVisible(show);
-    this.cancelButton.setVisible(show);
-    if (!show) {
-      return;
-    }
-    const placement = placeConfirmButtons(this.view.width, this.toolbarRect.y);
-    this.confirmButton.setPosition(placement.confirm.x, placement.confirm.y).setDimmed(!this.tool.canConfirm);
-    this.cancelButton.setPosition(placement.cancel.x, placement.cancel.y);
-  }
-
-  private layoutHint(): void {
-    const { width, height } = this.view;
-    const text = this.hintText();
-    const visible = text !== undefined;
-    this.hintLabel.setVisible(visible);
-    this.hintPanel.clear();
-    this.exitButton.setVisible(visible && this.tool.tool !== 'view');
-    if (!visible) {
-      this.hintRect = EMPTY;
-      return;
-    }
-    const exitSpace = this.tool.tool !== 'view' ? 2 * EXIT_RADIUS + 10 : 0;
-    // The zoom buttons sit at the top right: keep the bar clear of them. On narrow screens the text wraps.
-    const fontSize = clamp(Math.min(width, height) * 0.04, 16, 26);
-    const maxBar = Math.max(width - 2 * ZOOM_COLUMN, Math.min(width - ZOOM_COLUMN - 12, 420));
-    // The bar always has the same width, so the ✕ never moves under the finger when the text changes.
-    const barW = Math.min(maxBar, 720);
-    // The text never runs under the ✕ button: wrap narrower than the free space and shrink if it is still too wide.
-    const textMax = Math.max(100, barW - exitSpace - 40);
-    setLabelSize(this.hintLabel.setWordWrapWidth(textMax - 12).setText(text), fontSize, textMax);
-    const inTool = this.tool.tool !== 'view';
-    const barH = Math.max(this.hintLabel.height + 20, inTool ? 2 * EXIT_RADIUS + 8 : 0);
-    const barX = clamp((width - barW) / 2, 12, Math.max(12, width - ZOOM_COLUMN - barW));
-    // While looking, a short note ("needs a path") sits above the toolbar, so it never covers a house sign at the top.
-    this.hintAtBottom = !inTool;
-    const barY = inTool ? 12 : this.toolbarRect.y - 12 - barH;
-    this.hintRect = { x: barX, y: barY, width: barW, height: barH };
-    drawPanel(this.hintPanel, this.hintRect);
-    this.hintLabel.setPosition(barX + 20 + textMax / 2, barY + barH / 2);
-    this.exitButton.setPosition(barX + barW - 8 - EXIT_RADIUS, barY + 4 + EXIT_RADIUS);
   }
 
   private hintText(): string | undefined {
@@ -399,9 +382,19 @@ export class BuildUI {
     for (const [id, button] of this.toolButtons) {
       button.setHighlighted(this.tool.tool === id);
     }
-    this.layoutHint();
-    this.layoutPicker();
-    this.layoutConfirm();
+    const category = this.tool.variantCategory;
+    this.applyLayout(
+      layoutBuildUi({
+        width: this.view.width,
+        height: this.view.height,
+        toolCount: TOOLS.length,
+        variantCount: category ? typesOf(category).length : 0,
+        pickerOpen: this.pickerOpen,
+        hasPreview,
+        hintHeight: this.measureHint(),
+        hintAtTop: this.tool.tool !== 'view',
+      }),
+    );
     this.seenVersion = this.tool.version;
     this.spotsDirty = true;
     this.onChange();

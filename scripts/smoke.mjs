@@ -940,40 +940,73 @@ async function testBuilding({ page, check, shot, size, input, drag, name }) {
     check(village.buildings.length === countBefore, 'Ziehen mit Werkzeug hat gebaut');
     await exitTool();
 
-    // --- Kleine Bildschirme (Handy hochkant und quer): nichts ragt über den Rand, Land bleibt antippbar ---
-    for (const [w, h] of [[320, 568], [568, 320]]) {
+    // --- Kleine Bildschirme (Handy hochkant und quer): nichts ragt über den Rand oder überdeckt etwas, Land bleibt antippbar ---
+    for (const [w, h] of [[320, 568], [568, 320], [640, 360]]) {
       step(`Kleiner Bildschirm ${w}×${h}: Leisten im Bild, Land antippbar`);
       await page.setViewportSize({ width: w, height: h });
       await sleep(1500);
       const small = { width: w, height: h };
-      await cameraAtRest();
-      await selectTool('deco');
-      let v = await waitForVillage(page, (state) => 'variant-flower' in state.ui, 'die Auswahl');
-      for (const [spot, p] of Object.entries(v.ui)) {
-        check(p.x - 24 >= 0 && p.x + 24 <= w && p.y - 24 >= 0 && p.y + 24 <= h, `${w}×${h}: „${spot}“ ragt über den Bildrand (${p.x.toFixed(0)}, ${p.y.toFixed(0)})`);
-      }
-      for (const [spot, p] of Object.entries(v.ui).filter(([spot]) => spot.startsWith('variant-'))) {
-        check(p.y - 32 >= 84, `${w}×${h}: „${spot}“ liegt unter/auf der Hinweisleiste (y ${p.y.toFixed(0)})`);
-      }
-      const toolbarTop = v.ui['tool-path'].y - 40;
-      check(toolbarTop > h * 0.4, `${w}×${h}: Werkzeugleiste nimmt mehr als die halbe Höhe`);
-      await shot(`${name}-klein-${w}x${h}`);
-      await tapUi('exit');
-      await waitForVillage(page, (state) => state.tool === 'view', 'zurück auf „Anschauen“');
-      // Land antippen: das Grasstück, das dem Punkt links oben von der Mitte am nächsten liegt und frei vom Bedienfeld ist.
       const cam = await cameraAtRest();
-      v = await readVillage(page);
+      let v = await readVillage(page);
+      const inBounds = (spot, p) => check(p.x - 24 >= 0 && p.x + 24 <= w && p.y - 24 >= 0 && p.y + 24 <= h, `${w}×${h}: „${spot}“ ragt über den Bildrand (${p.x.toFixed(0)}, ${p.y.toFixed(0)})`);
+      // Ein antippbares Grasstück: links oben von der Mitte, frei vom Bedienfeld (Hinweisleiste oben, Werkzeugleiste unten).
+      const toolbarTop = v.ui['tool-path'].y - 40;
       let best;
       for (let y = 0; y < MAP_TILES; y += 1) {
         for (let x = 0; x < MAP_TILES; x += 1) {
           if (v.terrain[y * MAP_TILES + x] !== 'g') continue;
           const p = screenOfTile(cam, small, { x, y });
-          if (p.x < 12 || p.x > w - 12 || p.y < 100 || p.y > toolbarTop - 40) continue;
+          // Frei von Chip (links unten), ✓/✕ (rechts unten), Zoom-Knöpfen (rechts oben), Hinweis- und Werkzeugleiste.
+          if (p.x < 92 || p.x > Math.max(150, w - 170) || p.y < 100 || p.y > toolbarTop - 24) continue;
           const distance = Math.hypot(p.x - w * 0.3, p.y - h * 0.4);
           if (!best || distance < best.distance) best = { x, y, p, distance };
         }
       }
       check(best !== undefined, `${w}×${h}: kein antippbares Land im Bild`);
+
+      for (const tool of ['house', 'deco']) {
+        await selectTool(tool);
+        v = await waitForVillage(page, (state) => Object.keys(state.ui).some((spot) => spot.startsWith('variant-')), `die Auswahl für ${tool}`);
+        const zoomSpots = [v.ui['zoom-in'], v.ui['zoom-out']];
+        for (const [spot, p] of Object.entries(v.ui)) inBounds(spot, p);
+        for (const [spot, p] of Object.entries(v.ui).filter(([spot]) => spot.startsWith('variant-') || spot.startsWith('page-'))) {
+          check(p.y - 28 >= 84, `${w}×${h}: „${spot}“ liegt unter/auf der Hinweisleiste (y ${p.y.toFixed(0)})`);
+          for (const z of zoomSpots) check(Math.hypot(p.x - z.x, p.y - z.y) >= 28 + 28, `${w}×${h}: „${spot}“ überdeckt einen Zoom-Knopf`);
+        }
+        check(toolbarTop > h * 0.4, `${w}×${h}: Werkzeugleiste nimmt mehr als die halbe Höhe`);
+        if (tool === 'deco') await shot(`${name}-klein-${w}x${h}`);
+        // Eine Variante wählen: die Auswahl klappt zum Chip zusammen; dann Land antippen: ✓/✕ stören nichts.
+        const variant = Object.keys(v.ui).find((spot) => spot.startsWith('variant-'));
+        await tapUi(variant);
+        await waitForVillage(page, (state) => 'chip' in state.ui, 'den Chip');
+        await sleep(500); // kurz nach einem Tipp auf einen Knopf ignoriert die Karte Tipps (Doppeltipp-Schutz)
+        if (best) {
+          await input.tap(best.p);
+          v = await waitForVillage(page, (state) => state.lastTap === tileKey(best.x, best.y) && state.preview.startsWith('place:') && 'confirm' in state.ui, `die Vorschau auf Land bei ${w}×${h}`, 5000);
+          for (const [spot, p] of Object.entries(v.ui)) inBounds(spot, p);
+          for (const spot of ['confirm', 'cancel', 'chip']) {
+            for (const z of zoomSpots) check(Math.hypot(v.ui[spot].x - z.x, v.ui[spot].y - z.y) >= 28 + 36, `${w}×${h}: „${spot}“ überdeckt einen Zoom-Knopf`);
+          }
+          check(Math.hypot(v.ui.confirm.x - v.ui.cancel.x, v.ui.confirm.y - v.ui.cancel.y) >= 72, `${w}×${h}: ✓ und ✕ überdecken sich`);
+          // Ein Tipp auf den Chip öffnet die Auswahl (reicht der Platz neben der Vorschau nicht, wird sie zuerst verworfen).
+          await tapUi('chip');
+          await waitForVillage(page, (state) => Object.keys(state.ui).some((spot) => spot.startsWith('variant-')), 'die wieder geöffnete Auswahl');
+          v = await readVillage(page);
+          for (const [spot, p] of Object.entries(v.ui)) inBounds(spot, p);
+          if ('confirm' in v.ui) {
+            for (const [spot, p] of Object.entries(v.ui).filter(([spot]) => spot.startsWith('variant-') || spot.startsWith('page-'))) {
+              for (const c of [v.ui.confirm, v.ui.cancel]) check(Math.hypot(p.x - c.x, p.y - c.y) >= 60, `${w}×${h}: „${spot}“ überdeckt ✓/✕`);
+            }
+          }
+          await tapUi(Object.keys(v.ui).find((spot) => spot.startsWith('variant-')));
+          await waitForVillage(page, (state) => 'chip' in state.ui, 'den Chip nach der Wahl');
+          await sleep(500);
+          if ('cancel' in (await readVillage(page)).ui) await tapUi('cancel');
+        }
+        await tapUi('exit');
+        await waitForVillage(page, (state) => state.tool === 'view', 'zurück auf „Anschauen“');
+      }
+      // Im Anschauen: ein Tipp auf Land wird gemeldet.
       if (best) {
         await input.tap(best.p);
         await waitForVillage(page, (state) => state.lastTap === tileKey(best.x, best.y), `den Tipp auf Land bei ${w}×${h}`, 4000);

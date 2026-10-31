@@ -25,15 +25,17 @@ export interface PickerLayout {
   readonly paged: boolean;
   readonly perPage: number;
   readonly pages: number;
+  /** The panel fits into the free band (`top` … `bottom`); if not, the picker must not open at that moment. */
+  readonly fits: boolean;
 }
 
 /**
- * `top` and `bottom` are the free band (CSS px from the top of the screen):
+ * `sideInset` keeps that much more free at both sides (the zoom column). `top` and `bottom` are the free band (CSS px from the top of the screen):
  * below the hint bar, above the toolbar (and the ✓/✕ row). The panel sits at
  * the bottom of the band.
  */
-export function pickerLayout(viewWidth: number, count: number, top: number, bottom: number): PickerLayout {
-  const availW = viewWidth - 2 * PICKER_EDGE;
+export function pickerLayout(viewWidth: number, count: number, top: number, bottom: number, sideInset = 0): PickerLayout {
+  const availW = viewWidth - 2 * (PICKER_EDGE + sideInset);
   const availH = bottom - top;
   const maxCols = Math.max(1, Math.floor((availW - 2 * PICKER_PAD + PICKER_GAP) / (PICKER_CELL_W + PICKER_GAP)));
   const cols = Math.max(1, Math.min(count, maxCols));
@@ -47,7 +49,7 @@ export function pickerLayout(viewWidth: number, count: number, top: number, bott
   for (const cellH of CELL_HEIGHTS) {
     const rect = panel(cellH, cols, rows, false);
     if (rect.height <= availH) {
-      return { rect, cols, rows, cellH, paged: false, perPage: count, pages: 1 };
+      return { rect, cols, rows, cellH, paged: false, perPage: count, pages: 1, fits: true };
     }
   }
 
@@ -55,8 +57,10 @@ export function pickerLayout(viewWidth: number, count: number, top: number, bott
   const cellH = Math.min(CELL_HEIGHTS[0], Math.max(MIN_CELL_H, availH - 2 * PICKER_PAD));
   const perPage = Math.max(1, Math.floor((availW - 2 * PICKER_PAD - 2 * (PICKER_ARROW + PICKER_GAP) + PICKER_GAP) / (PICKER_CELL_W + PICKER_GAP)));
   const pageCols = Math.min(perPage, count);
+  const rect = panel(cellH, pageCols, 1, true);
   return {
-    rect: panel(cellH, pageCols, 1, true),
+    rect,
+    fits: rect.y >= top - 0.001,
     cols: pageCols,
     rows: 1,
     cellH,
