@@ -9,6 +9,7 @@ import { CANCEL_DIAMETER, CONFIRM_DIAMETER } from '../../ui/confirmLayout';
 import { createLabel, setLabelSize } from '../../ui/label';
 import { cardStatus, productionInfo } from '../../ui/productionInfo';
 import { RoundButton } from '../../ui/RoundButton';
+import { MessageBoard } from '../../ui/messageBoard';
 import { newItemsText } from '../../ui/shopModel';
 import { SquareButton } from '../../ui/SquareButton';
 import { worldTapIgnored } from '../../ui/tapPause';
@@ -84,7 +85,9 @@ export class BuildUI {
   private readonly shop: ShopUI;
   private view: ViewSize = { width: 1, height: 1 };
   private seenVersion = -1;
-  private notice: { text: string; until: number } | undefined;
+  private readonly board = new MessageBoard();
+  /** The message the hint bar showed last (the hint is redrawn when it changes, also when news runs out). */
+  private lastMessage: string | undefined;
   private hintRect: Rect = EMPTY;
   private toolbarRect: Rect = EMPTY;
   private chipRect: Rect = EMPTY;
@@ -178,7 +181,7 @@ export class BuildUI {
           this.showNotice(notice);
         } else {
           // Starting with a clean slate: an old note does not belong to the new item.
-          this.notice = undefined;
+          this.board.clearExplanation();
         }
         this.refresh();
       },
@@ -206,7 +209,7 @@ export class BuildUI {
           this.showNotice(notice, this.tool.hintParams);
         } else {
           // Built: an old note ("Hier geht das nicht.") must not stay on.
-          this.notice = undefined;
+          this.board.clearExplanation();
         }
         this.refresh();
       },
@@ -267,25 +270,16 @@ export class BuildUI {
    * (a tap on the world, another tool, ✓ or ✕) – a slow reader gets all the time, nothing runs out by the clock.
    */
   showNotice(key: TextKey, params?: TextParams): void {
-    this.showText(t(key, params), Number.POSITIVE_INFINITY);
+    this.board.explain(t(key, params));
+    this.seenVersion = -1;
   }
 
   /** The next tap of the child: an old explanation goes away. */
   clearNotice(): void {
-    if (this.notice !== undefined) {
-      this.notice = undefined;
+    if (this.board.hasExplanation) {
+      this.board.clearExplanation();
       this.seenVersion = -1;
     }
-  }
-
-  private showText(text: string, durationMs: number): void {
-    this.notice = { text, until: this.scene.time.now + durationMs };
-    this.seenVersion = -1;
-  }
-
-  /** Where the store bar ends at the top (CSS px): the greeting sits below it. */
-  get stockBottom(): number {
-    return this.stock.rect.y + this.stock.rect.height;
   }
 
   /** Is the info card of a production building open? */
@@ -460,8 +454,9 @@ export class BuildUI {
     if (this.tool.inspectedId !== undefined) {
       return this.cardFallback;
     }
-    if (this.notice && this.scene.time.now < this.notice.until) {
-      return this.notice.text;
+    const message = this.board.current(this.scene.time.now);
+    if (message !== undefined) {
+      return message;
     }
     const hint = this.tool.hint;
     return hint ? t(hint, this.tool.hintParams) : undefined;
@@ -472,7 +467,7 @@ export class BuildUI {
     // An explanation about the last tool does not belong to the next one.
     if (this.tool.tool !== this.lastTool) {
       this.lastTool = this.tool.tool;
-      this.notice = undefined;
+      this.board.clearExplanation();
     }
     for (const [id, button] of this.toolButtons) {
       // The shop button stays lit while an item from the shop is being placed.
@@ -510,14 +505,15 @@ export class BuildUI {
     // Look at the store first: a change counts as a change of the tool (see `BuildTool.sync`).
     this.tool.sync();
     const state = this.getState();
-    const expired = this.notice !== undefined && this.scene.time.now >= this.notice.until;
-    if (expired) {
-      this.notice = undefined;
-    }
+    // News runs out by itself: redraw the hint bar when what it shows changes (then a standing explanation is back).
+    const message = this.board.current(this.scene.time.now);
+    const expired = message !== this.lastMessage;
+    this.lastMessage = message;
     // Something was unlocked: a friendly message (and the star on the shop button, which `refresh` redraws).
     const news = this.tool.takeAnnouncements();
     if (news.length > 0) {
-      this.showText(newItemsText(news), NEWS_MS);
+      this.board.announce(newItemsText(news), this.scene.time.now, NEWS_MS);
+      this.lastMessage = undefined;
     }
     // The numbers pop when they change; cards that can (not) be paid for change with them.
     const stockChanged = this.stock.update(state.inventory);
