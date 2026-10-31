@@ -1417,7 +1417,7 @@ async function testEconomy({ page, check, shot, size, input, name }) {
   village = await readVillage(page);
   cam = await cameraAtRest();
   const houseSpot = findFreeArea(village, cam, size, 2, 2, { near: { x: size.width * 0.3, y: size.height * 0.4 } });
-  check(houseSpot !== undefined, 'Kein Platz für das Haus');
+  check(houseSpot !== undefined, `Kein Platz für das Haus (Kamera ${JSON.stringify(cam)}, Schirm ${size.width}×${size.height}, ${village.buildings.length} Gebäude, ${village.paths.length} Wegkacheln, Werkzeug ${village.tool})`);
   if (houseSpot) {
     await sleep(500);
     await tapTile({ x: houseSpot.x, y: houseSpot.y + 1 });
@@ -1553,7 +1553,10 @@ async function testEconomy({ page, check, shot, size, input, name }) {
     // Die Infokarte des Beerengartens.
     await sleep(400);
     const cam2 = await cameraAtRest();
-    const gardenAt = screenOfTile(cam2, small, gardenTile);
+    // Das Zahnrad (seit M5) und die Zoom-Knöpfe liegen über der Welt: der Tipp geht auf eine Kachel des Gartens, die frei davon ist.
+    const covered = (p) => ['menu', 'zoom-in', 'zoom-out'].some((spotName) => v.ui[spotName] && Math.hypot(p.x - v.ui[spotName].x, p.y - v.ui[spotName].y) < zr + 6);
+    const gardenSpots = [gardenTile, { x: garden.x, y: garden.y + 1 }, { x: garden.x + 1, y: garden.y }, { x: garden.x, y: garden.y }].map((tile) => screenOfTile(cam2, small, tile));
+    const gardenAt = gardenSpots.find((p) => !covered(p)) ?? gardenSpots[0];
     check(gardenAt.x > 20 && gardenAt.x < w - 20 && gardenAt.y > stock.y + stock.h / 2 && gardenAt.y < toolbarTop, `${w}×${h}: Beerengarten liegt nicht antippbar im Bild (${gardenAt.x.toFixed(0)}, ${gardenAt.y.toFixed(0)})`);
     await input.tap(gardenAt);
     v = await waitForVillage(page, (state) => state.card === String(garden.id) && 'card-close' in state.ui, `die Infokarte bei ${w}×${h}`, 6000);
@@ -1833,7 +1836,10 @@ async function testShop({ page, check, shot, size, input, name, waitLong }) {
     village = await waitForVillage(page, (v) => /von allein/.test(v.hint), 'der Hinweis „von allein gewachsen“');
     // Der Hinweis bleibt, bis der nächste Tipp kommt (nicht zeitgesteuert, T1).
     await sleep(6000);
-    check(/von allein/.test((await readVillage(page)).hint), 'Der Hinweis „von allein gewachsen“ ist nach 6 Sekunden weg');
+    let hintAfter = (await readVillage(page)).hint;
+    // Wird in diesen Sekunden etwas freigeschaltet, liegt „Neu im Shop“ 7 Sekunden über der Erklärung – danach ist sie wieder da (N3).
+    if (/Neu im Shop/.test(hintAfter)) hintAfter = (await waitForVillage(page, (v) => /von allein/.test(v.hint), 'die Erklärung nach „Neu im Shop“', 9000)).hint;
+    check(/von allein/.test(hintAfter), `Der Hinweis „von allein gewachsen“ ist nach 6 Sekunden weg (jetzt: „${hintAfter}“)`);
     check(village.preview === 'none', `Natürlicher Baum: Vorschau ${village.preview}, erwartet „none“`);
     check(terrainAt(village, natural) === 'f', 'Der natürliche Baum wurde abgerissen');
   }
@@ -2522,6 +2528,8 @@ async function testPwa({ context, page, check, shot, size, profile, waitForScene
 
 /** Startet das Spiel (Tippen zum Spielen) und wartet auf die Insel. */
 async function enterIsland(page, profile, waitForScene, url = GAME_URL) {
+  // Ein Abschnitt, der abbrach, kann den Bildschirm klein gelassen haben: jeder neue Start beginnt mit der Größe des Geräts.
+  await page.setViewportSize(profile.context.viewport);
   await page.goto(url, { waitUntil: 'load' });
   await waitForScene('boot');
   await page.waitForTimeout(500);
