@@ -1,7 +1,7 @@
 import {
   approach,
   clampView,
-  fitRect,
+  startView,
   panView,
   transformView,
   zoomLimits,
@@ -23,6 +23,10 @@ export interface CameraRigOptions {
   readonly tileSize: number;
   /** Biggest zoom: one tile is this many CSS pixels. */
   readonly maxTileCssPx: number;
+  /** At the start a tile is at least this many CSS pixels big (zoomed in on {@link startCenter} if the whole island would be smaller). */
+  readonly minStartTileCssPx?: number;
+  /** Where to look at the start if it has to zoom in (world pixels): the start village. */
+  readonly startCenter?: Point;
 }
 
 /** How fast a smooth zoom (wheel, +/− buttons) arrives, in ms. */
@@ -74,7 +78,7 @@ export class CameraRig {
     this.currentLimits = zoomLimits(this.size, this.options.bounds, this.options.tileSize, this.options.maxTileCssPx);
     if (!this.started) {
       this.started = true;
-      this.current = this.clamp(fitRect(this.size, this.options.focus, this.options.focusPadding));
+      this.current = this.clamp(this.startView());
     } else {
       this.current = this.clamp(this.current);
     }
@@ -82,10 +86,15 @@ export class CameraRig {
     this.zoomAnchor = { x: this.size.width / 2, y: this.size.height / 2 };
   }
 
+  private startView(): CameraView {
+    const { focus, focusPadding, tileSize, minStartTileCssPx, startCenter } = this.options;
+    return startView(this.size, focus, focusPadding, tileSize, minStartTileCssPx, startCenter);
+  }
+
   /** Goes back to the start view. */
   reset(): void {
     this.stop();
-    this.current = this.clamp(fitRect(this.size, this.options.focus, this.options.focusPadding));
+    this.current = this.clamp(this.startView());
     this.targetZoom = this.current.zoom;
   }
 

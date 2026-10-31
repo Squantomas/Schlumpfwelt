@@ -2,6 +2,7 @@ import Phaser from 'phaser';
 import type { CostMap } from '../../data/buildings';
 import { ITEM_IDS, isItem } from '../../data/goods';
 import { formatNumber } from '../../data/texts';
+import { costRowLayout } from '../../ui/costRowLayout';
 import { createLabel, setLabelSize } from '../../ui/label';
 import { COLORS, cssColor } from '../../ui/style';
 import { goodTextureKey } from './goodTextures';
@@ -61,26 +62,28 @@ export class CostRow extends Phaser.GameObjects.Container {
 
   private relayout(): void {
     const ids = ITEM_IDS.filter((id) => isItem(id) && (this.cost[id] ?? 0) > 0);
-    const slot = this.rowWidth / Math.max(1, ids.length);
-    const iconSize = Math.max(10, Math.min(this.rowHeight * 0.95, slot * 0.5));
-    const fontSize = Math.max(10, Math.min(this.rowHeight * 0.78, 17));
+    const layout = costRowLayout(
+      this.rowWidth,
+      this.rowHeight,
+      ids.map((id) => ({ id, text: formatNumber(this.cost[id] ?? 0) })),
+    );
     this.entries.forEach((entry, index) => {
-      const id = ids[index];
-      entry.icon.setVisible(id !== undefined);
-      entry.amount.setVisible(id !== undefined);
-      if (id === undefined) {
+      const item = layout.items[index];
+      entry.icon.setVisible(item !== undefined);
+      entry.amount.setVisible(item !== undefined);
+      if (!item) {
         return;
       }
-      const left = -this.rowWidth / 2 + slot * index;
+      const left = -this.rowWidth / 2;
+      const short = (this.missing[item.id] ?? 0) > 0;
       entry.icon
-        .setTexture(goodTextureKey(id))
-        .setDisplaySize(iconSize, iconSize)
-        .setPosition(left + iconSize / 2 + 1, 0);
-      const short = (this.missing[id] ?? 0) > 0;
-      entry.amount.setText(formatNumber(this.cost[id] ?? 0)).setColor(short ? cssColor(COLORS.costMissing) : cssColor(COLORS.textFill));
-      const field = Math.max(8, slot - iconSize - 3);
-      setLabelSize(entry.amount, fontSize, field);
-      entry.amount.setPosition(left + iconSize + 3 + field / 2, 0);
+        .setTexture(goodTextureKey(item.id))
+        .setDisplaySize(layout.iconSize, layout.iconSize)
+        .setPosition(left + item.iconX + layout.iconSize / 2, 0);
+      // No maximum width: the numbers never get smaller than the minimum, the pictures give way instead.
+      entry.amount.setText(item.text).setColor(short ? cssColor(COLORS.costMissing) : cssColor(COLORS.textFill));
+      setLabelSize(entry.amount, layout.fontSize);
+      entry.amount.setPosition(left + item.textX + item.textWidth / 2, 0);
     });
   }
 }

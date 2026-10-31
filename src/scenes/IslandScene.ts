@@ -10,6 +10,7 @@ import { BuildTool, type Preview } from '../ui/buildTool';
 import { zoomLayout } from '../ui/buildLayout';
 import { growRect, tileAtWorld, visibleRect, type CameraBounds, type Point, type Rect } from '../ui/cameraMath';
 import { landRegions } from '../ui/cameraRegions';
+import { simulationDelta } from '../ui/frameTime';
 import { createLabel, setLabelSize } from '../ui/label';
 import { RoundButton } from '../ui/RoundButton';
 import { COLORS, TILE_SIZE, clamp, rgb } from '../ui/style';
@@ -157,6 +158,9 @@ export class IslandScene extends Phaser.Scene {
       focusPadding: 12,
       tileSize: TILE_SIZE,
       maxTileCssPx: CAMERA_CONFIG.maxTileCssPx,
+      minStartTileCssPx: CAMERA_CONFIG.minStartTileCssPx,
+      // The start village sits in the middle of the island.
+      startCenter: { x: (world.width / 2) * TILE_SIZE, y: (world.height / 2) * TILE_SIZE },
       tapMaxMovePx: CAMERA_CONFIG.tapMaxMovePx,
       wheelZoomPerPixel: CAMERA_CONFIG.wheelZoomPerPixel,
       blocksCamera: (object) => object.displayList === this.uiLayer,
@@ -221,7 +225,8 @@ export class IslandScene extends Phaser.Scene {
   }
 
   override update(_time: number, delta: number): void {
-    const alpha = this.simulation.update(delta);
+    // The raw frame time, not Phaser's smoothed `delta`: only the clock of the simulation caps a frame (see frameTime.ts).
+    const alpha = this.simulation.update(simulationDelta(this.game.loop.rawDelta, delta));
     const seconds = ((this.simulation.state.tick + alpha) * this.simulation.tickMs) / 1000;
 
     this.controller.update(delta);

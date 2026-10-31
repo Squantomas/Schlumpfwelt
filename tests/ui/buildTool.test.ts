@@ -112,7 +112,7 @@ describe('Setzen: Haus und Deko', () => {
     const { tool } = setup();
     tool.selectTool('house');
     tool.tap({ x: 5, y: 6 });
-    expect(tool.preview()).toEqual({ kind: 'place', typeId: 'house-red', x: 5, y: 5, result: 'ok' });
+    expect(tool.preview()).toEqual({ kind: 'place', typeId: 'house-red', x: 5, y: 5, connected: false, result: 'ok' });
     expect(tool.canConfirm).toBe(true);
   });
 
@@ -711,7 +711,7 @@ describe('Gebäude-Werkzeug und Kosten (M3)', () => {
     expect(tool.preview()).toMatchObject({ kind: 'place', result: 'cost', missing: { wood: 3 } });
     expect(tool.canConfirm).toBe(false);
     expect(tool.hint).toBe('hint.missing');
-    expect(t(tool.hint ?? 'hint.missing', tool.hintParams)).toBe('Dir fehlen 3 Holz.');
+    expect(t(tool.hint ?? 'hint.missing', tool.hintParams)).toBe('Dir fehlen 3 Holz. Warte auf den Markt oder reiß etwas ab – du bekommst alles zurück.');
     expect(tool.confirm()).toBe('hint.missing');
     expect(sent).toHaveLength(0);
   });
@@ -723,10 +723,10 @@ describe('Gebäude-Werkzeug und Kosten (M3)', () => {
     tool.selectTool('house');
     tool.tap({ x: 6, y: 6 });
     expect(tool.hint).toBe('hint.missingOne');
-    expect(t(tool.hint ?? 'hint.missing', tool.hintParams)).toBe('Dir fehlt 1 Holz.');
+    expect(t(tool.hint ?? 'hint.missing', tool.hintParams)).toBe('Dir fehlt 1 Holz. Warte auf den Markt oder reiß etwas ab – du bekommst alles zurück.');
     setStore(state, { coins: 10 });
     tool.tap({ x: 6, y: 6 });
-    expect(t(tool.hint ?? 'hint.missing', tool.hintParams)).toBe('Dir fehlen 30 Taler und 8 Holz.');
+    expect(t(tool.hint ?? 'hint.missing', tool.hintParams)).toBe('Dir fehlen 30 Taler und 8 Holz. Warte auf den Markt oder reiß etwas ab – du bekommst alles zurück.');
   });
 
   it('sagt schon beim Wählen einer zu teuren Variante, was fehlt, und wird beim Auffüllen wieder frei', () => {
@@ -735,8 +735,11 @@ describe('Gebäude-Werkzeug und Kosten (M3)', () => {
     const { tool } = setup(state);
     tool.selectTool('house');
     expect(tool.variantAffordable).toBe(false);
+    // Noch nichts gewählt (nur die Vorgabe): kein „Dir fehlen …“, nur die Anleitung.
+    expect(tool.hint).toBe('hint.place');
+    tool.selectVariant('house-red');
     expect(tool.hint).toBe('hint.missing');
-    expect(t(tool.hint ?? 'hint.missing', tool.hintParams)).toBe('Dir fehlen 3 Holz.');
+    expect(t(tool.hint ?? 'hint.missing', tool.hintParams)).toBe('Dir fehlen 3 Holz. Warte auf den Markt oder reiß etwas ab – du bekommst alles zurück.');
     state.inventory['wood'] = 8;
     expect(tool.variantAffordable).toBe(true);
     expect(tool.hint).toBe('hint.place');
@@ -768,8 +771,10 @@ describe('Gebäude-Werkzeug und Kosten (M3)', () => {
     expect(t('hint.noForest')).toBe('Hier sind keine Bäume in der Nähe.');
     expect(tool.canConfirm).toBe(false);
     tool.tap({ x: 11, y: 4 });
-    expect(tool.preview()).toMatchObject({ kind: 'place', result: 'ok' });
-    expect(tool.hint).toBe('hint.place');
+    expect(tool.preview()).toMatchObject({ kind: 'place', result: 'ok', connected: false });
+    // Ohne Weg daneben ist die Vorschau grün, der Hinweis sagt aber, was als Nächstes zu tun ist.
+    expect(tool.hint).toBe('hint.noPathWork');
+    expect(tool.canConfirm).toBe(true);
   });
 
   it('sagt beim Steinbruch, dass Felsen fehlen', () => {
@@ -896,5 +901,134 @@ describe('Infokarte öffnen und schließen (M3)', () => {
     const closed = tool.version;
     tool.closeInfo();
     expect(tool.version).toBe(closed);
+  });
+});
+
+describe('Vorschau folgt dem Lager (Korrekturrunde 1)', () => {
+  it('wird grün, sobald das Fehlende ins Lager kommt (rote Vorschau war „cost“)', () => {
+    const state = grassState();
+    setStore(state, { coins: 0 });
+    const { tool } = setup(state);
+    tool.selectTool('deco');
+    tool.tap({ x: 6, y: 6 });
+    expect(tool.preview()).toMatchObject({ kind: 'place', result: 'cost', missing: { coins: 3 } });
+    expect(tool.canConfirm).toBe(false);
+    const before = tool.version;
+    state.inventory['coins'] = 100;
+    expect(tool.version).toBeGreaterThan(before);
+    expect(tool.preview()).toMatchObject({ kind: 'place', result: 'ok' });
+    expect(tool.canConfirm).toBe(true);
+    expect(tool.hint).toBe('hint.place');
+  });
+
+  it('wird rot, sobald das Lager nicht mehr reicht (grüne Vorschau), und ✓ meldet es statt still zu verwerfen', () => {
+    const state = grassState();
+    setStore(state, { coins: 100 });
+    const { tool, sent } = setup(state);
+    tool.selectTool('deco');
+    tool.tap({ x: 6, y: 6 });
+    expect(tool.canConfirm).toBe(true);
+    state.inventory['coins'] = 1;
+    expect(tool.preview()).toMatchObject({ result: 'cost', missing: { coins: 2 } });
+    expect(tool.canConfirm).toBe(false);
+    expect(tool.confirm()).toBe('hint.missing');
+    expect(sent).toHaveLength(0);
+  });
+
+  it('bleibt ohne Änderung des Lagers beim zwischengespeicherten Ergebnis und zählt dann nicht', () => {
+    const state = grassState();
+    const { tool } = setup(state);
+    tool.selectTool('deco');
+    tool.tap({ x: 6, y: 6 });
+    const first = tool.preview();
+    const version = tool.version;
+    expect(tool.preview()).toBe(first);
+    expect(tool.version).toBe(version);
+  });
+
+  it('zählt Lageränderungen nur, solange ein Werkzeug an ist', () => {
+    const state = grassState();
+    const { tool } = setup(state);
+    const before = tool.version;
+    state.inventory['coins'] = 1;
+    expect(tool.version).toBe(before);
+    tool.selectTool('house');
+    const inTool = tool.version;
+    state.inventory['coins'] = 2;
+    expect(tool.version).toBeGreaterThan(inTool);
+  });
+
+  it('rechnet die Erstattung beim Abreißen mit dem aktuellen Stand, auch wenn sich das Lager änderte', () => {
+    const state = grassState();
+    setStore(state, { coins: 100, wood: 20 });
+    run(state, { type: 'placeBuilding', buildingType: 'house-red', x: 4, y: 4 });
+    const refunds: RefundInfo[] = [];
+    const tool = new BuildTool(() => state, (command) => { applyCommand(state, command); }, (info) => refunds.push(info));
+    tool.selectTool('demolish');
+    tool.tap({ x: 5, y: 5 });
+    state.inventory['coins'] = 7;
+    expect(tool.preview()).toMatchObject({ kind: 'demolish', refund: { coins: 40, wood: 8 } });
+    tool.confirm();
+    expect(refunds[0]?.refund).toEqual({ coins: 40, wood: 8 });
+    expect(state.inventory['coins']).toBe(47);
+  });
+});
+
+describe('Hinweise ohne falsche Anleitung (T3, T8)', () => {
+  it('sagt bei einem Haus ohne Weg daneben, dass es einen braucht, und lässt ✓ zu', () => {
+    const state = grassState();
+    setStore(state, { coins: 100, wood: 20 });
+    const { tool } = setup(state);
+    tool.selectTool('house');
+    tool.tap({ x: 6, y: 6 });
+    expect(tool.hint).toBe('hint.noPathHouse');
+    expect(tool.canConfirm).toBe(true);
+  });
+
+  it('zeigt mit Weg daneben den normalen Hinweis', () => {
+    const state = grassState();
+    setStore(state, { coins: 100, wood: 20 });
+    run(state, { type: 'placePaths', tiles: [{ x: 6, y: 7 }] });
+    const { tool } = setup(state);
+    tool.selectTool('house');
+    tool.tap({ x: 6, y: 6 });
+    expect(tool.preview()).toMatchObject({ result: 'ok', connected: true });
+    expect(tool.hint).toBe('hint.place');
+  });
+
+  it('sagt das auch beim Verschieben auf einen Platz ohne Weg', () => {
+    const state = grassState();
+    setStore(state, { coins: 100, wood: 20 });
+    const id = buildConnected(state, 'berry-garden', 2, 2);
+    const { tool } = setup(state);
+    tool.selectTool('move');
+    tool.tap({ x: 2, y: 2 });
+    tool.tap({ x: 10, y: 11 });
+    expect(tool.preview()).toMatchObject({ kind: 'move', id, target: { result: 'ok', connected: false } });
+    expect(tool.hint).toBe('hint.noPathWork');
+  });
+
+  it('zeigt nach dem Bauen kein „Dir fehlen …“ für die Karte, die gerade bezahlt wurde, sondern wieder die Anleitung', () => {
+    const state = grassState();
+    setStore(state, { coins: 40, wood: 8 });
+    run(state, { type: 'placePaths', tiles: [{ x: 6, y: 7 }] });
+    const { tool } = setup(state);
+    tool.selectTool('house');
+    tool.selectVariant('house-red');
+    tool.tap({ x: 6, y: 6 });
+    tool.confirm();
+    expect(state.buildings).toHaveLength(1);
+    expect(tool.variantAffordable).toBe(false);
+    expect(tool.hint).toBe('hint.place');
+  });
+
+  it('zeigt beim Einschalten des Haus-Werkzeugs nicht „Dir fehlen …“, bevor etwas gewählt ist', () => {
+    const state = grassState();
+    setStore(state);
+    const { tool } = setup(state);
+    tool.selectTool('house');
+    expect(tool.hint).toBe('hint.place');
+    tool.selectTool('deco');
+    expect(tool.hint).toBe('hint.place');
   });
 });

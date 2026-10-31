@@ -10,6 +10,8 @@ export interface WorldCameraOptions {
   readonly focusPadding: number;
   readonly tileSize: number;
   readonly maxTileCssPx: number;
+  readonly minStartTileCssPx?: number;
+  readonly startCenter?: Point;
   readonly tapMaxMovePx: number;
   readonly wheelZoomPerPixel: number;
   /**

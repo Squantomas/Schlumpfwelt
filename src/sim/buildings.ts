@@ -242,14 +242,24 @@ export function isConnected(state: PlacementView, buildingId: number): boolean {
   if (!building || !type) {
     return false;
   }
+  return touchesPath(state, type, building.x, building.y);
+}
+
+/** Would a thing of this type with its top left tile on (x, y) have a path right next to it (not diagonal)? For the preview. */
+export function wouldBeConnected(state: PlacementView, typeId: string, x: number, y: number): boolean {
+  const type = buildingType(typeId);
+  return type !== undefined && touchesPath(state, type, x, y);
+}
+
+function touchesPath(state: PlacementView, type: Pick<BuildingType, 'footprint'>, x: number, y: number): boolean {
   const { w, h } = type.footprint;
   for (let dx = 0; dx < w; dx += 1) {
-    if (isPath(state, building.x + dx, building.y - 1) || isPath(state, building.x + dx, building.y + h)) {
+    if (isPath(state, x + dx, y - 1) || isPath(state, x + dx, y + h)) {
       return true;
     }
   }
   for (let dy = 0; dy < h; dy += 1) {
-    if (isPath(state, building.x - 1, building.y + dy) || isPath(state, building.x + w, building.y + dy)) {
+    if (isPath(state, x - 1, y + dy) || isPath(state, x + w, y + dy)) {
       return true;
     }
   }

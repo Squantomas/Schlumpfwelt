@@ -60,8 +60,8 @@
   "good.cakeMany": "Beerenkuchen",
   "amount.format": "{count} {name}",
   "list.and": "und",
-  "hint.missing": "Dir fehlen {list}.",
-  "hint.missingOne": "Dir fehlt {list}.",
+  "hint.missing": "Dir fehlen {list}. Warte auf den Markt oder reiß etwas ab – du bekommst alles zurück.",
+  "hint.missingOne": "Dir fehlt {list}. Warte auf den Markt oder reiß etwas ab – du bekommst alles zurück.",
   "hint.noForest": "Hier sind keine Bäume in der Nähe.",
   "hint.noRock": "Hier sind keine Felsen in der Nähe.",
   "hint.refund": "Du bekommst {list} zurück. Dann ✓.",
@@ -73,5 +73,7 @@
   "status.noRock": "Hier sind keine Felsen in der Nähe.",
   "status.waitingInput": "Wartet auf {list}.",
   "status.idle": "Noch nichts zu verkaufen.",
-  "effect.plus": "+{count}"
+  "effect.plus": "+{count}",
+  "hint.noPathWork": "Ohne Weg kann es nicht arbeiten. Bau danach einen Weg dorthin.",
+  "hint.noPathHouse": "Dieses Haus braucht einen Weg. Bau danach einen Weg dorthin."
 }

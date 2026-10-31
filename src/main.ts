@@ -58,10 +58,6 @@ const game = new Phaser.Game({
   render: {
     antialias: true,
   },
-  // Phaser replaces a frame time over 1000 / min ms by a 60 fps step (it takes that for a tab that was in the
-  // background). With the default of 5 fps, a slow device (or headless Chromium, about 4 fps) would let the
-  // simulation run at a fraction of real time; the clock itself caps every frame at 250 ms.
-  fps: { min: 1 },
   scene: [new BootScene(), new IslandScene(simulation)],
 });
 

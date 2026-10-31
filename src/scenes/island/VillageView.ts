@@ -1,13 +1,13 @@
 import Phaser from 'phaser';
 import { buildingType } from '../../data/buildings';
 import { t } from '../../data/texts';
-import { buildingAt, isConnected, tileIndex } from '../../sim/buildings';
+import { buildingAt, tileIndex } from '../../sim/buildings';
 import { nearbyArea, nearbyTiles, productionOf } from '../../sim/economy';
 import type { Simulation } from '../../sim/simulation';
 import type { PathPreviewTile, Preview } from '../../ui/buildTool';
 import { createLabel } from '../../ui/label';
 import { markerY } from '../../ui/markerPosition';
-import { missingInputOf } from '../../ui/productionInfo';
+import { signsFor } from '../../ui/signs';
 import { COLORS, TILE_SIZE } from '../../ui/style';
 import {
   MARKER_BUBBLE,
@@ -239,35 +239,9 @@ export class VillageView {
     }
   }
 
-  /** The kind of sign each building needs right now: no path, no trees / rocks nearby, waiting for an input. */
-  private desiredSigns(): Map<number, string> {
-    const state = this.simulation.state;
-    const wanted = new Map<number, string>();
-    for (const building of state.buildings) {
-      const type = buildingType(building.type);
-      if (type?.needsPath && !isConnected(state, building.id)) {
-        wanted.set(building.id, 'path');
-        continue;
-      }
-      const producer = state.production.find((p) => p.buildingId === building.id);
-      if (!producer) {
-        continue;
-      }
-      if (producer.status === 'noNearby') {
-        wanted.set(building.id, productionOf(building.type)?.needsNearby?.terrain === 'rock' ? 'rock' : 'tree');
-      } else if (producer.status === 'waitingInput') {
-        const missing = missingInputOf(state, building.id);
-        if (missing !== undefined) {
-          wanted.set(building.id, `good-${missing}`);
-        }
-      }
-    }
-    return wanted;
-  }
-
   private syncSigns(animate: boolean): void {
     const { buildings } = this.simulation.state;
-    const wanted = this.desiredSigns();
+    const wanted = signsFor(this.simulation.state);
     for (const [id, kind] of wanted) {
       const building = buildings.find((b) => b.id === id);
       const type = building ? buildingType(building.type) : undefined;

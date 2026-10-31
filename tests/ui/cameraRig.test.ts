@@ -26,6 +26,61 @@ beforeEach(() => {
   rig.resize(TABLET);
 });
 
+describe('Startansicht auf kleinen Schirmen', () => {
+  const VILLAGE = { x: 24 * TILE, y: 24 * TILE };
+  const makeStartRig = (): CameraRig =>
+    new CameraRig({ bounds: BOUNDS, focus: FOCUS, focusPadding: 24, tileSize: TILE, maxTileCssPx: 128, minStartTileCssPx: 32, startCenter: VILLAGE });
+
+  it.each([[360, 640], [320, 568], [568, 320], [375, 667], [1024, 768], [768, 1024], [1280, 800]] as const)('zeigt bei %i×%i eine Kachel von mindestens 32 CSS-px', (width, height) => {
+    const small = makeStartRig();
+    small.resize({ width, height });
+    expect(small.view.zoom * TILE).toBeGreaterThanOrEqual(32 - 1e-9);
+  });
+
+  it('zentriert die Startansicht eines Handys aufs Startdorf, statt die ganze Insel winzig zu zeigen', () => {
+    const phone = makeStartRig();
+    phone.resize({ width: 360, height: 640 });
+    expect(phone.view.centerX).toBeCloseTo(VILLAGE.x, 6);
+    expect(phone.view.centerY).toBeCloseTo(VILLAGE.y, 6);
+    const seen = visibleRect(phone.view, { width: 360, height: 640 });
+    // Das Dorf (Haus, Garten, Markt in etwa 8 × 6 Kacheln) ist ganz im Bild.
+    expect(seen.x).toBeLessThan(VILLAGE.x - 4 * TILE);
+    expect(seen.x + seen.width).toBeGreaterThan(VILLAGE.x + 4 * TILE);
+    expect(seen.y).toBeLessThan(VILLAGE.y - 3 * TILE);
+  });
+
+  it('lässt weiter das Herauszoomen und die Grenzen zu', () => {
+    const phone = makeStartRig();
+    phone.resize({ width: 360, height: 640 });
+    const start = phone.view.zoom;
+    phone.zoomBy(0.1, { x: 180, y: 320 });
+    for (let t = 0; t < 2000; t += 16) {
+      phone.update(16);
+    }
+    expect(phone.view.zoom).toBeLessThan(start);
+    expect(phone.view.zoom).toBeGreaterThanOrEqual(phone.limits.min - 1e-9);
+    const seen = visibleRect(phone.view, { width: 360, height: 640 });
+    expect(seen.x).toBeGreaterThanOrEqual(BOUNDS.x - 1e-6);
+  });
+
+  it('geht mit reset() auf dieselbe Startansicht zurück', () => {
+    const phone = makeStartRig();
+    phone.resize({ width: 360, height: 640 });
+    const start = { ...phone.view };
+    phone.pan(-300, -200);
+    phone.reset();
+    expect(phone.view).toEqual(start);
+  });
+
+  it('ändert Schirme, auf denen die ganze Insel schon große Kacheln hat, nicht', () => {
+    const roomy = new CameraRig({ bounds: BOUNDS, focus: { x: 20 * TILE, y: 20 * TILE, width: 8 * TILE, height: 8 * TILE }, focusPadding: 24, tileSize: TILE, maxTileCssPx: 128, minStartTileCssPx: 32, startCenter: VILLAGE });
+    roomy.resize(TABLET);
+    const plain = new CameraRig({ bounds: BOUNDS, focus: { x: 20 * TILE, y: 20 * TILE, width: 8 * TILE, height: 8 * TILE }, focusPadding: 24, tileSize: TILE, maxTileCssPx: 128 });
+    plain.resize(TABLET);
+    expect(roomy.view).toEqual(plain.view);
+  });
+});
+
 describe('Startansicht', () => {
   it('zeigt die ganze Insel zentriert', () => {
     const seen = visibleRect(rig.view, TABLET);

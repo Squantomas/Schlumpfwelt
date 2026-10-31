@@ -5,8 +5,8 @@ import type { Rect } from './cameraMath';
  * tapped: name and a ✕ at the top, "needs → makes" with pictures, a short
  * sentence about the state and a progress bar. It sits in the free band
  * between the store bar and the toolbar and keeps clear of the zoom buttons.
- * On low screens it uses a compact arrangement (the sentence beside the
- * pictures). Pure maths in CSS pixels.
+ * On low, wide screens it uses a compact arrangement (the sentence beside the
+ * pictures); if it does not fit at all (`fits`), the scene does not open it. Pure maths in CSS pixels.
  */
 
 /** Diameter of the ✕ (the card must be easy to close: over 64 px). */
@@ -14,7 +14,11 @@ export const CARD_CLOSE = 64;
 export const CARD_MAX_WIDTH = 460;
 const PAD = 12;
 const GAP = 8;
-const COMPACT_BELOW = 200;
+/** Room below the zoom buttons that is enough for a full card. */
+const CLEAR_BELOW_ZOOM = 200;
+/** A wide card lower than this arranges its parts side by side (compact), see `infoCardLayout`. */
+const COMPACT_BELOW = 240;
+const COMPACT_MIN_WIDTH = 380;
 const TALL_HEIGHT = 270;
 const BAR_HEIGHT = 20;
 export const CARD_MIN_HEIGHT = 140;
@@ -56,7 +60,7 @@ export interface InfoCardLayout {
 export function infoCardLayout(bounds: InfoCardBounds): InfoCardLayout {
   // Below the zoom buttons there is room for a full card (the best place if the band is tall enough) …
   const belowZoom = Math.max(bounds.top, bounds.zoom.y + bounds.zoom.height + GAP);
-  const clearOfZoom = bounds.bottom - belowZoom >= COMPACT_BELOW;
+  const clearOfZoom = bounds.bottom - belowZoom >= CLEAR_BELOW_ZOOM;
   const top = clearOfZoom ? belowZoom : bounds.top;
   const height = Math.min(TALL_HEIGHT, Math.max(0, bounds.bottom - top));
   const y = bounds.bottom - height;
@@ -67,7 +71,8 @@ export function infoCardLayout(bounds: InfoCardBounds): InfoCardLayout {
   const width = Math.min(CARD_MAX_WIDTH, room);
   const x = zoomInBand ? 10 + (room - width) / 2 : (bounds.width - width) / 2;
   const rect: Rect = { x, y, width, height };
-  const compact = height < COMPACT_BELOW;
+  // Low and wide (a phone held sideways): pictures and sentence side by side. A narrow card keeps the tall order.
+  const compact = height < COMPACT_BELOW && width >= COMPACT_MIN_WIDTH;
 
   const closeSize = CARD_CLOSE;
   const close: Rect = { x: x + width - 8 - closeSize, y: y + 8, width: closeSize, height: closeSize };

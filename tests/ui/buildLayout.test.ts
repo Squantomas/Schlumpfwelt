@@ -129,7 +129,7 @@ describe('Zoom-Knöpfe und Hinweisleiste', () => {
   });
 });
 
-const MORE_SCREENS: readonly (readonly [number, number])[] = [...SCREENS, [360, 780], [412, 915], [600, 960], [1920, 1080]];
+const MORE_SCREENS: readonly (readonly [number, number])[] = [...SCREENS, [360, 780], [412, 915], [600, 960], [1920, 1080], [812, 375], [740, 360]];
 
 describe('Lagerleiste', () => {
   it.each(MORE_SCREENS)('sitzt bei %i×%i oben links, links von den Zoom-Knöpfen, ohne Rand zu verletzen', (width, height) => {
@@ -245,6 +245,8 @@ describe('Infokarte', () => {
     const at = (width: number, height: number) =>
       layoutBuildUi({ width, height, toolCount: 6, stockCount: 6, infoOpen: true, variantCount: 0, pickerOpen: true, hasPreview: false, hintHeight: 0, hintAtTop: false }).card;
     expect(at(568, 320)?.compact).toBe(true);
+    expect(at(667, 375)?.compact).toBe(true);
+    expect(at(812, 375)?.compact).toBe(true);
     expect(at(1024, 768)?.compact).toBe(false);
     expect(at(1024, 768)?.captions).toBeDefined();
     expect(at(320, 568)?.compact).toBe(false);

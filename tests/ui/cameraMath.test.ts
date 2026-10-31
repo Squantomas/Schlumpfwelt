@@ -6,6 +6,7 @@ import {
   growRect,
   panView,
   screenToWorld,
+  startView,
   tileAtWorld,
   transformView,
   visibleRect,
@@ -265,5 +266,25 @@ describe('approach', () => {
   it('bleibt bei Zeit 0 stehen und springt bei Zeitkonstante 0 zum Ziel', () => {
     expect(approach(3, 10, 0, 100)).toBe(3);
     expect(approach(3, 10, 16, 0)).toBe(10);
+  });
+});
+
+describe('startView', () => {
+  const focus = { x: 448, y: 448, width: 2176, height: 2176 };
+
+  it('ist ohne Mindestgröße wie fitRect', () => {
+    expect(startView({ width: 360, height: 640 }, focus, 12, 64)).toEqual(fitRect({ width: 360, height: 640 }, focus, 12));
+  });
+
+  it('zoomt auf einem kleinen Schirm auf die Mindestgröße der Kachel und schaut aufs Dorf', () => {
+    const view = startView({ width: 360, height: 640 }, focus, 12, 64, 32, { x: 1536, y: 1536 });
+    expect(view.zoom * 64).toBeCloseTo(32, 9);
+    expect(view.centerX).toBe(1536);
+    expect(view.centerY).toBe(1536);
+  });
+
+  it('lässt einen Schirm, auf dem die Kacheln schon groß genug sind, unverändert', () => {
+    const roomy = { x: 0, y: 0, width: 512, height: 512 };
+    expect(startView({ width: 1024, height: 768 }, roomy, 12, 64, 32, { x: 9, y: 9 })).toEqual(fitRect({ width: 1024, height: 768 }, roomy, 12));
   });
 });

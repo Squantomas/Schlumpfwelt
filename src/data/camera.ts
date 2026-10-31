@@ -8,6 +8,8 @@ export const CAMERA_CONFIG: Readonly<{
   landMarginTiles: number;
   /** Free tiles around the island in the start view. */
   startPaddingTiles: number;
+  /** At the start a tile is at least this many CSS px big: small screens start zoomed in on the village. */
+  minStartTileCssPx: number;
   /** Biggest zoom: one tile is this many CSS pixels. */
   maxTileCssPx: number;
   /** Zoom factor of one tap on the + / − buttons. */
