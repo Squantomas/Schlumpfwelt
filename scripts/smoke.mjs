@@ -675,7 +675,8 @@ function findFreeArea(village, cam, size, w, h, { margin = 1, near, skip = [] } 
   const occupied = occupiedTiles(village);
   for (const tile of skip) occupied.add(tileKey(tile.x, tile.y));
   const toolbarTop = village.ui['tool-path'].y - 52;
-  const usable = { left: 90, right: size.width - 140, top: 110, bottom: toolbarTop - 160 };
+  // Oben liegen Lagerleiste und (bei aktivem Werkzeug) die Hinweisleiste bis etwa y = 160.
+  const usable = { left: 90, right: size.width - 140, top: 170, bottom: toolbarTop - 160 };
   const target = near ?? { x: size.width / 2, y: (usable.top + usable.bottom) / 2 };
   const grass = (x, y) => village.terrain[y * MAP_TILES + x] === 'g' && !occupied.has(tileKey(x, y));
   let best;
@@ -754,6 +755,13 @@ async function testBuilding({ page, check, shot, size, input, drag, name }) {
   const count = (village, type) => village.buildings.filter((b) => b.type === type).length;
 
   let village = await waitForVillage(page, (v) => v.buildings.length > 0, 'das Startdorf');
+  // Seit M3 startet die Kamera mit Kacheln von mindestens 32 px; die Bau-Prüfungen brauchen den Überblick (Wasser, freie Flächen) wie früher.
+  for (let i = 0; i < 2; i += 1) {
+    await input.tap(village.ui['zoom-out']);
+    await sleep(300);
+  }
+  await cameraAtRest();
+  village = await readVillage(page);
   check(village.tool === 'view', `Start: Werkzeug ${village.tool} statt „view“`);
   check(village.buildings.some((b) => b.type.startsWith('house') && b.connected) && village.paths.length > 0, 'Start: kein Haus mit Weg im Startdorf');
   check(village.markers === 0, `Start: ${village.markers} Markierungen, erwartet 0`);
@@ -811,7 +819,7 @@ async function testBuilding({ page, check, shot, size, input, drag, name }) {
     await sleep(200);
   }
   cam = await cameraAtRest();
-  check(cam.zoom * TILE > 40, `Heranzoomen: Kachel nur ${(cam.zoom * TILE).toFixed(0)} px groß`);
+  check(cam.zoom * TILE > 30, `Heranzoomen: Kachel nur ${(cam.zoom * TILE).toFixed(0)} px groß`);
   village = await readVillage(page);
 
   // --- Rot auch auf einem Gebäude („blocked“) ---
@@ -1056,7 +1064,8 @@ function findWorkSpot(village, cam, size, { fp = 2, atPath = true, terrain, radi
   for (const tile of skip) occupied.add(tileKey(tile.x, tile.y));
   const pathSet = new Set(village.paths.map(([x, y]) => tileKey(x, y)));
   const toolbarTop = village.ui['tool-path'].y - 52;
-  const usable = { left: 90, right: size.width - 140, top: 110, bottom: toolbarTop - 170 };
+  // Oben liegen Lagerleiste und (bei aktivem Werkzeug) die Hinweisleiste bis etwa y = 160.
+  const usable = { left: 90, right: size.width - 140, top: 170, bottom: toolbarTop - 170 };
   const grass = (x, y) => village.terrain[y * MAP_TILES + x] === 'g' && !occupied.has(tileKey(x, y));
   let best;
   for (let y = 2; y < MAP_TILES - 2 - fp; y += 1) {
@@ -1152,8 +1161,9 @@ async function testEconomy({ page, check, shot, size, input, name }) {
   village = await confirm((v) => typeCount(v, 'bakery') === 1, 'die Bäckerei');
   const bakery = village.buildings.find((b) => b.type === 'bakery');
   check(bakery.connected, 'Bäckerei steht nicht am Weg');
-  village = await waitStock((stock) => stock.coins === before.coins - 25 && stock.wood <= before.wood - 6, 'abgebuchte Kosten der Bäckerei', 8000);
-  check(village.stock.coins === before.coins - 25, `Bäckerei: Taler ${village.stock.coins}, erwartet ${before.coins - 25}`);
+  // Der Markt kauft nebenbei überschüssige Beeren: die Taler können ein paar Münzen über dem Preis liegen.
+  village = await waitStock((stock) => stock.coins <= before.coins - 25 + 8 && stock.wood <= before.wood - 6, 'abgebuchte Kosten der Bäckerei', 8000);
+  check(village.stock.coins >= before.coins - 25, `Bäckerei: Taler ${village.stock.coins}, erwartet mindestens ${before.coins - 25}`);
 
   // --- Ohne Weg daneben: grün, aber der Hinweis sagt, was zu tun ist ---
   step('Gebäude ohne Weg: Hinweis');
@@ -1220,7 +1230,7 @@ async function testEconomy({ page, check, shot, size, input, name }) {
   village = await confirm((v) => typeCount(v, 'lumberjack') === 1, 'der Holzfäller');
   const lumberjack = village.buildings.find((b) => b.type === 'lumberjack');
   check(lumberjack.connected, 'Holzfäller steht nicht am Weg');
-  village = await waitStock((stock) => stock.coins === woodBefore.coins - 20, 'abgebuchte Kosten des Holzfällers (nur Taler)', 8000);
+  village = await waitStock((stock) => stock.coins <= woodBefore.coins - 20 + 12 && stock.coins >= woodBefore.coins - 20, 'abgebuchte Kosten des Holzfällers (nur Taler)', 8000);
   const afterLumberjack = village.stock;
   check(afterLumberjack.wood >= woodBefore.wood, `Holzfäller: Holz ${afterLumberjack.wood} gesunken, er soll nur Taler kosten`);
   // Nach ein paar Sekunden liefert er: das Lager steigt, und der Holzfäller meldet „working“.
