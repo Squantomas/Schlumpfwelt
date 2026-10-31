@@ -83,6 +83,7 @@
   "shop.island": "Insel",
   "shop.newItem": "Neu im Shop: {list}!",
   "shop.and": "und",
+  "shop.progress": "{current}/{needed}",
   "shop.newValuable": "{good} bringen viele Taler.",
   "build.houseBig": "Großes Pilzhaus",
   "build.houseGarden": "Pilzhaus mit Garten",

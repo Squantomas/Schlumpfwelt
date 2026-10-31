@@ -60,7 +60,7 @@ export function unlockIcon(unlock: UnlockDef): { readonly kind: 'building' | 'co
 
 /** The numbers on a locked card: "0/1", "1/2", "40/100". */
 export function progressText(progress: UnlockProgress): string {
-  return `${String(progress.current)}/${String(progress.needed)}`;
+  return t('shop.progress', { current: progress.current, needed: progress.needed });
 }
 
 /** The short sentence for a locked item: "Baue 1× Holzfällerhütte, dann ist das frei." */

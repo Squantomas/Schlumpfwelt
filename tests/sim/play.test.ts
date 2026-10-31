@@ -276,55 +276,118 @@ describe('Invarianten bei beliebigen Befehlen', () => {
     }
   }
 
-  it('hält das Lager ganzzahlig und nie negativ und die Arbeitszustände im Takt mit den Gebäuden (zufällige Befehle)', () => {
-    for (const seed of [1, 4]) {
-      const sim = new Simulation(createInitialState(seed));
-      const rng = new Rng(seed * 101);
-      const ids = BUILDING_TYPES.map((type) => type.id);
-      for (let step = 0; step < 1500; step += 1) {
-        const x = 12 + rng.int(24);
-        const y = 12 + rng.int(24);
-        switch (rng.int(10)) {
-          case 0:
-          case 1:
-            sim.send({ type: 'placeBuilding', buildingType: ids[rng.int(ids.length)] ?? 'flower', x, y });
-            break;
-          case 2:
-            sim.send({ type: 'placePaths', tiles: [{ x, y }, { x: x + 1, y }, { x: x + 2, y }] });
-            break;
-          case 3: {
-            const building = sim.state.buildings[rng.int(Math.max(1, sim.state.buildings.length))];
-            if (building) {
-              sim.send({ type: 'moveBuilding', id: building.id, x, y });
-            }
-            break;
-          }
-          case 4:
-            sim.send({ type: 'demolish', x, y });
-            break;
-          case 6:
-            sim.send({ type: 'plantTree', typeId: 'tree', x, y });
-            break;
-          case 7:
-            sim.send({ type: 'placeRock', typeId: 'rock', x, y });
-            break;
-          case 8:
-            sim.send({ type: 'fillLand', typeId: 'beach', x: x - 8 - rng.int(6), y: y - 8 - rng.int(6) });
-            break;
-          case 9:
-            sim.send({ type: 'makeMeadow', typeId: 'meadow', x: x - 8 - rng.int(6), y: y - 8 - rng.int(6) });
-            break;
-          default:
-            sim.send({ type: 'placeBuilding', buildingType: 'house-red', x: Number.NaN, y });
+  /** Wasser, das ans Land grenzt, und Strand: die Kacheln, auf die Strand und Wiese zielen. */
+  function coastAndSand(state: DeepReadonly<SimState>): { coast: { x: number; y: number }[]; sand: { x: number; y: number }[] } {
+    const coast: { x: number; y: number }[] = [];
+    const sand: { x: number; y: number }[] = [];
+    const { width, height, tiles } = state.world;
+    for (let y = 0; y < height; y += 1) {
+      for (let x = 0; x < width; x += 1) {
+        const here = tiles[y * width + x];
+        if (here === 'sand') {
+          sand.push({ x, y });
+        } else if (here === 'water' && [[-1, 0], [1, 0], [0, -1], [0, 1]].some(([dx = 0, dy = 0]) => {
+          const next = tiles[(y + dy) * width + x + dx];
+          return next !== undefined && next !== 'water';
+        })) {
+          coast.push({ x, y });
         }
-        for (let i = rng.int(25); i >= 0; i -= 1) {
-          sim.update(sim.tickMs);
-        }
-        check(sim.state, `Seed ${String(seed)}, Schritt ${String(step)}`);
       }
-      expect(sim.state.buildings.length).toBeGreaterThan(3);
     }
-  });
+    return { coast, sand };
+  }
+
+  // Zwei Runden: am Start (Strand und Wiese sind noch gesperrt: es darf keiner gelingen) und mit allem freigeschaltet und viel Geld
+  // (Strand und Wiese zielen auf Küste und Strand). 2500 Schritte bei 10 Befehlsarten: Setzen, Wege, Verschieben und Abreißen
+  // kommen so oft vor wie in M3 (1500 Schritte bei 6 Arten).
+  for (const unlocked of [false, true]) {
+    it(`hält das Lager ganzzahlig und nie negativ und die Arbeitszustände im Takt mit den Gebäuden (zufällige Befehle, ${unlocked ? 'alles freigeschaltet' : 'wie am Start'})`, () => {
+      for (const seed of [1, 4]) {
+        const start = createInitialState(seed);
+        if (unlocked) {
+          start.unlocked = [...LOCKED_TYPE_IDS];
+          start.inventory = { coins: 9000, wood: 900, stone: 900, berries: 0, furniture: 0, cake: 0 };
+        }
+        const sim = new Simulation(start);
+        const rng = new Rng(seed * 101 + (unlocked ? 7 : 0));
+        const ids = BUILDING_TYPES.map((type) => type.id);
+        const changes = { beach: 0, meadow: 0, tree: 0, rock: 0 };
+        let before = [...sim.state.world.tiles];
+        let targets = coastAndSand(sim.state);
+        for (let step = 0; step < 2500; step += 1) {
+          const x = 12 + rng.int(24);
+          const y = 12 + rng.int(24);
+          if (step % 5 === 0) {
+            targets = coastAndSand(sim.state);
+          }
+          const { coast, sand } = targets;
+          const shore = coast[rng.int(Math.max(1, coast.length))] ?? { x, y };
+          const beach = sand[rng.int(Math.max(1, sand.length))] ?? { x, y };
+          switch (rng.int(10)) {
+            case 0:
+            case 1:
+              sim.send({ type: 'placeBuilding', buildingType: ids[rng.int(ids.length)] ?? 'flower', x, y });
+              break;
+            case 2:
+              sim.send({ type: 'placePaths', tiles: [{ x, y }, { x: x + 1, y }, { x: x + 2, y }] });
+              break;
+            case 3: {
+              const building = sim.state.buildings[rng.int(Math.max(1, sim.state.buildings.length))];
+              if (building) {
+                sim.send({ type: 'moveBuilding', id: building.id, x, y });
+              }
+              break;
+            }
+            case 4:
+              sim.send({ type: 'demolish', x, y });
+              break;
+            case 6:
+              sim.send({ type: 'plantTree', typeId: 'tree', x, y });
+              break;
+            case 7:
+              sim.send({ type: 'placeRock', typeId: 'rock', x, y });
+              break;
+            case 8:
+              sim.send({ type: 'fillLand', typeId: 'beach', x: shore.x, y: shore.y });
+              break;
+            case 9:
+              sim.send({ type: 'makeMeadow', typeId: 'meadow', x: beach.x, y: beach.y });
+              break;
+            default:
+              sim.send({ type: 'placeBuilding', buildingType: 'house-red', x: Number.NaN, y });
+          }
+          for (let i = rng.int(25); i >= 0; i -= 1) {
+            sim.update(sim.tickMs);
+          }
+          check(sim.state, `Seed ${String(seed)}, Schritt ${String(step)}`);
+          // Was hat sich am Gelände geändert? (alle 5 Schritte, wie die Zielliste)
+          const after = sim.state.world.tiles;
+          for (let tile = 0; step % 5 === 4 && tile < after.length; tile += 1) {
+            if (after[tile] !== before[tile]) {
+              if (before[tile] === 'water' && after[tile] === 'sand') changes.beach += 1;
+              if (before[tile] === 'sand' && after[tile] === 'grass') changes.meadow += 1;
+              if (before[tile] === 'grass' && after[tile] === 'forest') changes.tree += 1;
+              if (before[tile] === 'grass' && after[tile] === 'rock') changes.rock += 1;
+            }
+          }
+          if (step % 5 === 4) {
+            before = [...after];
+          }
+        }
+        expect(sim.state.buildings.length).toBeGreaterThan(3);
+        if (unlocked) {
+          expect(changes.beach, `Seed ${String(seed)}: Strand aufgeschüttet`).toBeGreaterThanOrEqual(10);
+          expect(changes.meadow, `Seed ${String(seed)}: Wiese angelegt`).toBeGreaterThanOrEqual(5);
+          expect(changes.tree, `Seed ${String(seed)}: Bäume gepflanzt`).toBeGreaterThanOrEqual(5);
+          expect(changes.rock, `Seed ${String(seed)}: Felsen gesetzt`).toBeGreaterThanOrEqual(5);
+        } else {
+          // Gesperrt, solange nicht genug Taler verdient sind: höchstens, was nach der Freischaltung gelang.
+          expect(changes.beach === 0 || sim.state.unlocked.includes('beach'), `Seed ${String(seed)}: Strand trotz Sperre`).toBe(true);
+          expect(changes.meadow === 0 || sim.state.unlocked.includes('meadow'), `Seed ${String(seed)}: Wiese trotz Sperre`).toBe(true);
+        }
+      }
+    }, 60_000);
+  }
 
   it('gibt beim Abreißen nie mehr, als Bauen gekostet hat (kein Geld aus dem Nichts durch Bauen und Abreißen)', () => {
     const sim = new Simulation(createInitialState(1));

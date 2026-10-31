@@ -28,7 +28,7 @@ class CardFooter extends Phaser.GameObjects.Container {
     super(scene, 0, 0);
     this.cost = new CostRow(scene);
     this.icon = scene.add.image(0, 0, goodTextureKey('coins')).setVisible(false);
-    this.progress = createLabel(scene, '0/1', 14).setVisible(false);
+    this.progress = createLabel(scene, '', 14).setVisible(false);
     this.add([this.cost, this.icon, this.progress]);
     scene.add.existing(this);
   }
