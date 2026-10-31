@@ -1,0 +1,122 @@
+import type { Rect } from './cameraMath';
+import { CANCEL_DIAMETER, CONFIRM_DIAMETER, placeConfirmButtons } from './confirmLayout';
+import { PICKER_EDGE, pickerLayout, type PickerLayout } from './pickerLayout';
+import { TOOLBAR_EDGE, TOOLBAR_GAP, TOOLBAR_PAD, toolbarLayout, type ToolbarLayout } from './toolbarLayout';
+
+/**
+ * Where everything of the building controls goes, as pure maths (CSS px), so
+ * a test can check that on every screen size nothing overlaps and nothing
+ * leaves the screen: toolbar, hint bar, zoom buttons, picker or chip, and the
+ * ✓ / ✕ pair.
+ */
+
+/** Width kept free at the right (and, to stay centred, at the left) for the zoom buttons. */
+export const ZOOM_COLUMN = 92;
+/** Radius of the ✕ (back) button in the hint bar. */
+export const EXIT_RADIUS = 32;
+export const CHIP_W = 76;
+export const CHIP_H = 90;
+const GAP = 8;
+const HINT_TOP = 12;
+/** Height the hint bar has at least while a tool is on (the big back button). */
+export const HINT_MIN_HEIGHT = 2 * EXIT_RADIUS + 8;
+
+export interface ZoomLayout {
+  readonly radius: number;
+  readonly zoomIn: { readonly x: number; readonly y: number };
+  readonly zoomOut: { readonly x: number; readonly y: number };
+  readonly rect: Rect;
+}
+
+/** The two zoom buttons at the top right; smaller (still over 48 px) on low screens. */
+export function zoomLayout(width: number, height: number): ZoomLayout {
+  const low = height < 400;
+  const radius = low ? 28 : 34;
+  const margin = low ? 12 : 16;
+  const gap = low ? 8 : 12;
+  const x = width - margin - radius;
+  const zoomIn = { x, y: margin + radius };
+  const zoomOut = { x, y: zoomIn.y + 2 * radius + gap };
+  return { radius, zoomIn, zoomOut, rect: { x: x - radius, y: margin, width: 2 * radius, height: 4 * radius + gap } };
+}
+
+/** Horizontal place of the hint bar: always the same width, clear of the zoom column. */
+export function hintBarGeometry(width: number): { x: number; width: number } {
+  const maxBar = Math.max(width - 2 * ZOOM_COLUMN, Math.min(width - ZOOM_COLUMN - 12, 420));
+  const barW = Math.min(maxBar, 720);
+  return { x: Math.min(Math.max((width - barW) / 2, 12), Math.max(12, width - ZOOM_COLUMN - barW)), width: barW };
+}
+
+export interface BuildLayoutInput {
+  readonly width: number;
+  readonly height: number;
+  readonly toolCount: number;
+  /** Number of variants of the current tool (0 for tools without a picker). */
+  readonly variantCount: number;
+  readonly pickerOpen: boolean;
+  readonly hasPreview: boolean;
+  /** Height of the hint bar (0: none). */
+  readonly hintHeight: number;
+  /** While a tool is on the hint bar is at the top, while looking it sits above the toolbar. */
+  readonly hintAtTop: boolean;
+}
+
+export interface BuildLayout {
+  readonly toolbar: ToolbarLayout & { readonly rect: Rect };
+  readonly hint: Rect | undefined;
+  readonly zoom: ZoomLayout;
+  readonly picker: (PickerLayout & { readonly sideInset: number }) | undefined;
+  readonly chip: Rect | undefined;
+  /** Rects of the ✓ and ✕ buttons (only with a preview). */
+  readonly confirm: Rect | undefined;
+  readonly cancel: Rect | undefined;
+  /** Would the picker fit with the current preview? If not, a tap on the chip drops the preview first. */
+  readonly pickerFitsWithPreview: boolean;
+}
+
+export function layoutBuildUi(input: BuildLayoutInput): BuildLayout {
+  const { width, height } = input;
+  const zoom = zoomLayout(width, height);
+  const tools = toolbarLayout(width, input.toolCount, height);
+  const panelW = tools.cols * tools.size + (tools.cols - 1) * TOOLBAR_GAP + 2 * TOOLBAR_PAD;
+  const panelH = tools.rows * tools.size + (tools.rows - 1) * TOOLBAR_GAP + 2 * TOOLBAR_PAD;
+  const toolbar = { ...tools, rect: { x: (width - panelW) / 2, y: height - TOOLBAR_EDGE - panelH, width: panelW, height: panelH } };
+
+  const bar = hintBarGeometry(width);
+  let hint: Rect | undefined;
+  if (input.hintHeight > 0) {
+    const y = input.hintAtTop ? HINT_TOP : toolbar.rect.y - 12 - input.hintHeight;
+    hint = { x: bar.x, y, width: bar.width, height: input.hintHeight };
+  }
+
+  const hasPicker = input.variantCount > 0;
+  const top = (input.hintAtTop && hint ? hint.y + hint.height : HINT_TOP + HINT_MIN_HEIGHT) + GAP;
+  const rowAbove = toolbar.rect.y - GAP;
+  const confirmRowTop = rowAbove - CONFIRM_DIAMETER - GAP;
+
+  const pickerFor = (withPreview: boolean): BuildLayout['picker'] => {
+    const bottom = withPreview ? confirmRowTop : rowAbove;
+    let layout = pickerLayout(width, input.variantCount, top, bottom);
+    let sideInset = 0;
+    // A panel that reaches up into the zoom buttons is made narrower, centred, clear of the zoom column.
+    if (layout.rect.y < zoom.rect.y + zoom.rect.height + GAP) {
+      sideInset = ZOOM_COLUMN - PICKER_EDGE;
+      layout = pickerLayout(width, input.variantCount, top, bottom, sideInset);
+    }
+    return { ...layout, sideInset };
+  };
+
+  const picker = hasPicker && input.pickerOpen ? pickerFor(input.hasPreview) : undefined;
+  const pickerFitsWithPreview = !hasPicker || (pickerFor(true)?.fits ?? true);
+  const chip = hasPicker && !input.pickerOpen ? { x: TOOLBAR_EDGE, y: rowAbove - CHIP_H, width: CHIP_W, height: CHIP_H } : undefined;
+
+  let confirm: Rect | undefined;
+  let cancel: Rect | undefined;
+  if (input.hasPreview) {
+    const placement = placeConfirmButtons(width, toolbar.rect.y);
+    confirm = { x: placement.confirm.x - CONFIRM_DIAMETER / 2, y: placement.confirm.y - CONFIRM_DIAMETER / 2, width: CONFIRM_DIAMETER, height: CONFIRM_DIAMETER };
+    cancel = { x: placement.cancel.x - CANCEL_DIAMETER / 2, y: placement.cancel.y - CANCEL_DIAMETER / 2, width: CANCEL_DIAMETER, height: CANCEL_DIAMETER };
+  }
+
+  return { toolbar, hint, zoom, picker, chip, confirm, cancel, pickerFitsWithPreview };
+}

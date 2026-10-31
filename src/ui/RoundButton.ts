@@ -1,26 +1,40 @@
 import Phaser from 'phaser';
 import { COLORS, MIN_TAP_SIZE } from './style';
 
-export type ButtonIcon = 'play' | 'plus' | 'minus';
+export type ButtonIcon = 'play' | 'plus' | 'minus' | 'check' | 'cross' | 'back' | 'left' | 'right';
+
+/** `confirm` is green (✓), `cancel` red (✕), `done` blue (leave the tool), `normal` yellow. */
+export type ButtonVariant = 'normal' | 'confirm' | 'cancel' | 'done';
+
+const VARIANT_COLORS: Readonly<Record<ButtonVariant, { readonly face: number; readonly shade: number; readonly icon: number }>> = {
+  normal: { face: COLORS.button, shade: COLORS.buttonShade, icon: COLORS.buttonIcon },
+  confirm: { face: COLORS.confirm, shade: COLORS.confirmShade, icon: COLORS.white },
+  cancel: { face: COLORS.cancel, shade: COLORS.cancelShade, icon: COLORS.white },
+  done: { face: COLORS.done, shade: COLORS.doneShade, icon: COLORS.white },
+};
 
 export interface RoundButtonOptions {
   /** Radius in CSS px; never smaller than half of {@link MIN_TAP_SIZE}. */
   readonly radius: number;
   readonly icon: ButtonIcon;
-  /** Called when the button is released (tap or click). */
-  readonly onTap: () => void;
+  /** Colours; default `normal` (yellow). */
+  readonly variant?: ButtonVariant;
+  /** Called when the button is released (tap or click), with the time of the browser event. */
+  readonly onTap: (eventTime: number) => void;
 }
 
 /** Big round button with an icon. Works the same with finger and mouse. */
 export class RoundButton extends Phaser.GameObjects.Container {
   private readonly face: Phaser.GameObjects.Graphics;
   private readonly icon: ButtonIcon;
+  private readonly variant: ButtonVariant;
   private radius = 0;
   private pressed = false;
 
   constructor(scene: Phaser.Scene, x: number, y: number, options: RoundButtonOptions) {
     super(scene, x, y);
     this.icon = options.icon;
+    this.variant = options.variant ?? 'normal';
     this.face = scene.add.graphics();
     this.add(this.face);
     this.setRadius(options.radius);
@@ -39,7 +53,7 @@ export class RoundButton extends Phaser.GameObjects.Container {
       // and not a touch the system interrupted (touchcancel).
       if (this.pressed && !pointer.wasCanceled) {
         this.pressed = false;
-        options.onTap();
+        options.onTap(pointer.event?.timeStamp ?? this.scene.time.now);
       }
       this.pressed = false;
     });
@@ -71,29 +85,80 @@ export class RoundButton extends Phaser.GameObjects.Container {
     return this;
   }
 
+  /** A dimmed button looks switched off (it still takes taps, the owner decides what they do). */
+  setDimmed(dimmed: boolean): this {
+    this.face.setAlpha(dimmed ? 0.45 : 1);
+    return this;
+  }
+
   private draw(): void {
     const r = this.radius;
+    const colors = VARIANT_COLORS[this.variant];
     const g = this.face.clear();
-    g.fillStyle(COLORS.buttonShade).fillCircle(0, r * 0.08, r);
+    g.fillStyle(colors.shade).fillCircle(0, r * 0.08, r);
     g.fillStyle(COLORS.buttonRim).fillCircle(0, 0, r);
-    g.fillStyle(COLORS.button).fillCircle(0, 0, r * 0.86);
+    g.fillStyle(colors.face).fillCircle(0, 0, r * 0.86);
 
     switch (this.icon) {
       case 'play': {
         const s = r * 0.42;
-        g.fillStyle(COLORS.buttonIcon).fillTriangle(-s * 0.7, -s, -s * 0.7, s, s, 0);
+        g.fillStyle(colors.icon).fillTriangle(-s * 0.7, -s, -s * 0.7, s, s, 0);
+        break;
+      }
+      case 'check': {
+        strokeLine(g, colors.icon, r * 0.2, [
+          [-r * 0.42, r * 0.02],
+          [-r * 0.12, r * 0.32],
+          [r * 0.44, -r * 0.3],
+        ]);
+        break;
+      }
+      case 'back': {
+        // An arrow pointing back (to the left): "done, back to looking".
+        strokeLine(g, colors.icon, r * 0.18, [[r * 0.4, 0], [-r * 0.4, 0]]);
+        strokeLine(g, colors.icon, r * 0.18, [[-r * 0.05, -r * 0.38], [-r * 0.42, 0], [-r * 0.05, r * 0.38]]);
+        break;
+      }
+      case 'left':
+      case 'right': {
+        const dir = this.icon === 'left' ? -1 : 1;
+        strokeLine(g, colors.icon, r * 0.2, [[-dir * r * 0.16, -r * 0.38], [dir * r * 0.2, 0], [-dir * r * 0.16, r * 0.38]]);
+        break;
+      }
+      case 'cross': {
+        const a = r * 0.34;
+        strokeLine(g, colors.icon, r * 0.2, [[-a, -a], [a, a]]);
+        strokeLine(g, colors.icon, r * 0.2, [[-a, a], [a, -a]]);
         break;
       }
       case 'plus':
       case 'minus': {
         const arm = r * 0.4;
         const thickness = r * 0.2;
-        g.fillStyle(COLORS.buttonIcon).fillRoundedRect(-arm, -thickness / 2, arm * 2, thickness, thickness / 2);
+        g.fillStyle(colors.icon).fillRoundedRect(-arm, -thickness / 2, arm * 2, thickness, thickness / 2);
         if (this.icon === 'plus') {
           g.fillRoundedRect(-thickness / 2, -arm, thickness, arm * 2, thickness / 2);
         }
         break;
       }
     }
+  }
+}
+
+/** A thick line through the points with round ends and corners. */
+function strokeLine(g: Phaser.GameObjects.Graphics, color: number, width: number, points: readonly (readonly [number, number])[]): void {
+  g.lineStyle(width, color, 1);
+  g.beginPath();
+  points.forEach(([x, y], index) => {
+    if (index === 0) {
+      g.moveTo(x, y);
+    } else {
+      g.lineTo(x, y);
+    }
+  });
+  g.strokePath();
+  g.fillStyle(color);
+  for (const [x, y] of points) {
+    g.fillCircle(x, y, width / 2);
   }
 }

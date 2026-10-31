@@ -1,0 +1,94 @@
+{
+  "types": [
+    {
+      "id": "path",
+      "category": "path",
+      "nameKey": "build.path",
+      "footprint": { "w": 1, "h": 1 },
+      "terrains": ["grass", "sand"],
+      "needsPath": false,
+      "look": { "shape": "path", "rise": 0 }
+    },
+    {
+      "id": "house-red",
+      "category": "house",
+      "nameKey": "build.houseRed",
+      "footprint": { "w": 2, "h": 2 },
+      "terrains": ["grass"],
+      "needsPath": true,
+      "look": { "shape": "mushroomHouse", "palette": "red", "rise": 84 }
+    },
+    {
+      "id": "house-blue",
+      "category": "house",
+      "nameKey": "build.houseBlue",
+      "footprint": { "w": 2, "h": 2 },
+      "terrains": ["grass"],
+      "needsPath": true,
+      "look": { "shape": "mushroomHouse", "palette": "blue", "rise": 84 }
+    },
+    {
+      "id": "house-yellow",
+      "category": "house",
+      "nameKey": "build.houseYellow",
+      "footprint": { "w": 2, "h": 2 },
+      "terrains": ["grass"],
+      "needsPath": true,
+      "look": { "shape": "mushroomHouse", "palette": "yellow", "rise": 84 }
+    },
+    {
+      "id": "flower",
+      "category": "deco",
+      "nameKey": "build.flower",
+      "footprint": { "w": 1, "h": 1 },
+      "terrains": ["grass"],
+      "needsPath": false,
+      "look": { "shape": "flower", "rise": 22 }
+    },
+    {
+      "id": "bush",
+      "category": "deco",
+      "nameKey": "build.bush",
+      "footprint": { "w": 1, "h": 1 },
+      "terrains": ["grass"],
+      "needsPath": false,
+      "look": { "shape": "bush", "rise": 18 }
+    },
+    {
+      "id": "fence",
+      "category": "deco",
+      "nameKey": "build.fence",
+      "footprint": { "w": 1, "h": 1 },
+      "terrains": ["grass"],
+      "needsPath": false,
+      "look": { "shape": "fence", "rise": 14 }
+    },
+    {
+      "id": "bench",
+      "category": "deco",
+      "nameKey": "build.bench",
+      "footprint": { "w": 1, "h": 1 },
+      "terrains": ["grass"],
+      "needsPath": false,
+      "look": { "shape": "bench", "rise": 18 }
+    },
+    {
+      "id": "lantern",
+      "category": "deco",
+      "nameKey": "build.lantern",
+      "footprint": { "w": 1, "h": 1 },
+      "terrains": ["grass"],
+      "needsPath": false,
+      "look": { "shape": "lantern", "rise": 46 }
+    },
+    {
+      "id": "fountain",
+      "category": "deco",
+      "nameKey": "build.fountain",
+      "footprint": { "w": 2, "h": 2 },
+      "terrains": ["grass"],
+      "needsPath": false,
+      "look": { "shape": "fountain", "rise": 40 }
+    }
+  ]
+}

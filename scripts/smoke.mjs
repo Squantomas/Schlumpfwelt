@@ -4,7 +4,9 @@
  *
  *   npm run smoke                                # baut, startet `vite preview`, testet, räumt auf
  *   npm run smoke -- --no-build                  # vorhandenes dist/ verwenden
- *   npm run smoke -- --out docs/screenshots/m2   # anderer Screenshot-Ordner (Standard: m1)
+ *   npm run smoke -- --out docs/screenshots/m3   # anderer Screenshot-Ordner (Standard: m2)
+ *   npm run smoke -- --m2-only                   # nur die Bau-Prüfungen (M2), ohne die Kamera-Prüfungen (schnell)
+ *   npm run smoke -- --profile tablet            # nur Tablet bzw. nur Desktop
  *
  * Öffnet das Spiel (feste Insel `?seed=1`) als Tablet (1024×768, Touch,
  * devicePixelRatio 2, quer und hochkant) und als Desktop (1280×800, Maus),
@@ -20,6 +22,13 @@
  *     Tippen im Screenshot sichtbar (Vergleich mit dem Bild nach dem Ausblenden).
  * Den Kamerazustand liest der Test aus `<html data-camera-*>` und `data-last-tap`.
  * Screenshots: Start, Insel, Insel hochkant, herangezoomt, Grenze erreicht, Ecke bei Maximalzoom, Tipp-Ring.
+ *
+ * Danach (M2, „Gestalten“) lädt der Test das Spiel neu und baut: Weg als L, Haus ohne Weg (Markierung
+ * sichtbar), Weg daneben (Markierung weg), Blumen, Haus verschieben, Deko abreißen, ungültiger Platz auf
+ * Wasser (rot, ✓ baut nichts), Ziehen mit aktivem Werkzeug bewegt nur die Kamera. Den Zustand liest er aus
+ * `<html data-tool|preview|hint|markers|buildings|paths|terrain|ui>` (siehe `markVillage` in sceneMarker.ts);
+ * die Lage der Knöpfe steht in `data-ui` (CSS-px). Screenshots (nur diese kommen nach docs/screenshots/mN/, alle anderen in ein
+ * temporäres Verzeichnis): Werkzeugleiste, Vorschau grün und rot, Weg-Vorschau, Haus ohne Weg, Verschieben, Dorf.
  * Exitcode ≠ 0 bei Konsolenfehlern, Seitenfehlern, fehlgeschlagenen Requests,
  * fehlgeschlagenen Kamera-Prüfungen oder wenn das Spiel nicht in die
  * Insel-Szene wechselt.
@@ -29,6 +38,7 @@
  */
 import { execSync, spawn, spawnSync } from 'node:child_process';
 import { mkdir, writeFile } from 'node:fs/promises';
+import os from 'node:os';
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -38,15 +48,29 @@ const PORT = 4173;
 const URL = `http://localhost:${PORT}/Schlumpfwelt/`;
 /** Feste Insel, damit Screenshots und Prüfungen reproduzierbar sind. */
 const GAME_URL = `${URL}?seed=1`;
-const SCREENSHOT_DIR = path.resolve(ROOT, argValue('--out') ?? path.join('docs', 'screenshots', 'm1'));
+const M2_ONLY = process.argv.includes('--m2-only');
+/** `--profile tablet|desktop`: nur dieses Gerät testen (zum Entwickeln). */
+const ONLY_PROFILE = argValue('--profile');
+const SCREENSHOT_DIR = path.resolve(ROOT, argValue('--out') ?? path.join('docs', 'screenshots', 'm2'));
+/** Alle übrigen Screenshots (Kamera-Prüfungen früherer Meilensteine, Zwischenschritte) landen hier, nicht im Repo. */
+const TEMP_SCREENSHOT_DIR = path.join(os.tmpdir(), 'schlumpfwelt-smoke');
+/** Nur diese Bilder gehören in `docs/screenshots/mN/` – die Bau-Screenshots dieses Meilensteins. */
+const KEEP_SCREENSHOTS = new Set([
+  'tablet-werkzeugleiste',
+  'tablet-vorschau-gruen',
+  'tablet-vorschau-rot',
+  'tablet-weg-vorschau',
+  'tablet-haus-ohne-weg',
+  'tablet-verschieben',
+  'tablet-dorf',
+  'desktop-dorf',
+]);
 
 /** Kachelgröße und Wasser-Rand der Kamera (siehe `TILE_SIZE` und `camera.json`). */
 const TILE = 64;
 const MAP_TILES = 48;
 const MARGIN_TILES = 2;
 const BOUNDS = { min: -MARGIN_TILES * TILE, max: (MAP_TILES + MARGIN_TILES) * TILE };
-/** Zoom-Knöpfe unten rechts (siehe IslandScene): Radius, Rand, Abstand in CSS-px. */
-const BUTTON = { radius: 34, margin: 16, gap: 12 };
 
 const PROFILES = [
   {
@@ -128,6 +152,11 @@ async function readCamera(page) {
       lastTap: d.lastTap,
     };
   });
+}
+
+/** Lage der Knöpfe (CSS-px) aus `<html data-ui>`: `{ 'zoom-in': { x, y, enabled }, 'tool-path': … }`. */
+async function readUi(page) {
+  return JSON.parse(await page.evaluate(() => document.documentElement.dataset.ui ?? '{}'));
 }
 
 /** Wartet, bis Nachgleiten und weicher Zoom fertig sind (Kamera ändert sich nicht mehr). */
@@ -229,7 +258,7 @@ async function checkTapRing({ page, check, tap, point, name }) {
     await sleep(2500);
     const after = await grab();
     if (!during.equals(after)) {
-      await writeFile(path.join(SCREENSHOT_DIR, `${name}-ring.png`), during);
+      await writeFile(path.join(TEMP_SCREENSHOT_DIR, `${name}-ring.png`), during);
       return;
     }
   }
@@ -321,7 +350,9 @@ async function testTouchCamera({ page, context, check, shot, size }) {
   const reachEdge = async (dx, dy, axis, label) => {
     let cam = await readCamera(page);
     for (let i = 0; i < 12; i += 1) {
-      await touch.drag({ x: centre.x - dx / 2, y: centre.y - dy / 2 }, { x: centre.x + dx / 2, y: centre.y + dy / 2 }, { steps: 6, pauseMs: 20, holdMs: 200 });
+      // Senkrechte Züge am linken Rand: In der Mitte unten liegt die Werkzeugleiste.
+      const column = dx === 0 ? size.width * 0.12 : null;
+      await touch.drag({ x: column ?? centre.x - dx / 2, y: centre.y - dy / 2 }, { x: column ?? centre.x + dx / 2, y: centre.y + dy / 2 }, { steps: 6, pauseMs: 20, holdMs: 200 });
       const next = await waitForCameraRest(page);
       checkInsideBounds(next, size, check, `Grenze ${label}`);
       const moved = Math.abs(next[axis] - cam[axis]);
@@ -375,9 +406,10 @@ async function testTouchCamera({ page, context, check, shot, size }) {
   check(Math.abs(far.x - mid) < 1.5 && Math.abs(far.y - mid) < 1.5, `Herauszoomen: Insel nicht mittig (${far.x}, ${far.y})`);
 
   // --- +/−-Knöpfe: Zoom ändert sich, ohne Kachel-Tipp ---
-  const buttonX = size.width - BUTTON.margin - BUTTON.radius;
-  const outY = size.height - BUTTON.margin - BUTTON.radius;
-  const inY = outY - 2 * BUTTON.radius - BUTTON.gap;
+  const zoomSpots = await readUi(page);
+  const buttonX = zoomSpots['zoom-in'].x;
+  const inY = zoomSpots['zoom-in'].y;
+  const outY = zoomSpots['zoom-out'].y;
   const tapsBefore = (await readCamera(page)).lastTap;
   await page.touchscreen.tap(buttonX, inY);
   const afterPlus = await waitForCameraRest(page);
@@ -485,10 +517,12 @@ async function testMouseCamera({ page, check, shot, size }) {
   const reachEdge = async (dx, dy, axis, label) => {
     let cam = await readCamera(page);
     for (let i = 0; i < 12; i += 1) {
-      await page.mouse.move(centre.x - dx / 2, centre.y - dy / 2);
+      // Senkrechte Züge am linken Rand: In der Mitte unten liegt die Werkzeugleiste.
+      const column = dx === 0 ? size.width * 0.12 : null;
+      await page.mouse.move(column ?? centre.x - dx / 2, centre.y - dy / 2);
       await page.mouse.down();
       for (let s = 1; s <= 6; s += 1) {
-        await page.mouse.move(centre.x - dx / 2 + (dx * s) / 6, centre.y - dy / 2 + (dy * s) / 6);
+        await page.mouse.move(column ?? centre.x - dx / 2 + (dx * s) / 6, centre.y - dy / 2 + (dy * s) / 6);
         await sleep(25);
       }
       await sleep(250);
@@ -557,6 +591,445 @@ async function testMouseCamera({ page, check, shot, size }) {
   check(Math.abs(far.x - mid) < 1.5 && Math.abs(far.y - mid) < 1.5, `Herauszoomen: Insel nicht mittig (${far.x}, ${far.y})`);
 }
 
+
+// ---------------------------------------------------------------------------------------------
+// M2 „Gestalten“: Wege, Häuser und Deko setzen, verschieben, abreißen
+// ---------------------------------------------------------------------------------------------
+
+/** Kantenlänge der Gebäude in Kacheln (siehe `buildings.json`); alles andere ist 1×1. */
+const FOOTPRINT = { 'house-red': 2, 'house-blue': 2, 'house-yellow': 2, fountain: 2 };
+const footprintOf = (type) => FOOTPRINT[type] ?? 1;
+
+/** Bau-Zustand aus `<html data-tool|variant|preview|hint|markers|buildings|paths|terrain|ui>`. */
+async function readVillage(page) {
+  return page.evaluate(() => {
+    const d = document.documentElement.dataset;
+    return {
+      tool: d.tool,
+      variant: d.variant,
+      preview: d.preview,
+      hint: d.hint ?? '',
+      markers: Number(d.markers),
+      buildings: JSON.parse(d.buildings ?? '[]').map(([id, type, x, y, connected]) => ({ id, type, x, y, connected: connected === 1 })),
+      paths: (d.paths ?? '').split(';').filter(Boolean).map((tile) => tile.split(',').map(Number)),
+      terrain: d.terrain ?? '',
+      ui: JSON.parse(d.ui ?? '{}'),
+      lastTap: d.lastTap,
+    };
+  });
+}
+
+/** Wartet (Headless: etwa 8 fps), bis `predicate(village)` stimmt; wirft mit dem aktuellen Stand, wenn nicht. */
+async function waitForVillage(page, predicate, what, timeoutMs = 8000) {
+  const deadline = Date.now() + timeoutMs;
+  let village;
+  while (Date.now() < deadline) {
+    village = await readVillage(page);
+    if (predicate(village)) return village;
+    await sleep(120);
+  }
+  throw new Error(
+    `Zeitüberschreitung beim Warten auf ${what} (Stand: Werkzeug ${village?.tool}, Vorschau ${village?.preview}, ${village?.buildings.length} Gebäude, ${village?.paths.length} Wegkacheln, Markierungen ${village?.markers})`,
+  );
+}
+
+/** Mitte der Kachel auf dem Bildschirm (CSS-px). */
+function screenOfTile(cam, size, tile) {
+  return { x: size.width / 2 + ((tile.x + 0.5) * TILE - cam.x) * cam.zoom, y: size.height / 2 + ((tile.y + 0.5) * TILE - cam.y) * cam.zoom };
+}
+
+const tileKey = (x, y) => `${x},${y}`;
+
+/** Belegte Kacheln: Gebäude (mit Grundriss) und Wege. */
+function occupiedTiles(village) {
+  const occupied = new Set(village.paths.map(([x, y]) => tileKey(x, y)));
+  for (const b of village.buildings) {
+    const size = footprintOf(b.type);
+    for (let dy = 0; dy < size; dy += 1) for (let dx = 0; dx < size; dx += 1) occupied.add(tileKey(b.x + dx, b.y + dy));
+  }
+  return occupied;
+}
+
+/**
+ * Sucht eine freie Wiesenfläche `w × h` (plus `margin` Kacheln Rand, auch frei und Wiese), die gut antippbar auf dem
+ * Bildschirm liegt: nicht unter Werkzeugleiste, Auswahl, Hinweis und Zoom-Knöpfen. Nimmt die, die der Bildschirmmitte
+ * (oder `near`, Bildschirmpunkt) am nächsten liegt. `skip` sind Kacheln, die zusätzlich als belegt gelten.
+ */
+function findFreeArea(village, cam, size, w, h, { margin = 1, near, skip = [] } = {}) {
+  const occupied = occupiedTiles(village);
+  for (const tile of skip) occupied.add(tileKey(tile.x, tile.y));
+  const toolbarTop = village.ui['tool-path'].y - 52;
+  const usable = { left: 90, right: size.width - 140, top: 110, bottom: toolbarTop - 160 };
+  const target = near ?? { x: size.width / 2, y: (usable.top + usable.bottom) / 2 };
+  const grass = (x, y) => village.terrain[y * MAP_TILES + x] === 'g' && !occupied.has(tileKey(x, y));
+  let best;
+  for (let y = 2; y < MAP_TILES - 2 - h; y += 1) {
+    for (let x = 2; x < MAP_TILES - 2 - w; x += 1) {
+      let free = true;
+      for (let dy = -margin; dy < h + margin && free; dy += 1) for (let dx = -margin; dx < w + margin && free; dx += 1) free = grass(x + dx, y + dy);
+      if (!free) continue;
+      const first = screenOfTile(cam, size, { x, y });
+      const last = screenOfTile(cam, size, { x: x + w - 1, y: y + h - 1 });
+      if (first.x < usable.left || last.x > usable.right || first.y < usable.top || last.y > usable.bottom) continue;
+      const distance = Math.hypot((first.x + last.x) / 2 - target.x, (first.y + last.y) / 2 - target.y);
+      if (!best || distance < best.distance) best = { x, y, distance };
+    }
+  }
+  return best;
+}
+
+/** Ein Wasser-Block `2×2`, der auf dem Bildschirm antippbar ist, möglichst nahe an `near`. */
+function findWater(village, cam, size, near) {
+  let best;
+  for (let y = 1; y < MAP_TILES - 1; y += 1) {
+    for (let x = 0; x < MAP_TILES - 1; x += 1) {
+      const water = [0, 1].every((dy) => [0, 1].every((dx) => village.terrain[(y + dy) * MAP_TILES + x + dx] === 'w'));
+      if (!water) continue;
+      const p = screenOfTile(cam, size, { x, y });
+      if (p.x < 30 || p.x > size.width - 150 || p.y < 120 || p.y > size.height - 260) continue;
+      const distance = Math.hypot(p.x - near.x, p.y - near.y);
+      if (!best || distance < best.distance) best = { x, y, distance };
+    }
+  }
+  return best;
+}
+
+/**
+ * Baut im Spiel (M2) und prüft den Zustand. `input.tap(point)` tippt oder klickt. Jeder Fehler wird als Problem
+ * gemeldet, der Test bricht dann ab (die Schritte bauen aufeinander auf).
+ */
+async function testBuilding({ page, check, shot, size, input, drag, name }) {
+  const step = (what) => console.log(`  [${name}] ${what}`);
+  const cameraAtRest = () => waitForCameraRest(page);
+  const tapUi = async (spot) => {
+    const village = await waitForVillage(page, (v) => spot in v.ui, `den Knopf „${spot}“`, 4000);
+    const p = village.ui[spot];
+    await input.tap({ x: p.x, y: p.y });
+  };
+  const tapTile = async (tile) => {
+    const cam = await cameraAtRest();
+    const p = screenOfTile(cam, size, tile);
+    check(p.x > 10 && p.x < size.width - 10 && p.y > 10 && p.y < size.height - 10, `Kachel ${tileKey(tile.x, tile.y)} liegt nicht im Bild (${p.x.toFixed(0)}, ${p.y.toFixed(0)})`);
+    await input.tap(p);
+    await waitForVillage(page, (v) => v.lastTap === tileKey(tile.x, tile.y), `den Tipp auf Kachel ${tileKey(tile.x, tile.y)} bei ${p.x.toFixed(0)},${p.y.toFixed(0)} (zuletzt getippt: ${(await readVillage(page)).lastTap})`, 4000);
+    await sleep(250); // ein paar Frames, damit Vorschau und Knöpfe nachziehen
+  };
+  const selectTool = async (tool) => {
+    await tapUi(`tool-${tool}`);
+    await waitForVillage(page, (v) => v.tool === tool, `Werkzeug ${tool}`);
+  };
+  /** Zurück auf „Anschauen“ geht nur über das ✕ in der Hinweisleiste (das Werkzeug erneut antippen schaltet nicht ab). */
+  const exitTool = async () => {
+    await tapUi('exit');
+    await waitForVillage(page, (v) => v.tool === 'view', 'zurück auf „Anschauen“');
+  };
+  /** ✓ antippen und warten, bis `predicate` stimmt. */
+  const confirm = async (predicate, what) => {
+    await waitForVillage(page, (v) => v.ui.confirm?.enabled === true, 'ein aktives ✓');
+    await tapUi('confirm');
+    return waitForVillage(page, predicate, what);
+  };
+  const count = (village, type) => village.buildings.filter((b) => b.type === type).length;
+
+  let village = await waitForVillage(page, (v) => v.buildings.length > 0, 'das Startdorf');
+  check(village.tool === 'view', `Start: Werkzeug ${village.tool} statt „view“`);
+  check(village.buildings.some((b) => b.type.startsWith('house') && b.connected) && village.paths.length > 0, 'Start: kein Haus mit Weg im Startdorf');
+  check(village.markers === 0, `Start: ${village.markers} Markierungen, erwartet 0`);
+  for (const tool of ['path', 'house', 'deco', 'move', 'demolish']) check(`tool-${tool}` in village.ui, `Werkzeugleiste: Knopf ${tool} fehlt`);
+  await sleep(800);
+  await shot(`${name}-werkzeugleiste`);
+
+  // --- Ungültiger Platz auf Wasser: rote Vorschau, ✓ baut nichts ---
+  step('Haus auf Wasser: rot, ✓ baut nichts');
+  await selectTool('house');
+  await waitForVillage(page, (v) => 'variant-house-blue' in v.ui, 'die Hausauswahl');
+  // Das aktive Werkzeug erneut antippen schaltet es nicht ab.
+  await tapUi('tool-house');
+  await sleep(500);
+  check((await readVillage(page)).tool === 'house', 'Das Werkzeug erneut antippen hat es abgeschaltet');
+  let cam = await cameraAtRest();
+  const water = findWater(village, cam, size, { x: size.width * 0.2, y: size.height * 0.3 });
+  check(water !== undefined, 'Kein Wasser im Bild gefunden');
+  if (water) {
+    await tapTile({ x: water.x, y: water.y + 1 });
+    village = await waitForVillage(page, (v) => v.preview === 'place:terrain', 'rote Vorschau auf Wasser');
+    check(village.ui.confirm?.enabled === false, 'Wasser: ✓ ist nicht abgeblendet');
+    await shot(`${name}-vorschau-wasser`);
+    const before = village.buildings.length;
+    await tapUi('confirm');
+    await sleep(900);
+    village = await readVillage(page);
+    check(village.buildings.length === before, 'Wasser: ✓ hat trotzdem gebaut');
+    check(/Wasser/.test(village.hint), `Wasser: Hinweis „${village.hint}“ nennt den Grund nicht`);
+    check(village.preview === 'place:terrain', 'Wasser: Vorschau ist nach dem ✓ verschwunden');
+    await tapUi('cancel');
+    await waitForVillage(page, (v) => v.preview === 'none', 'ohne Vorschau nach ✕');
+  }
+  await exitTool();
+
+  // --- Weg zu einem Ziel auf Wasser: keine Route, rot, ✓ gesperrt, Grund im Hinweis ---
+  step('Weg zum Wasser: rot, ✓ gesperrt');
+  village = await readVillage(page);
+  const from = findFreeArea(village, cam, size, 1, 1, { margin: 0 });
+  check(from !== undefined && water !== undefined, 'Kein Platz für den Weg zum Wasser gefunden');
+  if (from && water) {
+    await selectTool('path');
+    await tapTile(from);
+    await tapTile(water);
+    village = await waitForVillage(page, (v) => /^path:/.test(v.preview) && v.ui.confirm?.enabled === false, 'rote Weg-Vorschau mit gesperrtem ✓');
+    check(/Wasser/.test(village.hint), `Weg zum Wasser: Hinweis „${village.hint}“ nennt den Grund nicht`);
+    await tapUi('cancel');
+    await exitTool();
+  }
+
+  // --- Heranzoomen: Kacheln etwa 47 px ---
+  const zoomSpots = (await readVillage(page)).ui;
+  for (let i = 0; i < 2; i += 1) {
+    await input.tap(zoomSpots['zoom-in']);
+    await sleep(200);
+  }
+  cam = await cameraAtRest();
+  check(cam.zoom * TILE > 40, `Heranzoomen: Kachel nur ${(cam.zoom * TILE).toFixed(0)} px groß`);
+  village = await readVillage(page);
+
+  // --- Rot auch auf einem Gebäude („blocked“) ---
+  step('Haus auf ein Haus: rot');
+  await selectTool('house');
+  const start = village.buildings.find((b) => b.type.startsWith('house'));
+  await tapTile({ x: start.x, y: start.y + 1 });
+  village = await waitForVillage(page, (v) => v.preview === 'place:blocked', 'rote Vorschau auf dem Haus');
+  await shot(`${name}-vorschau-rot`);
+  await tapUi('confirm');
+  await sleep(700);
+  check((await readVillage(page)).buildings.length === village.buildings.length, 'Überlappung: ✓ hat trotzdem gebaut');
+  await tapUi('cancel');
+  await exitTool();
+
+  // --- Weg als L: Anfang antippen, Ende antippen, ✓ ---
+  step('Weg als L');
+  village = await readVillage(page);
+  cam = await cameraAtRest();
+  const pathArea = findFreeArea(village, cam, size, 4, 3, { near: { x: size.width * 0.72, y: size.height * 0.3 } });
+  check(pathArea !== undefined, 'Kein freier Platz für den Weg gefunden');
+  if (!pathArea) return;
+  const lTiles = [0, 1, 2, 3].map((dx) => ({ x: pathArea.x + dx, y: pathArea.y })).concat([1, 2].map((dy) => ({ x: pathArea.x + 3, y: pathArea.y + dy })));
+  await selectTool('path');
+  await tapTile(lTiles[0]);
+  await waitForVillage(page, (v) => v.preview === 'path:ok=1,blocked=0,existing=0', 'Weg-Vorschau mit einer Kachel');
+  await tapTile(lTiles[lTiles.length - 1]);
+  await waitForVillage(page, (v) => v.preview === 'path:ok=6,blocked=0,existing=0', 'L-förmige Weg-Vorschau (6 Kacheln)');
+  await shot(`${name}-weg-vorschau`);
+  const pathsBefore = village.paths.length;
+  village = await confirm((v) => v.paths.length === pathsBefore + 6, 'sechs neue Wegkacheln');
+  check(lTiles.every((tile) => village.paths.some(([x, y]) => x === tile.x && y === tile.y)), 'Weg: nicht alle Kacheln der L-Linie liegen');
+  check(village.tool === 'path' && village.preview === 'none', `Weg: nach ✓ Werkzeug ${village.tool}, Vorschau ${village.preview}`);
+
+  // --- Haus ohne Weg: Markierung sichtbar ---
+  step('Haus ohne Weg: Markierung');
+  await selectTool('house');
+  await tapUi('variant-house-blue');
+  await waitForVillage(page, (v) => v.variant === 'house-blue', 'Variante Blaues Pilzhaus');
+  cam = await cameraAtRest();
+  const houseArea = findFreeArea(village, cam, size, 2, 2, { near: { x: size.width * 0.3, y: size.height * 0.35 } });
+  check(houseArea !== undefined, 'Kein freier Platz für das Haus gefunden');
+  if (!houseArea) return;
+  // Erst eine andere Kachel antippen, dann die richtige: die Vorschau wandert.
+  const decoy = findFreeArea(village, cam, size, 2, 2, { near: { x: size.width * 0.55, y: size.height * 0.5 }, skip: [{ x: houseArea.x, y: houseArea.y }] });
+  if (decoy) {
+    await tapTile({ x: decoy.x, y: decoy.y + 1 });
+    await waitForVillage(page, (v) => v.preview === 'place:ok', 'grüne Vorschau (erste Kachel)');
+  }
+  await tapTile({ x: houseArea.x, y: houseArea.y + 1 });
+  await waitForVillage(page, (v) => v.preview === 'place:ok', 'grüne Vorschau');
+  // Nach dem Tippen auf die Karte klappt die Auswahl zu einem Chip zusammen; ein Tipp darauf öffnet sie wieder.
+  await waitForVillage(page, (v) => 'chip' in v.ui && !('variant-house-blue' in v.ui), 'die Auswahl als Chip');
+  await shot(`${name}-vorschau-gruen`);
+  await tapUi('chip');
+  await waitForVillage(page, (v) => 'variant-house-yellow' in v.ui, 'die wieder geöffnete Auswahl');
+  await tapUi('variant-house-yellow');
+  await waitForVillage(page, (v) => v.variant === 'house-yellow' && v.preview === 'place:ok' && 'chip' in v.ui, 'die gelbe Variante (Vorschau bleibt)');
+  await tapUi('chip');
+  await waitForVillage(page, (v) => 'variant-house-blue' in v.ui, 'die Auswahl noch einmal');
+  await tapUi('variant-house-blue');
+  await waitForVillage(page, (v) => v.variant === 'house-blue' && v.preview === 'place:ok' && 'chip' in v.ui, 'wieder die blaue Variante');
+  const houses = village.buildings.length;
+  village = await confirm((v) => v.buildings.length === houses + 1 && v.markers === 1, 'das neue Haus mit Markierung');
+  const blueHouse = village.buildings.find((b) => b.type === 'house-blue');
+  check(blueHouse && blueHouse.x === houseArea.x && blueHouse.y === houseArea.y, `Haus steht auf ${blueHouse?.x},${blueHouse?.y} statt ${houseArea.x},${houseArea.y}`);
+  check(blueHouse && !blueHouse.connected, 'Haus ohne Weg gilt als angeschlossen');
+  check(village.tool === 'house', `Haus: nach ✓ Werkzeug ${village.tool}`);
+  await sleep(700); // die Markierung ploppt auf
+  await shot(`${name}-haus-ohne-weg`);
+
+  // --- Weg daneben: Markierung verschwindet ---
+  step('Weg daneben: Markierung weg');
+  await selectTool('path');
+  await tapTile({ x: blueHouse.x - 1, y: blueHouse.y + 1 });
+  // Das zweite Ende liegt oberhalb: unter der Vorschau sitzen ✓ und ✕.
+  await tapTile({ x: blueHouse.x - 1, y: blueHouse.y });
+  village = await confirm((v) => v.markers === 0, 'keine Markierung mehr');
+  check(village.buildings.find((b) => b.id === blueHouse.id)?.connected === true, 'Haus gilt nach dem Weg nicht als angeschlossen');
+
+  // --- Blumen nacheinander ---
+  step('Blumen');
+  await selectTool('deco');
+  await waitForVillage(page, (v) => v.variant === 'flower', 'Variante Blume');
+  const flowers = [];
+  for (let i = 0; i < 2; i += 1) {
+    village = await readVillage(page);
+    cam = await cameraAtRest();
+    const spot = findFreeArea(village, cam, size, 1, 1, { near: { x: size.width * (0.35 + i * 0.2), y: size.height * 0.28 }, skip: flowers });
+    check(spot !== undefined, 'Kein freier Platz für die Blume');
+    if (!spot) return;
+    flowers.push({ x: spot.x, y: spot.y });
+    const before = count(village, 'flower');
+    await tapTile(spot);
+    await waitForVillage(page, (v) => v.preview === 'place:ok', 'grüne Vorschau für die Blume');
+    village = await confirm((v) => count(v, 'flower') === before + 1, `Blume ${i + 1}`);
+    check(village.tool === 'deco', `Blume ${i + 1}: Werkzeug ${village.tool} nach ✓, erwartet „deco“`);
+  }
+
+  // --- Haus verschieben (weg vom Weg: die Markierung kommt zurück) ---
+  step('Haus verschieben');
+  await selectTool('move');
+  village = await readVillage(page);
+  cam = await cameraAtRest();
+  const target = findFreeArea(village, cam, size, 2, 2, { near: { x: size.width * 0.3, y: size.height * 0.62 } });
+  check(target !== undefined, 'Kein freier Platz zum Verschieben gefunden');
+  if (!target) return;
+  await tapTile({ x: blueHouse.x + 1, y: blueHouse.y + 1 }); // jede Kachel des Hauses wählt es
+  await waitForVillage(page, (v) => v.preview === 'move:chosen', 'das gewählte Haus');
+  await shot(`${name}-verschieben`);
+  await tapTile({ x: target.x, y: target.y + 1 });
+  await waitForVillage(page, (v) => v.preview === 'move:ok', 'grünes Ziel');
+  village = await confirm((v) => v.buildings.some((b) => b.id === blueHouse.id && b.x === target.x && b.y === target.y), 'das verschobene Haus');
+  check(village.markers === 1, `Verschoben: ${village.markers} Markierungen, erwartet 1 (nun ohne Weg)`);
+  check(village.tool === 'move', `Verschieben: Werkzeug ${village.tool} nach ✓`);
+
+  // --- Deko abreißen ---
+  step('Deko abreißen');
+  await selectTool('demolish');
+  village = await readVillage(page);
+  const flowersBefore = count(village, 'flower');
+  await tapTile(flowers[0]);
+  await waitForVillage(page, (v) => v.preview === 'demolish:1', 'die rote Markierung');
+  await shot(`${name}-abreissen`);
+  village = await confirm((v) => count(v, 'flower') === flowersBefore - 1, 'die abgerissene Blume');
+  check(!village.buildings.some((b) => b.type === 'flower' && b.x === flowers[0].x && b.y === flowers[0].y), 'Die falsche Blume wurde abgerissen');
+  await sleep(700);
+  await exitTool();
+  await sleep(500);
+  await shot(`${name}-dorf`);
+
+  // --- Antippen eines Hauses ohne Weg erklärt, was fehlt ---
+  step('Hinweis am Haus ohne Weg (Tipp aufs Dach)');
+  await tapTile({ x: target.x, y: target.y - 1 }); // die Kachel hinter dem Haus, aber auf seinem Dach
+  await waitForVillage(page, (v) => /braucht einen Weg/.test(v.hint), 'den Hinweis „braucht einen Weg“');
+
+  // --- Ziehen bleibt die Kamera, auch mit aktivem Werkzeug ---
+  if (drag) {
+    step('Ziehen bewegt nur die Kamera');
+    await selectTool('deco');
+    const camBefore = await cameraAtRest();
+    const countBefore = (await readVillage(page)).buildings.length;
+    await drag({ x: size.width * 0.35, y: size.height * 0.35 }, { x: size.width * 0.55, y: size.height * 0.3 });
+    const camAfter = await cameraAtRest();
+    village = await readVillage(page);
+    check(Math.abs(camAfter.x - camBefore.x) > 20 || Math.abs(camAfter.y - camBefore.y) > 5, 'Ziehen mit Werkzeug: Kamera hat sich nicht bewegt');
+    check(village.preview === 'none', `Ziehen mit Werkzeug: Vorschau ${village.preview}, erwartet „none“`);
+    check(village.buildings.length === countBefore, 'Ziehen mit Werkzeug hat gebaut');
+    await exitTool();
+
+    // --- Kleine Bildschirme (Handy hochkant und quer): nichts ragt über den Rand oder überdeckt etwas, Land bleibt antippbar ---
+    for (const [w, h] of [[320, 568], [568, 320], [640, 360]]) {
+      step(`Kleiner Bildschirm ${w}×${h}: Leisten im Bild, Land antippbar`);
+      await page.setViewportSize({ width: w, height: h });
+      await sleep(1500);
+      const small = { width: w, height: h };
+      const cam = await cameraAtRest();
+      let v = await readVillage(page);
+      const inBounds = (spot, p) => check(p.x - 24 >= 0 && p.x + 24 <= w && p.y - 24 >= 0 && p.y + 24 <= h, `${w}×${h}: „${spot}“ ragt über den Bildrand (${p.x.toFixed(0)}, ${p.y.toFixed(0)})`);
+      // Ein antippbares Grasstück: links oben von der Mitte, frei vom Bedienfeld (Hinweisleiste oben, Werkzeugleiste unten).
+      const toolbarTop = v.ui['tool-path'].y - 40;
+      let best;
+      for (let y = 0; y < MAP_TILES; y += 1) {
+        for (let x = 0; x < MAP_TILES; x += 1) {
+          if (v.terrain[y * MAP_TILES + x] !== 'g') continue;
+          const p = screenOfTile(cam, small, { x, y });
+          // Frei von Chip (links unten), ✓/✕ (rechts unten), Zoom-Knöpfen (rechts oben), Hinweis- und Werkzeugleiste.
+          if (p.x < 92 || p.x > Math.max(150, w - 170) || p.y < 100 || p.y > toolbarTop - 24) continue;
+          const distance = Math.hypot(p.x - w * 0.3, p.y - h * 0.4);
+          if (!best || distance < best.distance) best = { x, y, p, distance };
+        }
+      }
+      check(best !== undefined, `${w}×${h}: kein antippbares Land im Bild`);
+
+      for (const tool of ['house', 'deco']) {
+        await selectTool(tool);
+        v = await waitForVillage(page, (state) => Object.keys(state.ui).some((spot) => spot.startsWith('variant-')), `die Auswahl für ${tool}`);
+        const zoomSpots = [v.ui['zoom-in'], v.ui['zoom-out']];
+        for (const [spot, p] of Object.entries(v.ui)) inBounds(spot, p);
+        for (const [spot, p] of Object.entries(v.ui).filter(([spot]) => spot.startsWith('variant-') || spot.startsWith('page-'))) {
+          check(p.y - 28 >= 84, `${w}×${h}: „${spot}“ liegt unter/auf der Hinweisleiste (y ${p.y.toFixed(0)})`);
+          for (const z of zoomSpots) check(Math.hypot(p.x - z.x, p.y - z.y) >= 28 + 28, `${w}×${h}: „${spot}“ überdeckt einen Zoom-Knopf`);
+        }
+        check(toolbarTop > h * 0.4, `${w}×${h}: Werkzeugleiste nimmt mehr als die halbe Höhe`);
+        if (tool === 'deco') await shot(`${name}-klein-${w}x${h}`);
+        // Eine Variante wählen: die Auswahl klappt zum Chip zusammen; dann Land antippen: ✓/✕ stören nichts.
+        const variant = Object.keys(v.ui).find((spot) => spot.startsWith('variant-'));
+        await tapUi(variant);
+        await waitForVillage(page, (state) => 'chip' in state.ui, 'den Chip');
+        await sleep(500); // kurz nach einem Tipp auf einen Knopf ignoriert die Karte Tipps (Doppeltipp-Schutz)
+        if (best) {
+          await input.tap(best.p);
+          v = await waitForVillage(page, (state) => state.lastTap === tileKey(best.x, best.y) && state.preview.startsWith('place:') && 'confirm' in state.ui, `die Vorschau auf Land bei ${w}×${h}`, 5000);
+          for (const [spot, p] of Object.entries(v.ui)) inBounds(spot, p);
+          for (const spot of ['confirm', 'cancel', 'chip']) {
+            for (const z of zoomSpots) check(Math.hypot(v.ui[spot].x - z.x, v.ui[spot].y - z.y) >= 28 + 36, `${w}×${h}: „${spot}“ überdeckt einen Zoom-Knopf`);
+          }
+          check(Math.hypot(v.ui.confirm.x - v.ui.cancel.x, v.ui.confirm.y - v.ui.cancel.y) >= 72, `${w}×${h}: ✓ und ✕ überdecken sich`);
+          // Ein Tipp auf den Chip öffnet die Auswahl (reicht der Platz neben der Vorschau nicht, wird sie zuerst verworfen).
+          await tapUi('chip');
+          await waitForVillage(page, (state) => Object.keys(state.ui).some((spot) => spot.startsWith('variant-')), 'die wieder geöffnete Auswahl');
+          v = await readVillage(page);
+          for (const [spot, p] of Object.entries(v.ui)) inBounds(spot, p);
+          if ('confirm' in v.ui) {
+            for (const [spot, p] of Object.entries(v.ui).filter(([spot]) => spot.startsWith('variant-') || spot.startsWith('page-'))) {
+              for (const c of [v.ui.confirm, v.ui.cancel]) check(Math.hypot(p.x - c.x, p.y - c.y) >= 60, `${w}×${h}: „${spot}“ überdeckt ✓/✕`);
+            }
+          }
+          await tapUi(Object.keys(v.ui).find((spot) => spot.startsWith('variant-')));
+          await waitForVillage(page, (state) => 'chip' in state.ui, 'den Chip nach der Wahl');
+          await sleep(500);
+          if ('cancel' in (await readVillage(page)).ui) await tapUi('cancel');
+        }
+        await tapUi('exit');
+        await waitForVillage(page, (state) => state.tool === 'view', 'zurück auf „Anschauen“');
+      }
+      // Im Anschauen: ein Tipp auf Land wird gemeldet.
+      if (best) {
+        await input.tap(best.p);
+        await waitForVillage(page, (state) => state.lastTap === tileKey(best.x, best.y), `den Tipp auf Land bei ${w}×${h}`, 4000);
+      }
+    }
+    await page.setViewportSize(size);
+    await sleep(1000);
+  }
+}
+
+/** Startet das Spiel (Tippen zum Spielen) und wartet auf die Insel. */
+async function enterIsland(page, profile, waitForScene) {
+  await page.goto(GAME_URL, { waitUntil: 'load' });
+  await waitForScene('boot');
+  await page.waitForTimeout(500);
+  const { width, height } = profile.context.viewport;
+  if (profile.context.hasTouch) await page.touchscreen.tap(width / 2, height * 0.54);
+  else await page.mouse.click(width / 2, height * 0.54);
+  await waitForScene('island');
+  await waitForCameraRest(page);
+  await page.waitForTimeout(2500);
+}
+
 async function testProfile(browser, profile) {
   const problems = [];
   const context = await browser.newContext(profile.context);
@@ -586,7 +1059,7 @@ async function testProfile(browser, profile) {
     if (response.status() >= 400) problems.push(`HTTP ${response.status()}: ${response.url()}`);
   });
 
-  const shot = (name) => page.screenshot({ path: path.join(SCREENSHOT_DIR, `${name}.png`), scale: 'css' });
+  const shot = (name) => page.screenshot({ path: path.join(KEEP_SCREENSHOTS.has(name) ? SCREENSHOT_DIR : TEMP_SCREENSHOT_DIR, `${name}.png`), scale: 'css' });
   const waitForScene = (scene) =>
     page.waitForSelector(`html[data-scene="${scene}"]`, { state: 'attached', timeout: 10_000 });
 
@@ -655,11 +1128,27 @@ async function testProfile(browser, profile) {
     await waitForCameraRest(page);
   }
 
-  if (profile.context.hasTouch) {
-    await testTouchCamera({ page, context, problems, check, shot, size: { width, height } });
-  } else {
-    await testMouseCamera({ page, problems, check, shot, size: { width, height } });
+  if (!M2_ONLY) {
+    if (profile.context.hasTouch) {
+      await testTouchCamera({ page, context, problems, check, shot, size: { width, height } });
+    } else {
+      await testMouseCamera({ page, problems, check, shot, size: { width, height } });
+    }
+    // Frische Insel für die Bau-Prüfungen (die Kamera-Prüfungen haben Zoom und Ausschnitt verstellt).
+    await enterIsland(page, profile, waitForScene);
   }
+
+  const size = { width, height };
+  const cdp = profile.context.hasTouch ? await context.newCDPSession(page) : undefined;
+  const input = cdp ? { tap: (p) => page.touchscreen.tap(p.x, p.y) } : { tap: (p) => page.mouse.click(p.x, p.y) };
+  const drag = cdp ? (from, to) => touchDevice(cdp).drag(from, to, { steps: 8, pauseMs: 30, holdMs: 200 }) : undefined;
+  try {
+    await testBuilding({ page, check, shot, size, input, drag, name: profile.name });
+  } catch (error) {
+    problems.push(`Bauen: ${error.message}`);
+    await shot(`${profile.name}-bauen-fehler`).catch(() => {});
+  }
+  await cdp?.detach();
 
   await context.close();
   return { info, problems };
@@ -670,6 +1159,7 @@ async function main() {
   if (!skipBuild) run('npm', ['run', 'build']);
 
   await mkdir(SCREENSHOT_DIR, { recursive: true });
+  await mkdir(TEMP_SCREENSHOT_DIR, { recursive: true });
   const { chromium } = loadPlaywright();
   const server = startPreview();
   let failed = false;
@@ -678,7 +1168,7 @@ async function main() {
     await waitForServer(server);
     const browser = await chromium.launch();
     try {
-      for (const profile of PROFILES) {
+      for (const profile of PROFILES.filter((p) => ONLY_PROFILE === undefined || p.name === ONLY_PROFILE)) {
         const { info, problems } = await testProfile(browser, profile);
         const status = problems.length === 0 ? 'OK' : 'FEHLER';
         console.log(`[${status}] ${profile.name}: Titel "${info.title}", Canvas ${info.canvasWidth}px für ${info.cssWidth} CSS-px`);

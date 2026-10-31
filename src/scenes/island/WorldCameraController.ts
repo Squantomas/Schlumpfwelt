@@ -18,8 +18,10 @@ export interface WorldCameraOptions {
    * through the `tile-tap` event, not through their own input.
    */
   readonly blocksCamera: (object: Phaser.GameObjects.GameObject) => boolean;
+  /** Presses on a panel (toolbar, picker) also belong to the UI, even between its buttons. Point in CSS px. */
+  readonly blocksPoint?: (x: number, y: number) => boolean;
   /** A tap on the world (not on a button): the world point and the screen point (CSS px). */
-  readonly onTap: (world: Point, screen: Point) => void;
+  readonly onTap: (world: Point, screen: Point, eventTime: number) => void;
 }
 
 /** Largest wheel step that is taken into account (some mice send huge values). */
@@ -38,6 +40,8 @@ const MAX_WHEEL_DELTA = 240;
 export class WorldCameraController {
   private readonly rig: CameraRig;
   private readonly tracker: GestureTracker;
+  /** Browser time of the release that is being handled (for the tap callback). */
+  private upTime = 0;
 
   constructor(
     private readonly scene: Phaser.Scene,
@@ -54,7 +58,7 @@ export class WorldCameraController {
         },
         pan: (dx, dy) => this.rig.pan(dx, dy),
         pinch: (from, to, scale) => this.rig.pinch(from, to, scale),
-        tap: (at) => options.onTap(screenToWorld(this.rig.view, this.rig.viewSize, at), at),
+        tap: (at) => options.onTap(screenToWorld(this.rig.view, this.rig.viewSize, at), at, this.upTime),
         fling: (vx, vy) => this.rig.fling(vx, vy),
       },
       { tapMaxMovePx: options.tapMaxMovePx },
@@ -128,10 +132,14 @@ export class WorldCameraController {
 
   private readonly onDown = (pointer: Phaser.Input.Pointer, currentlyOver: readonly Phaser.GameObjects.GameObject[]): void => {
     // Buttons handle their own presses; only the left mouse button drags.
-    if (currentlyOver.some(this.options.blocksCamera) || (!pointer.wasTouch && !pointer.leftButtonDown())) {
+    const { x, y } = this.cssPoint(pointer);
+    if (
+      currentlyOver.some(this.options.blocksCamera) ||
+      this.options.blocksPoint?.(x, y) === true ||
+      (!pointer.wasTouch && !pointer.leftButtonDown())
+    ) {
       return;
     }
-    const { x, y } = this.cssPoint(pointer);
     this.tracker.down(pointer.id, x, y, this.timeOf(pointer));
   };
 
@@ -154,7 +162,8 @@ export class WorldCameraController {
       return;
     }
     const { x, y } = this.cssPoint(pointer);
-    this.tracker.up(pointer.id, x, y, this.timeOf(pointer));
+    this.upTime = this.timeOf(pointer);
+    this.tracker.up(pointer.id, x, y, this.upTime);
   };
 
   /** Released outside the canvas (and the browser window): the gesture is over, without a tap. */
