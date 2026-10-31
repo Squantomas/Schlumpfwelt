@@ -17,6 +17,13 @@ export interface SaveStore {
    * migration never costs a village. Rejects if the copy could not be written.
    */
   saveBackup(data: unknown): Promise<void>;
+  /**
+   * Only for stores that several windows share (IndexedDB): makes this window the owner – the newest window saves – and
+   * keeps the village as it is. Rejects if that did not work.
+   */
+  claim?(): Promise<void>;
+  /** The claim took too long: the window plays without saving and must not stay the owner, even if the claim goes through later. */
+  abandonClaim?(): void;
   /** The copies made by {@link SaveStore.saveBackup}, first the one that stays (for tests and for rescuing by hand). */
   loadBackups(): Promise<unknown[]>;
 }

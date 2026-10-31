@@ -10,6 +10,8 @@ const STORE_NAME = 'saves';
 const KEY = 'main';
 /** Which window may write: the newest one (see `tabLock.ts`). */
 const OWNER_KEY = 'owner';
+/** The village of one window is stored under this prefix plus the name of the window. */
+const DATA_PREFIX = 'data:';
 /** Some browsers never answer when storing is blocked: after this long the memory store takes over (the start screen waits for it, so it is short). */
 const OPEN_TIMEOUT_MS = 2000;
 
@@ -40,46 +42,123 @@ function transactionDone(transaction: IDBTransaction): Promise<void> {
   });
 }
 
+/**
+ * Where the village lives: **one key per window** (`data:<window>`) and an `owner` entry that names the newest window.
+ * Why not one key `main` with a check "am I still the owner?" before every write: that check is a read whose answer has to
+ * come back to the page before the write can be issued – a page that is closed hard in between loses its last write
+ * (the page is busy drawing, answers take a while). Writing to the own key needs no answer: the write is queued in one go
+ * and the browser completes it even when the page is gone. The check still happens, but afterwards (see `save`).
+ *
+ * - `load` reads the village of the owner (or the old single key `main`, which tests and old versions wrote).
+ * - `claim` makes this window the owner and copies the village of the former owner into its own key; old keys are tidied up.
+ * - `save` writes the own key; if the owner is someone else by then, it says so (`OwnerLostError`) – what it wrote is in
+ *   the own key, where nobody reads it, so a window that was taken over can never write over the newer village.
+ */
 class IndexedDbStore implements SaveStore {
   readonly kind = 'indexedDb';
+  private readonly dataKey: string;
+  private abandoned = false;
+  private claimed: { readonly previousOwner: unknown } | undefined;
 
   constructor(
     private readonly db: IDBDatabase,
     /** The name of this window: the one that opened last owns the saving, an older window never overwrites its village. */
     private readonly session: string,
-  ) {}
+  ) {
+    this.dataKey = `${DATA_PREFIX}${session}`;
+  }
 
-  /** Takes over the saving for this window (the newest window wins). */
+  /** The village of the current owner (or of the old key), read inside an open transaction. */
+  private async current(objects: IDBObjectStore): Promise<{ readonly owner: unknown; readonly data: unknown }> {
+    const owner: unknown = await requestPromise(objects.get(OWNER_KEY));
+    if (typeof owner === 'string') {
+      const data: unknown = await requestPromise(objects.get(`${DATA_PREFIX}${owner}`));
+      if (data !== undefined) {
+        return { owner, data };
+      }
+    }
+    const legacy: unknown = await requestPromise(objects.get(KEY));
+    return { owner, data: legacy };
+  }
+
+  /** Takes over the saving for this window (the newest window wins) and keeps the village as it is. */
   async claim(): Promise<void> {
     const transaction = this.db.transaction(STORE_NAME, 'readwrite');
-    transaction.objectStore(STORE_NAME).put(this.session, OWNER_KEY);
+    const objects = transaction.objectStore(STORE_NAME);
+    const { owner, data } = await this.current(objects);
+    objects.put(this.session, OWNER_KEY);
+    if (data !== undefined) {
+      objects.put(data, this.dataKey);
+    }
     await transactionDone(transaction);
+    this.claimed = { previousOwner: owner };
+    if (this.abandoned) {
+      await this.restore();
+    } else {
+      await this.tidy();
+    }
+  }
+
+  /** The claim took too long and the window plays without saving: it must not stay the owner (nobody else could save then). */
+  abandonClaim(): void {
+    this.abandoned = true;
+    if (this.claimed) {
+      void this.restore().catch(() => undefined);
+    }
+  }
+
+  private async restore(): Promise<void> {
+    const previous = this.claimed?.previousOwner;
+    const transaction = this.db.transaction(STORE_NAME, 'readwrite');
+    const objects = transaction.objectStore(STORE_NAME);
+    const owner: unknown = await requestPromise(objects.get(OWNER_KEY));
+    if (owner === this.session) {
+      if (typeof previous === 'string') {
+        objects.put(previous, OWNER_KEY);
+      } else {
+        objects.delete(OWNER_KEY);
+      }
+    }
+    objects.delete(this.dataKey);
+    await transactionDone(transaction);
+  }
+
+  /** Removes the villages of earlier windows (and the old single key): this window has a copy. */
+  private async tidy(): Promise<void> {
+    try {
+      const transaction = this.db.transaction(STORE_NAME, 'readwrite');
+      const objects = transaction.objectStore(STORE_NAME);
+      const keys = await requestPromise(objects.getAllKeys());
+      for (const key of keys) {
+        if (key === KEY || (typeof key === 'string' && key.startsWith(DATA_PREFIX) && key !== this.dataKey)) {
+          objects.delete(key);
+        }
+      }
+      await transactionDone(transaction);
+    } catch {
+      // Tidying is not needed for the game to work.
+    }
   }
 
   async load(): Promise<unknown> {
     const transaction = this.db.transaction(STORE_NAME, 'readonly');
-    const value: unknown = await requestPromise(transaction.objectStore(STORE_NAME).get(KEY));
-    return value;
+    const { data } = await this.current(transaction.objectStore(STORE_NAME));
+    return data;
   }
 
   async save(data: unknown): Promise<void> {
     const transaction = this.db.transaction(STORE_NAME, 'readwrite');
     const objects = transaction.objectStore(STORE_NAME);
-    let lost = false;
-    // Check and write in one transaction: nothing can slip in between.
+    // Both requests are issued at once: nothing has to come back to the page before the write is queued.
+    objects.put(data, this.dataKey);
     const owner = objects.get(OWNER_KEY);
+    let lost = false;
     owner.onsuccess = () => {
-      if (owner.result === this.session) {
-        objects.put(data, KEY);
-      } else {
-        lost = true;
-        transaction.abort();
-      }
+      lost = owner.result !== this.session;
     };
-    try {
-      await transactionDone(transaction);
-    } catch (error) {
-      throw lost ? new OwnerLostError() : error;
+    await transactionDone(transaction);
+    if (lost) {
+      throw new OwnerLostError();
     }
   }
 
@@ -135,9 +214,8 @@ function newSessionId(): string {
 
 /**
  * The store of the browser: IndexedDB if it works (within a short time), otherwise a memory store (quietly – the game
- * runs on, saving to a file still works). Opening takes over the saving for this window (the newest window saves) – do it
- * **before** the village is read, so the village that is read is the last one the older window wrote. Also asks the installed
- * web app for lasting storage (see {@link requestPersistentStorage}).
+ * runs on, saving to a file still works). Opening does not yet take over the saving: only a store that works is worth taking
+ * over for (see `takeOver.ts`). Also asks the installed web app for lasting storage (see {@link requestPersistentStorage}).
  */
 export async function openSaveStore(): Promise<SaveStore> {
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -146,7 +224,6 @@ export async function openSaveStore(): Promise<SaveStore> {
       const store = new IndexedDbStore(await openDatabase(), newSessionId());
       // A real read proves that this browser lets us use it (some only fail at the first transaction).
       await store.load();
-      await store.claim();
       return store;
     };
     const store = await Promise.race([

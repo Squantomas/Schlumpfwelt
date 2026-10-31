@@ -567,11 +567,31 @@ describe('Spielstand: nextBuildingId bleibt unter dem Id-Limit (N2)', () => {
     if (!loaded.ok) {
       return;
     }
-    expect(loaded.state.nextBuildingId).toBe(2 ** 31 - 1);
+    // So high that the village would be full for ever: it starts again right above the highest id.
+    expect(loaded.state.nextBuildingId).toBe(Math.max(...loaded.state.buildings.map((b) => b.id)) + 1);
+    expect(canPlace(loaded.state, 'flower', 30, 30)).not.toBe('full');
     const count = loaded.state.buildings.length;
     expect(count).toBeGreaterThan(0);
-    // The village is "full" for new buildings (no id left), and what is there survives another round trip.
+    // What is there survives another round trip.
     const again = fromSaveData(JSON.parse(JSON.stringify(toSaveData(loaded.state))) as unknown);
     expect(again.ok && again.state.buildings.length).toBe(count);
+  });
+
+  it('D: ein nextBuildingId knapp unter dem Limit macht das Dorf nicht für immer „voll“; ein vernünftiger Wert bleibt', () => {
+    for (const [saved, expectedAtLeast] of [[2 ** 31 - 5, false], [2 ** 31 - 1000, false], [500, true]] as const) {
+      const data = toSaveData(createInitialState(4));
+      data.nextBuildingId = saved;
+      const loaded = fromSaveData(data);
+      expect(loaded.ok).toBe(true);
+      if (!loaded.ok) {
+        return;
+      }
+      const highest = Math.max(...loaded.state.buildings.map((b) => b.id));
+      if (expectedAtLeast) {
+        expect(loaded.state.nextBuildingId).toBe(500);
+      } else {
+        expect(loaded.state.nextBuildingId).toBe(highest + 1);
+      }
+    }
   });
 });

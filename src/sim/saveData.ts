@@ -230,7 +230,10 @@ function stateFromCurrent(data: Readonly<SaveRecord>): SimState | undefined {
   state.paths = normalizePaths(pathsRaw.filter((index): index is number => typeof index === 'number')).filter(
     (index) => index < area && !covered.has(index) && pathType?.terrains.includes(world.tiles[index] ?? 'water') === true,
   );
-  state.nextBuildingId = Math.min(MAX_ID, Math.max(wholeNumber(data['nextBuildingId'], 1), 1, ...state.buildings.map((b) => b.id + 1)));
+  // Ids are never reused, but a number so high that the village would run out of ids is a damaged file: start again right above the highest id.
+  const lowest = Math.max(1, ...state.buildings.map((b) => b.id + 1));
+  const saved = wholeNumber(data['nextBuildingId'], 1);
+  state.nextBuildingId = saved > MAX_ID - MAX_BUILDINGS ? lowest : Math.max(saved, lowest);
   state.production = readProduction(data['production'], state.buildings);
 
   refreshStatuses(state);

@@ -27,6 +27,7 @@ import {
   TREE_KEYS,
   registerIslandTextures,
 } from './island/objectTextures';
+import { LostOverlay } from './island/LostOverlay';
 import { VillageMenu } from './island/VillageMenu';
 import { VillageView } from './island/VillageView';
 import { WorldCameraController } from './island/WorldCameraController';
@@ -85,6 +86,7 @@ export class IslandScene extends Phaser.Scene {
   private village!: VillageView;
   private buildUI!: BuildUI;
   private menu!: VillageMenu;
+  private lost!: LostOverlay;
   private savePublished = '';
   private preview: Preview = { kind: 'none' };
   private previewKey = '';
@@ -183,9 +185,9 @@ export class IslandScene extends Phaser.Scene {
       tapMaxMovePx: CAMERA_CONFIG.tapMaxMovePx,
       wheelZoomPerPixel: CAMERA_CONFIG.wheelZoomPerPixel,
       blocksCamera: (object) => object.displayList === this.uiLayer,
-      blocksPoint: (x, y) => this.menu.isOpen || this.buildUI.coversPoint(x, y),
+      blocksPoint: (x, y) => this.lost.isOpen || this.menu.isOpen || this.buildUI.coversPoint(x, y),
       // The wheel is for the island only: not over panels, not while the menu or the shop covers it.
-      blocksWheel: (x, y) => this.menu.isOpen || this.buildUI.shopOpen || this.buildUI.coversPoint(x, y) || this.buildUI.overMenuButton(x, y),
+      blocksWheel: (x, y) => this.lost.isOpen || this.menu.isOpen || this.buildUI.shopOpen || this.buildUI.coversPoint(x, y) || this.buildUI.overMenuButton(x, y),
       onTap: (point, _screen, time) => this.handleTap(point, time),
     });
 
@@ -223,6 +225,10 @@ export class IslandScene extends Phaser.Scene {
         this.scene.restart();
       },
     });
+    // Last in the UI layer, so it covers everything: after another window took over the saving nothing may be built here.
+    this.lost = new LostOverlay(this, this.uiLayer, () => {
+      window.location.reload();
+    });
     const startNotice = this.session.takeNotice();
     if (startNotice) {
       this.buildUI.showNotice(startNotice);
@@ -243,6 +249,7 @@ export class IslandScene extends Phaser.Scene {
         },
       );
       this.menu.layout({ width, height });
+      this.lost.layout({ width, height });
     });
 
     const fade = rgb(COLORS.waterDeep);
@@ -260,10 +267,7 @@ export class IslandScene extends Phaser.Scene {
     const seconds = ((this.simulation.state.tick + alpha) * this.simulation.tickMs) / 1000;
 
     this.session.autosave?.update(time);
-    const lost = this.session.takeLostNotice();
-    if (lost) {
-      this.buildUI.showNotice(lost);
-    }
+    this.lost.setOpen(this.session.autosave?.isLost === true);
     this.controller.update(delta);
     this.publishCamera();
     this.updateVillage(seconds, delta);
@@ -468,7 +472,7 @@ export class IslandScene extends Phaser.Scene {
   /** A short touch on the world: announce the tile and show a soft ring on it. */
   private handleTap(world: Point, eventTime: number): void {
     // Right after ✓ or ✕ (double taps) a tap on the world must not start a new preview.
-    if (this.menu.isOpen || this.buildUI.worldTapsPaused(eventTime)) {
+    if (this.lost.isOpen || this.menu.isOpen || this.buildUI.worldTapsPaused(eventTime)) {
       return;
     }
     // The open shop covers the island: a tap beside the panel closes it and does nothing else (no building, no ring).
@@ -578,8 +582,8 @@ export class IslandScene extends Phaser.Scene {
       earned: String(state.earnedCoins),
       planted: String(state.planted.length),
       repaint: JSON.stringify(this.repaint),
-      menu: this.menu.shownState,
-      menuSpots: JSON.stringify(this.menu.spots),
+      menu: this.lost.isOpen ? 'lost' : this.menu.shownState,
+      menuSpots: JSON.stringify(this.lost.isOpen ? this.lost.spots : this.menu.spots),
     });
     const saveInfo = this.session.describe();
     if (saveInfo !== this.savePublished) {

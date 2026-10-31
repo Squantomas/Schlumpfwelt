@@ -40,17 +40,6 @@ export class GameSession {
     return this.autosave !== undefined && !this.autosave.isLost;
   }
 
-  /** Is the sentence "now in another window" still to be shown? Once: when the newest window took over the saving. */
-  private lostAnnounced = false;
-
-  takeLostNotice(): TextKey | undefined {
-    if (this.autosave?.isLost !== true || this.lostAnnounced) {
-      return undefined;
-    }
-    this.lostAnnounced = true;
-    return 'save.lostWindow';
-  }
-
   /**
    * A village from a file replaces the one in the game: it is saved at once (when saving is on), and the scene says so
    * once when it starts again.
