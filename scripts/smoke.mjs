@@ -2155,6 +2155,39 @@ const staticPartsOfRecord = (r) => ({
   planted: r.planted.length,
 });
 
+/** Alle Schlüssel der IndexedDB mit der Zahl der Blumen im jeweiligen Dorf (für Fehlermeldungen: wer hat zuletzt was geschrieben). */
+async function describeStore(page) {
+  return page.evaluate(
+    () =>
+      new Promise((resolve) => {
+        const open = indexedDB.open('village-game/Schlumpfwelt/');
+        open.onerror = () => resolve('nicht lesbar');
+        open.onsuccess = () => {
+          const db = open.result;
+          const objects = db.transaction('saves').objectStore('saves');
+          const keys = objects.getAllKeys();
+          keys.onsuccess = () => {
+            const result = [];
+            let pending = keys.result.length;
+            if (pending === 0) resolve('leer');
+            for (const key of keys.result) {
+              const get = objects.get(key);
+              get.onsuccess = () => {
+                const value = get.result;
+                result.push(`${String(key).slice(0, 14)}=${typeof value === 'string' ? value.slice(0, 8) : `tick ${value?.tick} Blumen ${value?.buildings?.filter?.((b) => b.type === 'flower').length}`}`);
+                pending -= 1;
+                if (pending === 0) {
+                  db.close();
+                  resolve(result.join(', '));
+                }
+              };
+            }
+          };
+        };
+      }),
+  );
+}
+
 /** Beim Neustart der Szene (Datei geladen) dürfen keine Phaser-Warnungen über fehlende Texturen kommen. */
 function collectTextureWarnings(page) {
   const warnings = [];
@@ -2424,10 +2457,11 @@ async function testSaving({ browser, page, check, shot, size, input, name, profi
   const beforeClose = await readVillage(page);
   await placeSmall('flower', [0.5, 0.3], 'die letzte Blume', (v, v0) => count(v, 'flower') === count(v0, 'flower') + 1);
   await sleep(250);
+  const leaving = `${JSON.stringify((await readVillage(page)).save)} ${await describeStore(page)}`;
   await page.goto('about:blank');
   await enterIsland(page, profile, waitForScene, SAVE_URL);
   village = await waitForSave((v) => v.buildings.length > 0, 'das Dorf nach dem harten Schließen');
-  check(count(village, 'flower') === count(beforeClose, 'flower') + 1, `Hartes Schließen: ${count(village, 'flower')} statt ${count(beforeClose, 'flower') + 1} Blumen – der letzte Bau ging verloren`);
+  check(count(village, 'flower') === count(beforeClose, 'flower') + 1, `Hartes Schließen: ${count(village, 'flower')} statt ${count(beforeClose, 'flower') + 1} Blumen – der letzte Bau ging verloren (Speicher jetzt: ${await describeStore(page)}; Spiel: ${JSON.stringify(village.save)}; vor dem Schließen: ${leaving})`);
 
   // --- Zwei Fenster: das neueste speichert, das alte sagt es und schreibt nichts mehr (N1) ---
   step('Zwei Fenster: das neue übernimmt, das alte zeigt „Hier weiterspielen“');
@@ -2459,7 +2493,8 @@ async function testSaving({ browser, page, check, shot, size, input, name, profi
   await shot(`${name}-weiterspielen`);
   // Die Ebene schluckt alle Tipps: weder die Werkzeugleiste noch die Welt reagieren, es kann nichts gebaut werden.
   await input.tap(alt.ui['tool-shop']);
-  await input.tap({ x: size.width / 2, y: size.height / 2 });
+  // Die Mitte des Bilds ist das Feld mit dem Knopf: ein Tipp auf die Welt daneben, am Rand.
+  await input.tap({ x: 30, y: size.height / 2 });
   await sleep(700);
   const covered = await readVillage(page);
   check(covered.shop === 'closed' && covered.tool === 'view' && covered.lastTap === alt.lastTap && covered.menu === 'lost', `Ebene: ein Tipp darunter hat etwas bewirkt (Shop ${covered.shop}, Werkzeug ${covered.tool}, Tipp ${covered.lastTap}, Menü ${covered.menu})`);
@@ -2501,7 +2536,7 @@ async function testSaving({ browser, page, check, shot, size, input, name, profi
   await page.goto('about:blank');
   await enterIsland(page, profile, waitForScene, SAVE_URL);
   village = await waitForSave((v) => v.buildings.length > 0, 'das Dorf nach Übernahme und hartem Schließen');
-  check(count(village, 'flower') === count(beforeTake, 'flower') + 1, `Hartes Schließen nach der Übernahme: ${count(village, 'flower')} statt ${count(beforeTake, 'flower') + 1} Blumen – der Bau ging verloren`);
+  check(count(village, 'flower') === count(beforeTake, 'flower') + 1, `Hartes Schließen nach der Übernahme: ${count(village, 'flower')} statt ${count(beforeTake, 'flower') + 1} Blumen – der Bau ging verloren (Speicher jetzt: ${await describeStore(page)}; Spiel: ${JSON.stringify(village.save)})`);
 
   // --- Kaputter Spielstand beim Start ---
   step('Start mit kaputtem Spielstand');

@@ -156,6 +156,8 @@ class IndexedDbStore implements SaveStore {
     owner.onsuccess = () => {
       lost = owner.result !== this.session;
     };
+    // Say "that was everything" at once (where the browser knows `commit`): the transaction does not wait for the page to come back, so a page that is closed now still gets it written.
+    transaction.commit?.();
     await transactionDone(transaction);
     if (lost) {
       throw new OwnerLostError();
