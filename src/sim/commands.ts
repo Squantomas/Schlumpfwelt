@@ -62,7 +62,8 @@ export interface DemolishCommand {
 
 /**
  * The island commands (shop tab "Insel", see `island.ts`): each changes the
- * terrain of the tile (x, y) and takes the cost of its item from the store.
+ * terrain of the tile (x, y) and takes the cost of its item (`typeId`) from the store.
+ * Ignored if `typeId` is not an item with exactly this island action.
  * Ignored if the item is still locked, the tile is not right for it or it
  * is too expensive. They count as a change (`revision`).
  *
@@ -73,42 +74,47 @@ export interface DemolishCommand {
  */
 export interface PlantTreeCommand {
   readonly type: 'plantTree';
+  /** The shop item (`buildings.json`) whose `island.action` is this command, e.g. `tree`. */
+  readonly typeId: string;
   readonly x: number;
   readonly y: number;
 }
 
 export interface PlaceRockCommand {
   readonly type: 'placeRock';
+  /** The shop item (`buildings.json`) whose `island.action` is this command, e.g. `tree`. */
+  readonly typeId: string;
   readonly x: number;
   readonly y: number;
 }
 
 export interface FillLandCommand {
   readonly type: 'fillLand';
+  /** The shop item (`buildings.json`) whose `island.action` is this command, e.g. `tree`. */
+  readonly typeId: string;
   readonly x: number;
   readonly y: number;
 }
 
 export interface MakeMeadowCommand {
   readonly type: 'makeMeadow';
+  /** The shop item (`buildings.json`) whose `island.action` is this command, e.g. `tree`. */
+  readonly typeId: string;
   readonly x: number;
   readonly y: number;
 }
-
-/** The id of the shop item each island command belongs to. */
-export const ISLAND_COMMAND_ITEMS = { plantTree: 'tree', placeRock: 'rock', fillLand: 'beach', makeMeadow: 'meadow' } as const;
 
 /** The command that puts a shop item on the tile (x, y): a building command, or for island items their own island command. */
 export function placementCommand(typeId: string, x: number, y: number): Command {
   switch (buildingType(typeId)?.island?.action) {
     case 'plantTree':
-      return { type: 'plantTree', x, y };
+      return { type: 'plantTree', typeId, x, y };
     case 'placeRock':
-      return { type: 'placeRock', x, y };
+      return { type: 'placeRock', typeId, x, y };
     case 'fillLand':
-      return { type: 'fillLand', x, y };
+      return { type: 'fillLand', typeId, x, y };
     case 'makeMeadow':
-      return { type: 'makeMeadow', x, y };
+      return { type: 'makeMeadow', typeId, x, y };
     case undefined:
       return { type: 'placeBuilding', buildingType: typeId, x, y };
   }
@@ -143,7 +149,7 @@ export function applyCommand(state: SimState, command: Command): void {
     case 'placeRock':
     case 'fillLand':
     case 'makeMeadow':
-      placeIslandItem(state, ISLAND_COMMAND_ITEMS[command.type], command.x, command.y);
+      placeIslandItem(state, command.typeId, command.x, command.y, command.type);
       return;
     default:
       return assertNever(command);

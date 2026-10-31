@@ -49,6 +49,25 @@ describe('Werkzeuge', () => {
     }
   });
 
+  it('behält beim erneuten Antippen des Werkzeugs (Weg) die Vorschau (R9)', () => {
+    const { tool } = setup();
+    tool.selectTool('path');
+    tool.tap({ x: 3, y: 3 });
+    expect(tool.hasPreview).toBe(true);
+    tool.selectTool('path');
+    expect(tool.tool).toBe('path');
+    expect(tool.hasPreview).toBe(true);
+  });
+
+  it('behält beim erneuten Antippen des Shop-Knopfes aus dem Platzieren die Vorschau (sie liegt nur unter dem Shop)', () => {
+    const { tool } = setup();
+    tool.chooseItem('flower');
+    tool.tap({ x: 3, y: 3 });
+    tool.selectTool('shop');
+    expect(tool.shopOpen).toBe(true);
+    expect(tool.hasPreview).toBe(true);
+  });
+
   it('kennt „place“ nur über die Wahl eines Artikels, nicht über selectTool', () => {
     const { tool } = setup();
     tool.selectTool('place');
@@ -248,6 +267,18 @@ describe('Shop (M4)', () => {
     expect(tool.takeAnnouncements()).toEqual([]);
   });
 
+  it('zählt Neuigkeiten nach Artikel, nicht nach Platz in der Liste (ein später geladener Zustand meldet nichts Altes, R10)', () => {
+    const state = grassState();
+    state.unlocked = ['bench', 'lantern'];
+    const { tool } = setup(state);
+    // Die Liste wird neu geordnet und um Altes ergänzt, als käme sie aus einem Spielstand.
+    state.unlocked = ['pond', 'lantern', 'bench'];
+    expect(tool.takeAnnouncements()).toEqual(['pond']);
+    expect(tool.shopHasNews).toBe(true);
+    tool.openShop();
+    expect([tool.isFresh('pond'), tool.isFresh('bench'), tool.isFresh('lantern')]).toEqual([true, false, false]);
+  });
+
   it('eine Wahl im Shop zählt als frisch gewählt: auch die Hinweise für zu teure Karten kommen sofort', () => {
     const state = grassState();
     setStore(state, { coins: 2 });
@@ -265,7 +296,7 @@ describe('Inselartikel (M4)', () => {
     tool.tap({ x: 6, y: 6 });
     expect(tool.preview()).toMatchObject({ kind: 'place', typeId: 'tree', x: 6, y: 6, result: 'ok' });
     tool.confirm();
-    expect(sent).toEqual([{ type: 'plantTree', x: 6, y: 6 }]);
+    expect(sent).toEqual([{ type: 'plantTree', typeId: 'tree', x: 6, y: 6 }]);
     expect(state.world.tiles[6 * state.world.width + 6]).toBe('forest');
   });
 
@@ -726,6 +757,27 @@ describe('Tipp aufs Dach (Regression)', () => {
   /** Tipp aufs Dach über der Wegkachel (5,4) und über der leeren Kachel (6,4). */
   const roofOverPath = { tile: { x: 5, y: 4 }, world: { x: 5.5 * T, y: 4.5 * T } };
   const roofOverEmpty = { tile: { x: 6, y: 4 }, world: { x: 6.5 * T, y: 4.5 * T } };
+
+  it('reißt einen gepflanzten Baum direkt hinter einem Haus ab, auch wenn dort das Dach darüber ragt (R5)', () => {
+    const { state, tool, sent } = setup();
+    run(state, { type: 'placeBuilding', buildingType: 'house-red', x: 5, y: 5 }, { type: 'plantTree', typeId: 'tree', x: 5, y: 4 });
+    expect(state.world.tiles[4 * state.world.width + 5]).toBe('forest');
+    tool.selectTool('demolish');
+    tool.tap(roofOverPath.tile, roofOverPath.world);
+    expect(tool.preview()).toMatchObject({ kind: 'demolish', tiles: [{ x: 5, y: 4 }], refund: { coins: 5 } });
+    tool.confirm();
+    expect(sent.at(-1)).toEqual({ type: 'demolish', x: 5, y: 4 });
+    expect(state.world.tiles[4 * state.world.width + 5]).toBe('grass');
+    expect(state.buildings).toHaveLength(1);
+  });
+
+  it('wählt hinter dem Haus ohne gepflanzten Baum weiter das Haus (Dach)', () => {
+    const { state, tool } = setup();
+    run(state, { type: 'placeBuilding', buildingType: 'house-red', x: 5, y: 5 });
+    tool.selectTool('demolish');
+    tool.tap(roofOverEmpty.tile, roofOverEmpty.world);
+    expect(tool.preview()).toMatchObject({ kind: 'demolish', tiles: expect.arrayContaining([{ x: 5, y: 5 }]) });
+  });
 
   it('reißt den Weg ab, wenn die Kachel unter dem Finger ein Weg ist (auch unter dem Dach)', () => {
     const { state, tool } = withRoofPath();

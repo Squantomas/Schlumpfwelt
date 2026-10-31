@@ -182,9 +182,9 @@ export class BuildTool {
   private backTo: 'view' | 'place' = 'view';
   private tab: ShopCategory = 'houses';
   /** How many unlocked types the player has been told about (the message "Neu im Shop"). */
-  private announced: number;
+  private readonly announced: Set<string>;
   /** How many unlocked types the player has seen in the shop (the star on the shop button). */
-  private seenInShop: number;
+  private readonly seenInShop: Set<string>;
   /** The types that were unlocked since the shop was last open: their cards carry a star. */
   private fresh = new Set<string>();
   private changes = 0;
@@ -200,8 +200,9 @@ export class BuildTool {
     private readonly send: (command: Command) => void,
     private readonly onRefund?: (info: RefundInfo) => void,
   ) {
-    this.announced = this.getState().unlocked.length;
-    this.seenInShop = this.announced;
+    // By id, not by position in the list: a state that is loaded (M5) must not announce what it already had.
+    this.announced = new Set(this.getState().unlocked);
+    this.seenInShop = new Set(this.getState().unlocked);
     this.lastStoreKey = this.storeKey();
   }
 
@@ -310,7 +311,7 @@ export class BuildTool {
       this.pending = { kind: 'none' };
     }
     this.inspected = undefined;
-    this.fresh = new Set(this.getState().unlocked.slice(this.seenInShop));
+    this.fresh = new Set(this.getState().unlocked.filter((id) => !this.seenInShop.has(id)));
     this.markShopSeen();
     this.changes += 1;
   }
@@ -330,15 +331,17 @@ export class BuildTool {
 
   private markShopSeen(): void {
     const unlocked = this.getState().unlocked;
-    for (const id of unlocked.slice(this.seenInShop)) {
-      this.fresh.add(id);
+    for (const id of unlocked) {
+      if (!this.seenInShop.has(id)) {
+        this.seenInShop.add(id);
+        this.fresh.add(id);
+      }
     }
-    this.seenInShop = unlocked.length;
   }
 
   /** Is there something in the shop the player has not seen yet? (The star on the shop button.) */
   get shopHasNews(): boolean {
-    return this.current !== 'shop' && this.getState().unlocked.length > this.seenInShop;
+    return this.current !== 'shop' && this.getState().unlocked.some((id) => !this.seenInShop.has(id));
   }
 
   /** Is this item new in the shop (unlocked since the shop was last open)? Its card carries a star. */
@@ -349,8 +352,10 @@ export class BuildTool {
   /** The types that were unlocked since the last call (for the message "Neu im Shop: …"); each is announced once. */
   takeAnnouncements(): string[] {
     const unlocked = this.getState().unlocked;
-    const news = unlocked.slice(this.announced);
-    this.announced = unlocked.length;
+    const news = unlocked.filter((id) => !this.announced.has(id));
+    for (const id of news) {
+      this.announced.add(id);
+    }
     return news;
   }
 
@@ -509,7 +514,9 @@ export class BuildTool {
     // empty the picture of a house reaching over it (its roof).
     const footprint = buildingAt(state, tile.x, tile.y);
     const onPath = isPath(state, tile.x, tile.y);
-    const roof = world && !footprint && !onPath ? buildingAtPoint(state, world.x, world.y, TILE_SIZE) : undefined;
+    // A tree or rock the player planted counts like a path: the tile wins over the roof of a house behind it.
+    const onPlanted = plantedTypeAt(state, tile.x, tile.y) !== undefined;
+    const roof = world && !footprint && !onPath && !onPlanted ? buildingAtPoint(state, world.x, world.y, TILE_SIZE) : undefined;
     const building = footprint ?? roof;
     switch (this.current) {
       case 'place':

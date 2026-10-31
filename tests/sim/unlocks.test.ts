@@ -237,6 +237,10 @@ describe('Daten: Freischaltungen', () => {
       expect(unlockOf('bench')).toBeUndefined();
       (type as { unlock?: unknown }).unlock = { kind: 'count', building: 'bench', count: 1 };
       expect(unlockOf('bench')).toBeUndefined();
+      (type as { unlock?: unknown }).unlock = { kind: 'count', building: 'path', count: 1 };
+      expect(unlockOf('bench')).toBeUndefined();
+      (type as { unlock?: unknown }).unlock = { kind: 'count', building: 'tree', count: 1 };
+      expect(unlockOf('bench')).toBeUndefined();
       (type as { unlock?: unknown }).unlock = { kind: 'zauber' };
       expect(unlockOf('bench')).toBeUndefined();
     } finally {

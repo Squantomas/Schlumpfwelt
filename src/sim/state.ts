@@ -9,6 +9,7 @@
 import { addBuilding, addPaths, lineTiles, type PlacedBuilding } from './buildings';
 import { createStartInventory, type Inventory, type ProducerState } from './economy';
 import { generateIsland } from './islandGen';
+import type { PlantedTile } from './island';
 import { refreshStatuses } from './production';
 import { normalizeSeed } from './random';
 import { checkUnlocks } from './unlocks';
@@ -43,11 +44,12 @@ export interface SimState {
    */
   unlocked: string[];
   /**
-   * Tiles (as tile indices, ascending, no duplicates) where the player planted a
-   * tree or set a rock: only those can be demolished again (and give the cost back).
+   * Tiles (`index` = `y * width + x`, ascending, one entry per tile) where the
+   * player planted a tree or set a rock, with the shop item (`type`) that did
+   * it: only those can be demolished again (and give that item's cost back).
    * Trees and rocks the island grew by itself stay.
    */
-  planted: number[];
+  planted: PlantedTile[];
   /**
    * Counts every change of buildings or paths. Scenes compare it with the
    * value they last drew and only redraw when it differs.

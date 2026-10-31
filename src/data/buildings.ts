@@ -148,9 +148,15 @@ export function shopCategoryOf(typeId: string): ShopCategory | undefined {
   return byId.get(typeId)?.shop?.category;
 }
 
+/** Can buildings of this type stand on the map (a house, decoration or production building)? */
+function isStandingType(typeId: string): boolean {
+  const category = byId.get(typeId)?.category;
+  return category === 'house' || category === 'deco' || category === 'production';
+}
+
 /**
  * The unlock condition of a type with sanitized numbers (a whole number of at
- * least 1, a known building that is not the type itself), or `undefined` if
+ * least 1, a building type that can stand on the map and is not the type itself), or `undefined` if
  * the type is free – or its condition is broken: a broken entry never locks a
  * type for good. A test also fails on broken entries.
  */
@@ -162,7 +168,8 @@ export function unlockOf(typeId: string): UnlockDef | undefined {
   const whole = (value: unknown): value is number => typeof value === 'number' && Number.isInteger(value) && value >= 1;
   switch (def['kind']) {
     case 'count':
-      return typeof def['building'] === 'string' && def['building'] !== typeId && byId.has(def['building']) && whole(def['count'])
+      // Paths and island items are never "standing" (they are not in the list of buildings): waiting for them would lock for good.
+      return typeof def['building'] === 'string' && def['building'] !== typeId && isStandingType(def['building']) && whole(def['count'])
         ? { kind: 'count', building: def['building'], count: def['count'] }
         : undefined;
     case 'houses':

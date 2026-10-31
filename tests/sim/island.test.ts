@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { buildingType, typesOf } from '../../src/data/buildings';
 import { canPlace, checkPlacement } from '../../src/sim/buildings';
-import { ISLAND_COMMAND_ITEMS } from '../../src/sim/commands';
+import { applyCommand, placementCommand } from '../../src/sim/commands';
 import { costOf, hasNearby } from '../../src/sim/economy';
 import { islandResult, isPlanted, normalizePlanted, plantedRefund } from '../../src/sim/island';
 import { Simulation } from '../../src/sim/simulation';
@@ -22,7 +22,7 @@ describe('Insel: Baum pflanzen', () => {
   it('macht aus Wiese einen Baum, kostet Taler und zählt als Änderung', () => {
     const state = grassState();
     setStore(state, { coins: 20 });
-    run(state, { type: 'plantTree', x: 6, y: 6 });
+    run(state, { type: 'plantTree', typeId: 'tree', x: 6, y: 6 });
     expect(at(state, 6, 6)).toBe('forest');
     expect(state.inventory['coins']).toBe(20 - (costOf('tree')['coins'] ?? 0));
     expect(state.revision).toBe(1);
@@ -38,7 +38,7 @@ describe('Insel: Baum pflanzen', () => {
     }
     // Ohne Bäume lässt sich der Holzfäller nicht setzen …
     expect(canPlace(state, 'lumberjack', 6, 6)).toBe('noNearby');
-    run(state, { type: 'plantTree', x: 9, y: 6 });
+    run(state, { type: 'plantTree', typeId: 'tree', x: 9, y: 6 });
     expect(hasNearby(state.world, lumberjack, 6, 6, 'forest', 4)).toBe(true);
     // … mit dem gepflanzten schon.
     expect(canPlace(state, 'lumberjack', 6, 6)).toBe('ok');
@@ -56,7 +56,7 @@ describe('Insel: Baum pflanzen', () => {
     }
     const before = structuredClone(state);
     for (const [x, y] of [[2, 2], [8, 8], [9, 8], [10, 8], [6, 6], [12, 12]] as const) {
-      run(state, { type: 'plantTree', x, y });
+      run(state, { type: 'plantTree', typeId: 'tree', x, y });
     }
     expect(state).toEqual(before);
   });
@@ -65,7 +65,7 @@ describe('Insel: Baum pflanzen', () => {
     const state = grassState();
     setStore(state, { coins: 1 });
     expect(checkPlacement(state, 'tree', 5, 5)).toMatchObject({ result: 'cost', missing: { coins: 4 } });
-    run(state, { type: 'plantTree', x: 5, y: 5 });
+    run(state, { type: 'plantTree', typeId: 'tree', x: 5, y: 5 });
     expect(at(state, 5, 5)).toBe('grass');
     expect(state.inventory['coins']).toBe(1);
     expect(state.revision).toBe(0);
@@ -79,7 +79,7 @@ describe('Insel: Fels setzen', () => {
     if (!quarry) {
       throw new Error('kein Steinbruch');
     }
-    run(state, { type: 'placeRock', x: 8, y: 6 });
+    run(state, { type: 'placeRock', typeId: 'rock', x: 8, y: 6 });
     expect(at(state, 8, 6)).toBe('rock');
     expect(isPlanted(state, 8, 6)).toBe(true);
     expect(hasNearby(state.world, quarry, 5, 6, 'rock', 5)).toBe(true);
@@ -91,7 +91,7 @@ describe('Insel: Strand aufschütten', () => {
   it('macht Wasser am Land zu Strand und kostet etwas', () => {
     const state = lakeState();
     setStore(state, { coins: 10 });
-    run(state, { type: 'fillLand', x: 3, y: 3 });
+    run(state, { type: 'fillLand', typeId: 'beach', x: 3, y: 3 });
     expect(at(state, 3, 3)).toBe('sand');
     expect(state.inventory['coins']).toBe(10 - (costOf('beach')['coins'] ?? 0));
     expect(state.revision).toBe(1);
@@ -108,10 +108,10 @@ describe('Insel: Strand aufschütten', () => {
     expect(canPlace(world, 'beach', 8, 7)).toBe('ok');
     expect(canPlace(world, 'beach', 9, 9)).toBe('noCoast');
     expect(canPlace(world, 'beach', 5, 5)).toBe('noCoast');
-    run(world, { type: 'fillLand', x: 5, y: 5 });
+    run(world, { type: 'fillLand', typeId: 'beach', x: 5, y: 5 });
     expect(at(world, 5, 5)).toBe('water');
     // Nach dem Aufschütten wächst das Land weiter: das nächste Feld grenzt jetzt an.
-    run(world, { type: 'fillLand', x: 8, y: 7 });
+    run(world, { type: 'fillLand', typeId: 'beach', x: 8, y: 7 });
     expect(canPlace(world, 'beach', 8, 6)).toBe('ok');
   });
 
@@ -141,7 +141,7 @@ describe('Insel: Wiese anlegen', () => {
     setTerrainAt(state, 7, 7, 'sand');
     setTerrainAt(state, 8, 7, 'sand');
     expect(canPlace(state, 'flower', 7, 7)).toBe('terrain');
-    run(state, { type: 'makeMeadow', x: 7, y: 7 });
+    run(state, { type: 'makeMeadow', typeId: 'meadow', x: 7, y: 7 });
     expect(at(state, 7, 7)).toBe('grass');
     expect(canPlace(state, 'flower', 7, 7)).toBe('ok');
     expect(state.revision).toBe(1);
@@ -165,7 +165,7 @@ describe('Insel: gesperrt', () => {
     expect(checkPlacement(state, 'meadow', water.x, water.y).result).toBe('locked');
     expect(checkPlacement(state, 'tree', 24, 12).result).not.toBe('locked');
     expect(checkPlacement(state, 'rock', 24, 12).result).not.toBe('locked');
-    sim.send({ type: 'fillLand', x: water.x, y: water.y });
+    sim.send({ type: 'fillLand', typeId: 'beach', x: water.x, y: water.y });
     sim.update(sim.tickMs);
     expect(terrainAt(sim.state.world, water.x, water.y)).toBe('water');
   });
@@ -175,7 +175,7 @@ describe('Insel: Abreißen', () => {
   it('reißt einen gepflanzten Baum ab, erstattet die Kosten und macht die Kachel wieder zur Wiese', () => {
     const state = grassState();
     setStore(state, { coins: 30 });
-    run(state, { type: 'plantTree', x: 6, y: 6 });
+    run(state, { type: 'plantTree', typeId: 'tree', x: 6, y: 6 });
     const afterPlanting = state.inventory['coins'] ?? 0;
     const revision = state.revision;
     expect(plantedRefund(state, 6, 6)).toEqual(costOf('tree'));
@@ -190,7 +190,7 @@ describe('Insel: Abreißen', () => {
   it('reißt auch einen gepflanzten Fels ab und erstattet dessen Kosten', () => {
     const state = grassState();
     setStore(state, { coins: 30 });
-    run(state, { type: 'placeRock', x: 6, y: 6 }, { type: 'demolish', x: 6, y: 6 });
+    run(state, { type: 'placeRock', typeId: 'rock', x: 6, y: 6 }, { type: 'demolish', x: 6, y: 6 });
     expect(at(state, 6, 6)).toBe('grass');
     expect(state.inventory['coins']).toBe(30);
   });
@@ -207,14 +207,14 @@ describe('Insel: Abreißen', () => {
   it('Aufschütten und Wiese anlegen lassen sich nicht rückgängig machen: Abreißen tut nichts und erstattet nichts', () => {
     const state = lakeState();
     setStore(state, { coins: 50 });
-    run(state, { type: 'fillLand', x: 3, y: 3 });
+    run(state, { type: 'fillLand', typeId: 'beach', x: 3, y: 3 });
     const coins = state.inventory['coins'];
     const before = structuredClone(state);
     run(state, { type: 'demolish', x: 3, y: 3 });
     expect(state).toEqual(before);
     expect(state.inventory['coins']).toBe(coins);
     setTerrainAt(state, 8, 8, 'sand');
-    run(state, { type: 'makeMeadow', x: 8, y: 8 });
+    run(state, { type: 'makeMeadow', typeId: 'meadow', x: 8, y: 8 });
     const afterMeadow = structuredClone(state);
     run(state, { type: 'demolish', x: 8, y: 8 });
     expect(state).toEqual(afterMeadow);
@@ -223,7 +223,7 @@ describe('Insel: Abreißen', () => {
   it('ein Haus auf einer Kachel geht vor: Abreißen nimmt zuerst das Gebäude', () => {
     const state = grassState();
     buildConnected(state, 'house-red', 2, 2);
-    run(state, { type: 'plantTree', x: 8, y: 8 });
+    run(state, { type: 'plantTree', typeId: 'tree', x: 8, y: 8 });
     run(state, { type: 'demolish', x: 2, y: 2 });
     expect(state.buildings).toHaveLength(0);
     expect(at(state, 8, 8)).toBe('forest');
@@ -231,14 +231,14 @@ describe('Insel: Abreißen', () => {
 
   it('bei Wald, der später etwas anderes wird, gibt es nichts zu erstatten', () => {
     const state = grassState();
-    run(state, { type: 'plantTree', x: 6, y: 6 });
+    run(state, { type: 'plantTree', typeId: 'tree', x: 6, y: 6 });
     setTerrainAt(state, 6, 6, 'grass');
     expect(plantedRefund(state, 6, 6)).toEqual({});
   });
 
   it('bei Kosten, die die Obergrenze überschreiten würden, bleibt das Lager ganz (kein Überlauf)', () => {
     const state = grassState();
-    run(state, { type: 'plantTree', x: 6, y: 6 });
+    run(state, { type: 'plantTree', typeId: 'tree', x: 6, y: 6 });
     state.inventory['coins'] = 99999;
     run(state, { type: 'demolish', x: 6, y: 6 });
     expect(state.inventory['coins']).toBe(99999);
@@ -247,12 +247,35 @@ describe('Insel: Abreißen', () => {
 
 describe('Insel: Daten und Zustand', () => {
   it('jeder Inselbefehl gehört zu einem Artikel mit passender Aktion', () => {
-    for (const [command, id] of Object.entries(ISLAND_COMMAND_ITEMS)) {
-      expect(buildingType(id)?.island?.action, command).toBe(command);
-      expect(islandResult(id), id).toBeDefined();
+    for (const type of typesOf('island')) {
+      const command = placementCommand(type.id, 3, 4);
+      expect(command.type, type.id).toBe(type.island?.action);
+      expect(command, type.id).toMatchObject({ typeId: type.id, x: 3, y: 4 });
+      expect(islandResult(type.id), type.id).toBeDefined();
     }
-    expect(typesOf('island').map((type) => type.id).sort()).toEqual(Object.values(ISLAND_COMMAND_ITEMS).sort());
     expect(islandResult('house-red')).toBeUndefined();
+  });
+
+  it('ein Inselbefehl mit dem falschen Artikel (oder einem Gebäude) ändert nichts', () => {
+    const state = grassState();
+    const before = structuredClone(state);
+    applyCommand(state, { type: 'plantTree', typeId: 'rock', x: 5, y: 5 });
+    applyCommand(state, { type: 'placeRock', typeId: 'house-red', x: 5, y: 5 });
+    applyCommand(state, { type: 'fillLand', typeId: 'nope', x: 5, y: 5 });
+    expect(state).toEqual(before);
+  });
+
+  it('merkt sich je gepflanzter Kachel den Artikel – die Erstattung folgt diesem Artikel', () => {
+    const state = grassState();
+    run(state, { type: 'plantTree', typeId: 'tree', x: 4, y: 4 }, { type: 'placeRock', typeId: 'rock', x: 6, y: 4 });
+    expect(state.planted).toEqual([
+      { index: 4 * 16 + 4, type: 'tree' },
+      { index: 4 * 16 + 6, type: 'rock' },
+    ]);
+    expect(plantedRefund(state, 6, 4)).toEqual(costOf('rock'));
+    // Ein Artikel, der nicht (mehr) zum Gelände passt, erstattet nichts.
+    setTerrainAt(state, 6, 4, 'forest');
+    expect(plantedRefund(state, 6, 4)).toEqual({});
   });
 
   it('Inselartikel sind 1×1 und kosten etwas', () => {
@@ -271,15 +294,18 @@ describe('Insel: Daten und Zustand', () => {
 
   it('hält die Liste der gepflanzten Kacheln sortiert und ohne Doppelte', () => {
     const state = grassState();
-    run(state, { type: 'plantTree', x: 9, y: 9 }, { type: 'plantTree', x: 2, y: 2 }, { type: 'placeRock', x: 5, y: 5 }, { type: 'plantTree', x: 2, y: 2 });
-    expect(state.planted).toEqual([2 * 16 + 2, 5 * 16 + 5, 9 * 16 + 9]);
+    run(state, { type: 'plantTree', typeId: 'tree', x: 9, y: 9 }, { type: 'plantTree', typeId: 'tree', x: 2, y: 2 }, { type: 'placeRock', typeId: 'rock', x: 5, y: 5 }, { type: 'plantTree', typeId: 'tree', x: 2, y: 2 });
+    expect(state.planted.map((planted) => planted.index)).toEqual([2 * 16 + 2, 5 * 16 + 5, 9 * 16 + 9]);
   });
 
   it('normalizePlanted behält nur Kacheln, die noch Wald oder Fels sind', () => {
     const state = grassState();
-    run(state, { type: 'plantTree', x: 9, y: 9 }, { type: 'placeRock', x: 5, y: 5 });
-    const raw = [...state.planted, 0, 9 * 16 + 9, -3, 1.5, 9999, 'x', 3 * 16 + 3];
-    expect(normalizePlanted(raw, state.world)).toEqual([5 * 16 + 5, 9 * 16 + 9]);
+    run(state, { type: 'plantTree', typeId: 'tree', x: 9, y: 9 }, { type: 'placeRock', typeId: 'rock', x: 5, y: 5 });
+    const raw = [...state.planted, { index: 0, type: 'tree' }, { index: 9 * 16 + 9, type: 'tree' }, { index: -3, type: 'tree' }, { index: 1.5, type: 'tree' }, { index: 9999, type: 'tree' }, 'x', { index: 3 * 16 + 3, type: 'rock' }, { index: 5 * 16 + 5, type: 'house-red' }, { index: 5 * 16 + 5, type: 'rock' }];
+    expect(normalizePlanted(raw, state.world)).toEqual([
+      { index: 5 * 16 + 5, type: 'rock' },
+      { index: 9 * 16 + 9, type: 'tree' },
+    ]);
     expect(normalizePlanted(undefined, state.world)).toEqual([]);
   });
 
@@ -301,7 +327,7 @@ describe('Insel: Daten und Zustand', () => {
       return;
     }
     const revision = sim.state.revision;
-    sim.send({ type: 'plantTree', x: spot.x, y: spot.y });
+    sim.send({ type: 'plantTree', typeId: 'tree', x: spot.x, y: spot.y });
     expect(terrainAt(sim.state.world, spot.x, spot.y)).toBe('grass');
     sim.update(sim.tickMs);
     expect(terrainAt(sim.state.world, spot.x, spot.y)).toBe('forest');

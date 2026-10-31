@@ -255,10 +255,11 @@ describe('Invarianten bei beliebigen Befehlen', () => {
     const producing = state.buildings.filter((b) => productionOf(b.type)).map((b) => b.id);
     expect(state.production.map((p) => p.buildingId), label).toEqual(producing);
     // Gepflanzte Kacheln: aufsteigend, ohne Doppelte, und noch Wald oder Fels.
-    expect([...state.planted].sort((a, b) => a - b), label).toEqual(state.planted);
-    expect(new Set(state.planted).size, label).toBe(state.planted.length);
-    for (const index of state.planted) {
+    expect([...state.planted].sort((a, b) => a.index - b.index), label).toEqual(state.planted);
+    expect(new Set(state.planted.map((planted) => planted.index)).size, label).toBe(state.planted.length);
+    for (const { index, type } of state.planted) {
       expect(['forest', 'rock'], label).toContain(state.world.tiles[index]);
+      expect(['tree', 'rock'], label).toContain(type);
     }
     // Freigeschaltet ist nur, was eine Bedingung hat, höchstens einmal; verdiente Taler sind ganz und wachsen nur.
     expect(new Set(state.unlocked).size, label).toBe(state.unlocked.length);
@@ -302,16 +303,16 @@ describe('Invarianten bei beliebigen Befehlen', () => {
             sim.send({ type: 'demolish', x, y });
             break;
           case 6:
-            sim.send({ type: 'plantTree', x, y });
+            sim.send({ type: 'plantTree', typeId: 'tree', x, y });
             break;
           case 7:
-            sim.send({ type: 'placeRock', x, y });
+            sim.send({ type: 'placeRock', typeId: 'rock', x, y });
             break;
           case 8:
-            sim.send({ type: 'fillLand', x: x - 8 - rng.int(6), y: y - 8 - rng.int(6) });
+            sim.send({ type: 'fillLand', typeId: 'beach', x: x - 8 - rng.int(6), y: y - 8 - rng.int(6) });
             break;
           case 9:
-            sim.send({ type: 'makeMeadow', x: x - 8 - rng.int(6), y: y - 8 - rng.int(6) });
+            sim.send({ type: 'makeMeadow', typeId: 'meadow', x: x - 8 - rng.int(6), y: y - 8 - rng.int(6) });
             break;
           default:
             sim.send({ type: 'placeBuilding', buildingType: 'house-red', x: Number.NaN, y });

@@ -17,12 +17,18 @@
  *   back (they are cheap) – the one exception to "demolishing refunds".
  * - Every change counts as a change (`revision`).
  */
-import { buildingType } from '../data/buildings';
+import { buildingType, type IslandAction } from '../data/buildings';
 import { addAmounts, costOf, takeAmounts } from './economy';
 import { canPlace, tileIndex } from './buildings';
 import type { DeepReadonly } from './readonly';
 import type { SimState } from './state';
 import { inBounds, setTerrain, terrainAt, type Terrain } from './world';
+
+/** A tree or rock the player planted: the tile (`y * width + x`) and the shop item that made it. */
+export interface PlantedTile {
+  index: number;
+  type: string;
+}
 
 /** What the questions about planted trees and rocks read. */
 export type PlantedView = DeepReadonly<Pick<SimState, 'world' | 'planted'>>;
@@ -45,46 +51,42 @@ export function islandResult(typeId: string): Terrain | undefined {
 
 /** Was the tree or rock on this tile planted by the player? */
 export function isPlanted(state: PlantedView, x: number, y: number): boolean {
-  return inBounds(state.world, x, y) && state.planted.includes(tileIndex(state.world, x, y));
+  return plantedTypeAt(state, x, y) !== undefined;
 }
 
 /**
  * Applies an island item on the tile (x, y) if the rules allow it and takes its
  * cost. Returns whether anything changed.
  */
-export function placeIslandItem(state: SimState, typeId: string, x: number, y: number): boolean {
+export function placeIslandItem(state: SimState, typeId: string, x: number, y: number, action?: IslandAction): boolean {
   const result = islandResult(typeId);
-  if (result === undefined || canPlace(state, typeId, x, y) !== 'ok') {
+  if (result === undefined || (action !== undefined && buildingType(typeId)?.island?.action !== action) || canPlace(state, typeId, x, y) !== 'ok') {
     return false;
   }
   takeAmounts(state.inventory, costOf(typeId));
   setTerrain(state.world, x, y, result);
   if (result === 'forest' || result === 'rock') {
     const index = tileIndex(state.world, x, y);
-    if (!state.planted.includes(index)) {
-      state.planted.push(index);
-      state.planted.sort((a, b) => a - b);
-    }
+    state.planted = state.planted.filter((planted) => planted.index !== index);
+    state.planted.push({ index, type: typeId });
+    state.planted.sort((a, b) => a.index - b.index);
   }
   state.revision += 1;
   return true;
 }
 
-/** The type of item whose cost a planted tile gives back (`tree` for forest, `rock` for rock). */
+/**
+ * The type of item that planted the tree or rock on this tile (its cost is
+ * what demolishing gives back), or `undefined` if the tile has none that the
+ * player planted – or the ground is not what that item makes any more.
+ */
 export function plantedTypeAt(state: PlantedView, x: number, y: number): string | undefined {
-  if (!isPlanted(state, x, y)) {
+  if (!inBounds(state.world, x, y)) {
     return undefined;
   }
-  switch (terrainAt(state.world, x, y)) {
-    case 'forest':
-      return 'tree';
-    case 'rock':
-      return 'rock';
-    case 'water':
-    case 'sand':
-    case 'grass':
-      return undefined;
-  }
+  const index = tileIndex(state.world, x, y);
+  const entry = state.planted.find((planted) => planted.index === index);
+  return entry !== undefined && islandResult(entry.type) === terrainAt(state.world, x, y) ? entry.type : undefined;
 }
 
 /** What demolishing the planted tree or rock on this tile gives back (empty if the tile has none). */
@@ -104,28 +106,36 @@ export function demolishPlanted(state: SimState, x: number, y: number): boolean 
   }
   addAmounts(state.inventory, costOf(typeId));
   const index = tileIndex(state.world, x, y);
-  state.planted = state.planted.filter((planted) => planted !== index);
+  state.planted = state.planted.filter((planted) => planted.index !== index);
   setTerrain(state.world, x, y, 'grass');
   state.revision += 1;
   return true;
 }
 
 /**
- * Brings a list of planted tiles into the form the state needs (whole
- * non-negative numbers, ascending, no duplicates) and keeps only tiles that
- * are still forest or rock. For loading saved games (M5).
+ * Brings a list of planted tiles into the form the state needs (`{ index, type }`
+ * with a whole tile index inside the map, a known island item that makes
+ * forest or rock, and ground that still is what the item makes; ascending by
+ * index, one entry per tile). For loading saved games (M5).
  */
-export function normalizePlanted(raw: unknown, world: Pick<SimState['world'], 'width' | 'height' | 'tiles'>): number[] {
+export function normalizePlanted(raw: unknown, world: Pick<SimState['world'], 'width' | 'height' | 'tiles'>): PlantedTile[] {
   if (!Array.isArray(raw)) {
     return [];
   }
-  const valid = (raw as unknown[]).filter(
-    (index): index is number =>
+  const byIndex = new Map<number, PlantedTile>();
+  for (const entry of raw as unknown[]) {
+    const { index, type } = (typeof entry === 'object' && entry !== null ? entry : {}) as Partial<PlantedTile>;
+    if (
       typeof index === 'number' &&
       Number.isInteger(index) &&
       index >= 0 &&
       index < world.width * world.height &&
-      (world.tiles[index] === 'forest' || world.tiles[index] === 'rock'),
-  );
-  return [...new Set(valid)].sort((a, b) => a - b);
+      typeof type === 'string' &&
+      (islandResult(type) === 'forest' || islandResult(type) === 'rock') &&
+      world.tiles[index] === islandResult(type)
+    ) {
+      byIndex.set(index, { index, type });
+    }
+  }
+  return [...byIndex.values()].sort((a, b) => a.index - b.index);
 }
