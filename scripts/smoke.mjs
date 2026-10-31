@@ -2027,12 +2027,12 @@ async function testShopSmall({ page, check, shot, size, input, name }) {
 const SAVE_URL = `${URL}?seed=1`;
 const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 
-/** Der Spielstand in der echten IndexedDB der Seite (`null`, wenn keiner da ist). */
-async function readRecord(page) {
+/** Der Spielstand (`main`) oder eine Kopie (`backup`, `backup-latest`) in der echten IndexedDB der Seite (`null`, wenn nichts da ist). */
+async function readRecord(page, key = 'main') {
   return page.evaluate(
-    () =>
+    (name) =>
       new Promise((resolve, reject) => {
-        const open = indexedDB.open('village-game');
+        const open = indexedDB.open('village-game/Schlumpfwelt/');
         open.onerror = () => reject(open.error);
         open.onsuccess = () => {
           const db = open.result;
@@ -2041,7 +2041,7 @@ async function readRecord(page) {
             resolve(null);
             return;
           }
-          const request = db.transaction('saves').objectStore('saves').get('main');
+          const request = db.transaction('saves').objectStore('saves').get(name);
           request.onsuccess = () => {
             db.close();
             resolve(request.result ?? null);
@@ -2049,6 +2049,7 @@ async function readRecord(page) {
           request.onerror = () => reject(request.error);
         };
       }),
+    key,
   );
 }
 
@@ -2057,7 +2058,7 @@ async function writeRecord(page, value) {
   await page.evaluate(
     (data) =>
       new Promise((resolve, reject) => {
-        const open = indexedDB.open('village-game', 1);
+        const open = indexedDB.open('village-game/Schlumpfwelt/', 1);
         open.onupgradeneeded = () => open.result.createObjectStore('saves');
         open.onerror = () => reject(open.error);
         open.onsuccess = () => {
@@ -2245,6 +2246,14 @@ async function testSaving({ browser, page, check, shot, size, input, name, profi
   await sleep(500);
   village = await readVillage(page);
   check(village.tool === 'view' && village.menu === 'menu', `Menü offen: ein Tipp auf die Werkzeugleiste hat Werkzeug „${village.tool}“ gewählt oder das Menü geschlossen`);
+  if (!profile.context.hasTouch) {
+    // R10: das Mausrad zoomt die Insel hinter dem Menü nicht.
+    const zoomBefore = (await readCamera(page)).zoom;
+    await page.mouse.move(size.width / 2, size.height / 2);
+    await page.mouse.wheel(0, -400);
+    await sleep(1000);
+    check((await readCamera(page)).zoom === zoomBefore, 'Menü offen: das Mausrad hat die Insel dahinter gezoomt');
+  }
   const [download] = await Promise.all([page.waitForEvent('download', { timeout: 10_000 }), tapUi('menu-save')]);
   check(/^[a-z0-9-]+-\d{4}-\d{2}-\d{2}\.json$/.test(download.suggestedFilename()), `Dateiname „${download.suggestedFilename()}“`);
   const exported = await readFile(await download.path(), 'utf8');
@@ -2261,6 +2270,14 @@ async function testSaving({ browser, page, check, shot, size, input, name, profi
   await exitTool();
   const changed = await readVillage(page);
   check(changed.buildings.length === before.buildings.length + 1, 'Der Busch fehlt');
+
+  // R3: ein Dateiwähler, der nie antwortet, hält den Knopf nicht fest – der nächste Tipp öffnet einen neuen.
+  await tapUi('menu');
+  await waitForVillage(page, (v) => v.menu === 'menu' && 'menu-load' in v.ui, 'das offene Menü');
+  await tapUi('menu-load');
+  await sleep(400);
+  await tapUi('menu-close');
+  await waitForVillage(page, (v) => v.menu === 'closed', 'das geschlossene Menü');
 
   const chooseFile = async (content, mimeType = 'application/json') => {
     await tapUi('menu');
@@ -2357,6 +2374,41 @@ async function testSaving({ browser, page, check, shot, size, input, name, profi
   await page.setViewportSize(size);
   await sleep(1000);
 
+  // --- Hartes Schließen: der letzte Bau geht nicht verloren (W1) ---
+  step('Hartes Schließen: bauen, kurz warten, Seite weg – der Bau ist da');
+  await overview();
+  const beforeClose = await readVillage(page);
+  await placeSmall('flower', [0.5, 0.3], 'die letzte Blume', (v, v0) => count(v, 'flower') === count(v0, 'flower') + 1);
+  await sleep(250);
+  await page.goto('about:blank');
+  await enterIsland(page, profile, waitForScene, SAVE_URL);
+  village = await waitForSave((v) => v.buildings.length > 0, 'das Dorf nach dem harten Schließen');
+  check(count(village, 'flower') === count(beforeClose, 'flower') + 1, `Hartes Schließen: ${count(village, 'flower')} statt ${count(beforeClose, 'flower') + 1} Blumen – der letzte Bau ging verloren`);
+
+  // --- Zwei Fenster: nur eins speichert (R2) ---
+  step('Zwei Fenster: das zweite speichert nicht');
+  const recordBefore = JSON.stringify(await readRecord(page));
+  const second = await page.context().newPage();
+  const secondProblems = [];
+  second.on('console', (message) => {
+    if (message.type() === 'error') secondProblems.push(`Konsolenfehler: ${message.text()}`);
+  });
+  second.on('pageerror', (error) => secondProblems.push(`Seitenfehler: ${error.message}`));
+  await second.goto(SAVE_URL, { waitUntil: 'load' });
+  await second.waitForSelector('html[data-scene="boot"]', { state: 'attached', timeout: 20_000 });
+  await second.waitForTimeout(500);
+  if (profile.context.hasTouch) await second.touchscreen.tap(size.width / 2, size.height * 0.54);
+  else await second.mouse.click(size.width / 2, size.height * 0.54);
+  await second.waitForSelector('html[data-scene="island"]', { state: 'attached', timeout: 40_000 });
+  const other = await waitForVillage(second, (v) => v.buildings.length > 0 && v.save.store !== undefined, 'das Dorf im zweiten Fenster', 30_000);
+  check(other.save.start === 'otherWindow' && other.save.autosave === false, `Zweites Fenster: ${JSON.stringify(other.save)}`);
+  check(/anderen Fenster/.test(other.hint), `Zweites Fenster: Hinweis „${other.hint}“`);
+  await second.waitForTimeout(1500);
+  await second.close();
+  check(JSON.stringify(await readRecord(page)) === recordBefore || (await readRecord(page)).tick >= JSON.parse(recordBefore).tick, 'Zweites Fenster: der Spielstand des ersten wurde verändert');
+  for (const entry of secondProblems) problems.push(entry);
+  check((await readVillage(page)).save.autosave === true, 'Erstes Fenster: Autosave ist nach dem zweiten Fenster aus');
+
   // --- Kaputter Spielstand beim Start ---
   step('Start mit kaputtem Spielstand');
   await setRecordFromOutside(page, { format: 'village-save', version: 2, world: null, buildings: 'viele' });
@@ -2365,6 +2417,8 @@ async function testSaving({ browser, page, check, shot, size, input, name, profi
   check(village.save.start === 'unreadable' && village.save.autosave === true, `Kaputter Spielstand: ${JSON.stringify(village.save)}`);
   check(/Dein altes Dorf ging nicht auf/.test(village.hint), `Kaputter Spielstand: Hinweis „${village.hint}“`);
   check(village.buildings.length === 6, `Kaputter Spielstand: ${village.buildings.length} Gebäude statt dem Startdorf`);
+  // R1: der kaputte Stand ist als Kopie gesichert, bevor er ersetzt wird.
+  check(same(await readRecord(page, 'backup'), { format: 'village-save', version: 2, world: null, buildings: 'viele' }), 'Kaputter Spielstand: keine Kopie in „backup“');
   // Eine Änderung stößt das Speichern an: der kaputte Spielstand wird durch einen heilen ersetzt.
   await overview();
   await placeSmall('flower', [0.5, 0.3], 'die Blume im neuen Dorf', (v, v0) => count(v, 'flower') === count(v0, 'flower') + 1);
@@ -2430,6 +2484,63 @@ async function testSaving({ browser, page, check, shot, size, input, name, profi
   check(loneProblems.length === 0, `Ohne IndexedDB: ${loneProblems.join(' | ')}`);
   await plain.close();
   for (const entry of loneProblems) problems.push(entry);
+
+  // --- iPad: die Datei geht übers Teilen-Blatt (R4) ---
+  step('iPad: Datei übers Teilen-Blatt, Abbruch ist kein Fehler');
+  const ipad = await browser.newContext({
+    ...profile.context,
+    userAgent: 'Mozilla/5.0 (iPad; CPU OS 15_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.0 Mobile/15E148 Safari/604.1',
+  });
+  await ipad.addInitScript(() => {
+    window.__shared = [];
+    window.__abort = false;
+    Object.defineProperty(navigator, 'canShare', { value: () => true, configurable: true });
+    Object.defineProperty(navigator, 'share', {
+      value: async (data) => {
+        window.__shared.push({ name: data.files[0].name, type: data.files[0].type, size: data.files[0].size });
+        if (window.__abort) throw new DOMException('abgebrochen', 'AbortError');
+      },
+      configurable: true,
+    });
+  });
+  const pad = await ipad.newPage();
+  const padProblems = [];
+  let padDownloads = 0;
+  pad.on('console', (message) => {
+    if (message.type() === 'error') padProblems.push(`Konsolenfehler: ${message.text()}`);
+  });
+  pad.on('pageerror', (error) => padProblems.push(`Seitenfehler: ${error.message}`));
+  pad.on('download', () => (padDownloads += 1));
+  await pad.goto(GAME_URL, { waitUntil: 'load' });
+  await pad.waitForSelector('html[data-scene="boot"]', { state: 'attached', timeout: 20_000 });
+  await pad.waitForTimeout(500);
+  if (profile.context.hasTouch) await pad.touchscreen.tap(size.width / 2, size.height * 0.54);
+  else await pad.mouse.click(size.width / 2, size.height * 0.54);
+  await pad.waitForSelector('html[data-scene="island"]', { state: 'attached', timeout: 40_000 });
+  const padInput = profile.context.hasTouch ? (p) => pad.touchscreen.tap(p.x, p.y) : (p) => pad.mouse.click(p.x, p.y);
+  const padTap = async (spot) => {
+    const v = await waitForVillage(pad, (state) => spot in state.ui, `den Knopf „${spot}“ auf dem iPad`, 30_000);
+    await padInput(v.ui[spot]);
+  };
+  await padTap('menu');
+  await waitForVillage(pad, (v) => v.menu === 'menu', 'das Menü auf dem iPad');
+  await padTap('menu-save');
+  await waitForVillage(pad, (v) => v.menu === 'menu:menu.fileSaved', 'der Satz nach dem Teilen');
+  let shared = await pad.evaluate(() => window.__shared);
+  check(shared.length === 1 && /^[a-z0-9-]+-\d{4}-\d{2}-\d{2}\.json$/.test(shared[0].name) && shared[0].type === 'application/json' && shared[0].size > 1000, `iPad: geteilt wurde ${JSON.stringify(shared)}`);
+  check(padDownloads === 0, 'iPad: die Datei wurde zusätzlich heruntergeladen');
+  await padTap('menu-close');
+  await waitForVillage(pad, (v) => v.menu === 'closed', 'das geschlossene Menü auf dem iPad');
+  await padTap('menu');
+  await waitForVillage(pad, (v) => v.menu === 'menu', 'das Menü auf dem iPad (zweites Mal)');
+  await pad.evaluate(() => (window.__abort = true));
+  await padTap('menu-save');
+  await sleep(1500);
+  shared = await pad.evaluate(() => window.__shared);
+  const afterAbort = await readVillage(pad);
+  check(shared.length === 2 && afterAbort.menu === 'menu' && padDownloads === 0, `iPad: nach dem Abbrechen des Teilen-Blatts: Menü „${afterAbort.menu}“, ${shared.length} Mal geteilt, ${padDownloads} Downloads (erwartet: Menü ohne Satz, kein Download)`);
+  await ipad.close();
+  for (const entry of padProblems) problems.push(entry);
 }
 
 /** Web-App (M5): Manifest, Symbole, Service Worker, offline spielbar. */
