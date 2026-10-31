@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { applyCommand, type Command } from '../../src/sim/commands';
+import { loadFromText, saveToText } from '../../src/sim/saveData';
 import type { SimState } from '../../src/sim/state';
 import { t } from '../../src/data/texts';
 import { BuildTool, TOOLS, anchorFor, problemHint, type RefundInfo } from '../../src/ui/buildTool';
@@ -265,6 +266,23 @@ describe('Shop (M4)', () => {
     state.unlocked.push('lantern', 'pond');
     expect(tool.takeAnnouncements()).toEqual(['lantern', 'pond']);
     expect(tool.takeAnnouncements()).toEqual([]);
+  });
+
+  it('ein wirklich aus einem Spielstand geladener Zustand meldet nichts und trägt keinen Stern (M5)', () => {
+    const played = grassState();
+    played.unlocked = ['bench', 'lantern', 'flowerbed'];
+    played.earnedCoins = 150;
+    const loaded = loadFromText(saveToText(played));
+    expect(loaded.ok).toBe(true);
+    if (!loaded.ok) {
+      return;
+    }
+    const { tool } = setup(loaded.state);
+    expect(loaded.state.unlocked).toEqual(expect.arrayContaining(['bench', 'lantern', 'flowerbed']));
+    expect(tool.takeAnnouncements()).toEqual([]);
+    expect(tool.shopHasNews).toBe(false);
+    tool.openShop();
+    expect(shopItems('deco').some((type) => tool.isFresh(type.id))).toBe(false);
   });
 
   it('zählt Neuigkeiten nach Artikel, nicht nach Platz in der Liste (ein später geladener Zustand meldet nichts Altes, R10)', () => {

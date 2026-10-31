@@ -38,6 +38,32 @@ export class Simulation {
     return this.clock.tickMs;
   }
 
+  /**
+   * Replaces the whole state (a village that was loaded from a file). The state is copied; commands that were
+   * queued for the old village are dropped and the clock starts over, so nothing is caught up.
+   */
+  load(state: SimState): void {
+    Object.assign(this.current, structuredClone(state));
+    this.queue = [];
+    this.clock.reset();
+  }
+
+  /**
+   * Applies the commands that wait for the next tick right now (without letting time pass). For the moment a page is
+   * left: a building that was ordered a moment ago, and whose frame never came, is part of what is saved then.
+   */
+  applyPending(): void {
+    const commands = this.queue;
+    this.queue = [];
+    for (const command of commands) {
+      applyCommand(this.current, command);
+    }
+    if (commands.length > 0) {
+      refreshStatuses(this.current);
+      checkUnlocks(this.current);
+    }
+  }
+
   /** Queues a command; it takes effect at the start of the next tick. */
   send(command: Command): void {
     this.queue.push(command);

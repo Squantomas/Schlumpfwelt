@@ -44,6 +44,7 @@ function parts(layout: BuildLayout): [string, Rect][] {
     ['Werkzeugleiste', layout.toolbar.rect],
     ['Hinweisleiste', layout.hint],
     ['Zoom-Knöpfe', layout.zoom.rect],
+    ['Zahnrad', layout.menu],
     ['Shop', layout.shop?.rect],
     ['Chip', layout.chip],
     ['✓', layout.confirm],
@@ -132,6 +133,34 @@ describe('Zoom-Knöpfe und Hinweisleiste', () => {
     expect(bar.x + bar.width).toBeLessThanOrEqual(zoom.rect.x + 0.001);
     expect(bar.x).toBeGreaterThanOrEqual(0);
     expect(zoom.rect.x + zoom.rect.width).toBeLessThanOrEqual(width);
+  });
+});
+
+describe('Zahnrad (Menü)', () => {
+  it.each(SCREENS)('sitzt bei %i×%i unter den Zoom-Knöpfen, ist groß genug und stößt an nichts, solange man nur schaut', (width, height) => {
+    const layout = layoutBuildUi(input(width, height, { hasMenu: true, hintHeight: 60, hintAtTop: false }));
+    const gear = layout.menu;
+    expect(gear).toBeDefined();
+    if (!gear) {
+      return;
+    }
+    expect(gear.width).toBeGreaterThanOrEqual(MIN_TAP_SIZE);
+    expect(gear.height).toBeGreaterThanOrEqual(MIN_TAP_SIZE);
+    expect(gear.x + gear.width).toBeLessThanOrEqual(width + 0.001);
+    expect(gear.y).toBeGreaterThanOrEqual(layout.zoom.rect.y + layout.zoom.rect.height);
+    for (const [name, rect] of parts(layout).filter(([name]) => name !== 'Zahnrad')) {
+      expect(intersects(gear, rect), `Zahnrad überdeckt ${name}`).toBe(false);
+    }
+  });
+
+  it('fehlt, wo es stören würde: mit Werkzeug (Vorschau, Chip), offenem Shop, offener Infokarte – oder wenn es nicht gewünscht ist', () => {
+    const base = { hintHeight: 0, hintAtTop: false };
+    expect(layoutBuildUi(input(800, 600, { ...base, hasMenu: true })).menu).toBeDefined();
+    expect(layoutBuildUi(input(800, 600, { ...base })).menu).toBeUndefined();
+    expect(layoutBuildUi(input(800, 600, { ...base, hasMenu: true, hasPreview: true })).menu).toBeUndefined();
+    expect(layoutBuildUi(input(800, 600, { ...base, hasMenu: true, hasChip: true })).menu).toBeUndefined();
+    expect(layoutBuildUi(input(800, 600, { ...base, hasMenu: true, shopOpen: true })).menu).toBeUndefined();
+    expect(layoutBuildUi(input(800, 600, { ...base, hasMenu: true, infoOpen: true })).menu).toBeUndefined();
   });
 });
 

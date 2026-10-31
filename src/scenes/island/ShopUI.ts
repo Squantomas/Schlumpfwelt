@@ -403,7 +403,7 @@ export class ShopUI {
     setLabelSize(this.tipLabel, size, maxW);
     // The text as measured (after wrapping) must fit into the line: smaller letters until it does, never under 12 px.
     while (this.tipLabel.height > height - 4 && size > MIN_LINE_FONT) {
-      size -= 1;
+      size = Math.max(MIN_LINE_FONT, size - 1);
       setLabelSize(this.tipLabel, size, maxW);
     }
     this.tipLabel.setPosition(x + width / 2, y + height / 2);

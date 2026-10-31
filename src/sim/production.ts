@@ -33,7 +33,7 @@ import { findBuilding, isConnected, type PlacedBuilding } from './buildings';
 import type { SimState } from './state';
 
 /** What the production rules read and change. */
-export type ProductionState = Pick<SimState, 'world' | 'buildings' | 'paths' | 'revision' | 'inventory' | 'production' | 'earnedCoins' | 'unlocked' | 'planted'>;
+export type ProductionState = Pick<SimState, 'world' | 'buildings' | 'paths' | 'revision' | 'inventory' | 'production' | 'earnedCoins' | 'unlocked' | 'planted' | 'nextBuildingId'>;
 
 /** Units of a good the market may sell now (what is there beyond `keep` and `keepForFood`). */
 export function sellableAmount(inventory: Readonly<Record<string, number>>, goodId: string): number {

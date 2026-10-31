@@ -5,7 +5,7 @@
   "description": "Gemütliches Aufbauspiel im Browser für Kinder von 6 bis 10 Jahren",
   "type": "module",
   "engines": {
-    "node": ">=22.12"
+    "node": ">=22.18"
   },
   "scripts": {
     "dev": "vite",
