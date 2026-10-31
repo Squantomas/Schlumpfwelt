@@ -1120,11 +1120,13 @@ async function testEconomy({ page, check, shot, size, input, name }) {
   const garden = village.buildings.find((b) => b.type === 'berry-garden');
   const market = village.buildings.find((b) => b.type === 'market');
   check(village.producers.find((p) => p.id === garden.id)?.status === 'working', 'Start: der Beerengarten arbeitet nicht');
-  check(village.producers.find((p) => p.id === market.id)?.status === 'idle', 'Start: der Markt ist nicht im Leerlauf');
+  // Der Markt kauft auch überschüssige Beeren: im Leerlauf, bis mehr als die Reserve da ist.
+  check(['idle', 'working'].includes(village.producers.find((p) => p.id === market.id)?.status), 'Start: der Markt ist weder im Leerlauf noch bei der Arbeit');
   check(village.markers === 0, `Start: ${village.markers} Schilder, erwartet 0`);
   await shot(`${name}-lagerleiste`);
-  // Beeren kommen von allein dazu: das Lager wächst.
-  await waitStock((stock) => stock.berries > start.berries, 'wachsende Beeren im Lager', 70_000);
+  // Der Beerengarten liefert von allein (der Markt kauft Beeren über der Reserve, darum zählt die Lieferung, nicht das Lager).
+  const gardenDelivered = village.producers.find((p) => p.id === garden.id)?.delivered ?? 0;
+  await waitForVillage(page, (v) => (v.producers.find((p) => p.id === garden.id)?.delivered ?? 0) > gardenDelivered, 'eine Lieferung des Beerengartens', 40_000);
 
   // --- Auswahl „Gebäude“ mit Kosten ---
   step('Auswahl Gebäude mit Kosten');
@@ -1153,6 +1155,25 @@ async function testEconomy({ page, check, shot, size, input, name }) {
   village = await waitStock((stock) => stock.coins === before.coins - 25 && stock.wood <= before.wood - 6, 'abgebuchte Kosten der Bäckerei', 8000);
   check(village.stock.coins === before.coins - 25, `Bäckerei: Taler ${village.stock.coins}, erwartet ${before.coins - 25}`);
 
+  // --- Ohne Weg daneben: grün, aber der Hinweis sagt, was zu tun ist ---
+  step('Gebäude ohne Weg: Hinweis');
+  await tapUi('tool-building');
+  await waitForVillage(page, (v) => 'variant-bakery' in v.ui, 'die Auswahl');
+  await tapUi('variant-quarry');
+  await waitForVillage(page, (v) => v.variant === 'quarry', 'der Steinbruch');
+  village = await readVillage(page);
+  cam = await cameraAtRest();
+  const lonely = findWorkSpot(village, cam, size, { fp: 2, atPath: false, terrain: 'r', radius: 5, withNearby: true });
+  check(lonely !== undefined, 'Kein Platz am Fels ohne Weg gefunden');
+  if (lonely) {
+    await sleep(500);
+    await tapTile(lonely.tap);
+    village = await waitForVillage(page, (v) => v.preview === 'place:ok', 'grüne Vorschau ohne Weg');
+    check(/Weg/.test(village.hint), `Ohne Weg: Hinweis „${village.hint}“ sagt nichts vom Weg`);
+    await tapUi('cancel');
+    await waitForVillage(page, (v) => v.preview === 'none', 'ohne Vorschau nach ✕');
+  }
+
   // --- Holzfäller ohne Bäume in der Nähe: rot mit Hinweis ---
   step('Holzfäller ohne Bäume: rot');
   await tapUi('tool-building');
@@ -1160,6 +1181,9 @@ async function testEconomy({ page, check, shot, size, input, name }) {
   await tapUi('variant-lumberjack');
   await waitForVillage(page, (v) => v.variant === 'lumberjack', 'der Holzfäller');
   village = await readVillage(page);
+  // Etwas herauszoomen: Platz ohne Bäume im Umkreis von 4 Kacheln gibt es erst mit größerem Ausschnitt.
+  await input.tap(village.ui['zoom-out']);
+  await sleep(300);
   cam = await cameraAtRest();
   const bare = findWorkSpot(village, cam, size, { fp: 2, atPath: false, terrain: 'f', radius: 4, withNearby: false });
   check(bare !== undefined, 'Kein Platz ohne Bäume in der Nähe gefunden');
@@ -1176,6 +1200,9 @@ async function testEconomy({ page, check, shot, size, input, name }) {
     await tapUi('cancel');
     await waitForVillage(page, (v) => v.preview === 'none', 'ohne Vorschau nach ✕');
   }
+  await input.tap((await readVillage(page)).ui['zoom-in']);
+  await sleep(300);
+  await cameraAtRest();
 
   // --- Holzfäller am Wald mit Weg: Radius-Vorschau, dann steigt das Holz ---
   step('Holzfäller am Wald');
@@ -1193,9 +1220,9 @@ async function testEconomy({ page, check, shot, size, input, name }) {
   village = await confirm((v) => typeCount(v, 'lumberjack') === 1, 'der Holzfäller');
   const lumberjack = village.buildings.find((b) => b.type === 'lumberjack');
   check(lumberjack.connected, 'Holzfäller steht nicht am Weg');
-  village = await waitStock((stock) => stock.coins === woodBefore.coins - 15, 'abgebuchte Kosten des Holzfällers', 8000);
+  village = await waitStock((stock) => stock.coins === woodBefore.coins - 20, 'abgebuchte Kosten des Holzfällers (nur Taler)', 8000);
   const afterLumberjack = village.stock;
-  check(afterLumberjack.wood <= woodBefore.wood - 3 + 1, `Holzfäller: Holz ${afterLumberjack.wood}, erwartet höchstens ${woodBefore.wood - 2}`);
+  check(afterLumberjack.wood >= woodBefore.wood, `Holzfäller: Holz ${afterLumberjack.wood} gesunken, er soll nur Taler kosten`);
   // Nach ein paar Sekunden liefert er: das Lager steigt, und der Holzfäller meldet „working“.
   village = await waitStock((stock) => stock.wood > afterLumberjack.wood, 'steigendes Holz (Holzfäller liefert)', 30_000);
   check(village.producers.find((p) => p.id === lumberjack.id)?.delivered >= 1, 'Holzfäller: delivered ist 0, obwohl das Holz stieg');
@@ -1240,11 +1267,11 @@ async function testEconomy({ page, check, shot, size, input, name }) {
   village = await readVillage(page);
   await tapTile({ x: lumberjack.x, y: lumberjack.y + 1 });
   village = await waitForVillage(page, (v) => v.preview === 'demolish:4', 'die rote Markierung am Holzfäller');
-  check(/zurück/.test(village.hint) && /15 Taler/.test(village.hint), `Abreißen: Hinweis „${village.hint}“ nennt die Erstattung nicht`);
+  check(/zurück/.test(village.hint) && /20 Taler/.test(village.hint), `Abreißen: Hinweis „${village.hint}“ nennt die Erstattung nicht`);
   const beforeDemolish = village.stock;
   await tapUi('confirm');
   village = await waitForVillage(page, (v) => typeCount(v, 'lumberjack') === 0, 'den abgerissenen Holzfäller');
-  village = await waitStock((stock) => stock.coins >= beforeDemolish.coins + 15 && stock.wood >= beforeDemolish.wood + 3, 'die Erstattung im Lager', 8000);
+  village = await waitStock((stock) => stock.coins >= beforeDemolish.coins + 20, 'die Erstattung im Lager', 8000);
   await sleep(300);
   await shot(`${name}-erstattung`);
   await exitTool();
