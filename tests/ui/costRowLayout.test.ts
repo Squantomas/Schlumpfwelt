@@ -2,12 +2,12 @@ import { describe, expect, it } from 'vitest';
 import { BUILDING_TYPES } from '../../src/data/buildings';
 import { formatNumber } from '../../src/data/texts';
 import { COST_MIN_FONT, costRowLayout } from '../../src/ui/costRowLayout';
-import { PICKER_CELL_W, PICKER_CELL_W_NARROW } from '../../src/ui/pickerLayout';
+import { SHOP_CELL_HEIGHTS, SHOP_CELL_WIDTHS } from '../../src/ui/shopLayout';
 
 describe('costRowLayout: Zahlen nie kleiner als 13 px', () => {
   // Breite der Zeile = Kartenbreite minus Rand (SquareButton), Höhe: kleinste und größte Karte.
-  for (const cellW of [PICKER_CELL_W, PICKER_CELL_W_NARROW]) {
-    for (const cellH of [72, 100, 120]) {
+  for (const cellW of SHOP_CELL_WIDTHS) {
+    for (const cellH of SHOP_CELL_HEIGHTS) {
       it(`bei jedem Bautyp passt die Kostenzeile in eine Karte ${String(cellW)}×${String(cellH)}`, () => {
         const rowW = cellW - 8;
         const rowH = cellH * 0.3 * 0.8;

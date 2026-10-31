@@ -1,22 +1,20 @@
 import Phaser from 'phaser';
 import { CAMERA_CONFIG } from '../data/camera';
-import { t } from '../data/texts';
 import { buildingType } from '../data/buildings';
 import { buildingAt, isConnected } from '../sim/buildings';
 import { hash2 } from '../sim/random';
 import type { Simulation } from '../sim/simulation';
-import { isLand, landBounds, terrainAt } from '../sim/world';
+import { isLand, landBounds, terrainAt, type Terrain } from '../sim/world';
 import { BuildTool, type Preview } from '../ui/buildTool';
 import { zoomLayout } from '../ui/buildLayout';
 import { growRect, tileAtWorld, visibleRect, type CameraBounds, type Point, type Rect } from '../ui/cameraMath';
 import { landRegions } from '../ui/cameraRegions';
 import { simulationDelta } from '../ui/frameTime';
-import { createLabel, setLabelSize } from '../ui/label';
 import { RoundButton } from '../ui/RoundButton';
-import { COLORS, TILE_SIZE, clamp, rgb } from '../ui/style';
+import { COLORS, TILE_SIZE, rgb } from '../ui/style';
 import { onViewportChange, type ViewSize } from '../ui/viewport';
 import { BuildUI } from './island/BuildUI';
-import { groundSize, paintGround } from './island/groundTexture';
+import { GROUND_EDGE_PX, releaseGroundBlocks, blockArea, blockShown, blocksTouching, groundBlocks, paintGroundBlock, type GroundBlock } from './island/groundTexture';
 import {
   GLINT_KEY,
   OBJECT_ORIGIN,
@@ -33,9 +31,6 @@ import { WorldCameraController } from './island/WorldCameraController';
 import { ISLAND_EVENTS, SCENES, type TileTapEvent } from './keys';
 import { markActiveScene, markCamera, markTap, markVillage } from './sceneMarker';
 
-/** How long the greeting stays fully visible, then it fades away (ms). */
-const GREETING_SHOW_MS = 3500;
-const GREETING_FADE_MS = 900;
 /** Tap ring: how long it takes to grow and fade away (ms). */
 const RING_MS = 900;
 /** The ring stays fully visible this long before it fades (ms). */
@@ -73,13 +68,20 @@ export class IslandScene extends Phaser.Scene {
   private ring!: Phaser.GameObjects.Image;
   private ringTween: Phaser.Tweens.Tween | undefined;
   private ringFade: Phaser.Tweens.Tween | undefined;
-  private groundKey = '';
+  /** The ground, cut into blocks that are each their own texture (a change uploads only the blocks it touches). */
+  private groundBlocks: { readonly block: GroundBlock; readonly key: string; readonly texture: Phaser.Textures.CanvasTexture }[] = [];
+  /** The terrain as it is drawn now: the scene compares it with the state when the revision changes. */
+  private drawnTerrain: Terrain[] = [];
+  private terrainRevision = 0;
+  /** What redrawing the ground cost so far (`<html data-repaint>`): number of changes, time of the last and the longest in ms, blocks of the last and in all. */
+  private repaint = { count: 0, last: 0, max: 0, blocks: 0, uploaded: 0, blocksTotal: 0 };
+  private cameraBounds!: { -readonly [K in keyof CameraBounds]: CameraBounds[K] };
+  private zoomButtons: RoundButton[] = [];
   private cameraKey = '';
   private landInView = 0;
   private buildTool!: BuildTool;
   private village!: VillageView;
   private buildUI!: BuildUI;
-  private greeting!: Phaser.GameObjects.Text;
   private preview: Preview = { kind: 'none' };
   private previewKey = '';
   private publishedRevision = -1;
@@ -108,6 +110,9 @@ export class IslandScene extends Phaser.Scene {
     this.previewKey = '';
     this.publishedRevision = -1;
     this.preview = { kind: 'none' };
+    this.drawnTerrain = [...world.tiles];
+    this.terrainRevision = this.simulation.state.revision;
+    this.repaint = { count: 0, last: 0, max: 0, blocks: 0, uploaded: 0, blocksTotal: 0 };
 
     this.worldLayer = this.add.layer();
     this.uiLayer = this.add.layer();
@@ -144,7 +149,7 @@ export class IslandScene extends Phaser.Scene {
     this.ring = this.add.image(0, 0, RING_KEY).setDepth(TOP_DEPTH).setVisible(false);
     this.worldLayer.add(this.ring);
 
-    const bounds: CameraBounds = {
+    const bounds = {
       ...growRect(
         { x: 0, y: 0, width: world.width * TILE_SIZE, height: world.height * TILE_SIZE },
         CAMERA_CONFIG.marginTiles * TILE_SIZE,
@@ -152,6 +157,8 @@ export class IslandScene extends Phaser.Scene {
       // The screen centre stays on or right next to land: the island can never leave the picture.
       centerRegions: landRegions(world, TILE_SIZE, CAMERA_CONFIG.landMarginTiles),
     };
+    // The camera reads this object each time; new land (a filled beach) replaces the regions.
+    this.cameraBounds = bounds;
     this.controller = new WorldCameraController(this, this.worldCamera, {
       bounds,
       focus: islandFocus(world),
@@ -168,11 +175,6 @@ export class IslandScene extends Phaser.Scene {
       onTap: (point, _screen, time) => this.handleTap(point, time),
     });
 
-    const greeting = createLabel(this, t('island.greeting'), 64);
-    this.greeting = greeting;
-    this.uiLayer.add(greeting);
-    this.tweens.add({ targets: greeting, alpha: 0, delay: GREETING_SHOW_MS, duration: GREETING_FADE_MS });
-
     const zoomIn = new RoundButton(this, 0, 0, {
       radius: 34, // the real size comes from `zoomLayout` in the layout callback
       icon: 'plus',
@@ -184,6 +186,7 @@ export class IslandScene extends Phaser.Scene {
       onTap: () => this.controller.zoomBy(1 / CAMERA_CONFIG.buttonZoomFactor),
     });
     this.uiLayer.add([zoomIn, zoomOut]);
+    this.zoomButtons = [zoomIn, zoomOut];
     this.buildUI = new BuildUI(
       this,
       this.uiLayer,
@@ -197,9 +200,6 @@ export class IslandScene extends Phaser.Scene {
     onViewportChange(this, ({ width, height }: ViewSize) => {
       this.controller.layout({ width, height });
 
-      const m = Math.min(width, height);
-      setLabelSize(greeting, clamp(m * 0.07, 26, 64), width * 0.9);
-
       // The zoom buttons sit at the top right; the bottom belongs to the toolbar.
       const zoom = zoomLayout(width, height);
       zoomIn.setRadius(zoom.radius).setPosition(zoom.zoomIn.x, zoom.zoomIn.y);
@@ -211,8 +211,6 @@ export class IslandScene extends Phaser.Scene {
           'zoom-out': { x: zoomOut.x, y: zoomOut.y, enabled: true },
         },
       );
-      // The greeting sits below the store bar.
-      greeting.setPosition(width / 2, this.buildUI.stockBottom + 12 + greeting.height / 2);
     });
 
     const fade = rgb(COLORS.waterDeep);
@@ -220,7 +218,7 @@ export class IslandScene extends Phaser.Scene {
     this.worldCamera.fadeIn(300, ...fade);
 
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
-      this.textures.remove(this.groundKey);
+      this.groundBlocks = releaseGroundBlocks(this.groundBlocks, (key) => this.textures.remove(key));
     });
   }
 
@@ -258,21 +256,31 @@ export class IslandScene extends Phaser.Scene {
     });
   }
 
-  /** Paints the ground once onto a canvas texture and shows it as one image. */
+  /**
+   * Paints the ground block by block (512 px squares, each its own texture and image that reaches a few pixels over its
+   * neighbours, so no gap shows between them – and without the unreliable outermost pixels of its canvas) – a change later only paints and uploads the blocks it touches.
+   */
   private buildGround(seed: number): void {
     const { world } = this.simulation.state;
-    const { width, height } = groundSize(world);
-    this.groundKey = `ground-${String(seed)}`;
-    if (this.textures.exists(this.groundKey)) {
-      this.textures.remove(this.groundKey);
+    this.groundBlocks = releaseGroundBlocks(this.groundBlocks, (key) => this.textures.remove(key));
+    for (const block of groundBlocks(world)) {
+      const area = blockArea(block);
+      const key = `ground-${String(seed)}-${String(block.bx)}-${String(block.by)}`;
+      if (this.textures.exists(key)) {
+        this.textures.remove(key);
+      }
+      const texture = this.textures.createCanvas(key, area.width, area.height);
+      if (!texture) {
+        continue;
+      }
+      paintGroundBlock(texture.getContext(), world, seed, block);
+      texture.refresh();
+      // Only the inner part is shown: the outermost pixels of a canvas are a little off and must not cover the neighbour.
+      const shown = blockShown(block);
+      texture.add('shown', 0, GROUND_EDGE_PX, GROUND_EDGE_PX, shown.width, shown.height);
+      this.worldLayer.add(this.add.image(shown.x, shown.y, key, 'shown').setOrigin(0, 0).setDepth(0));
+      this.groundBlocks.push({ block, key, texture });
     }
-    const texture = this.textures.createCanvas(this.groundKey, width, height);
-    if (!texture) {
-      return;
-    }
-    paintGround(texture.getContext(), world, seed);
-    texture.refresh();
-    this.worldLayer.add(this.add.image(0, 0, this.groundKey).setOrigin(0, 0).setDepth(0));
   }
 
   /** One tree per forest tile, one rock per rock tile; the sprite's depth is its ground y. */
@@ -280,27 +288,107 @@ export class IslandScene extends Phaser.Scene {
     const { world } = this.simulation.state;
     for (let y = 0; y < world.height; y += 1) {
       for (let x = 0; x < world.width; x += 1) {
-        const terrain = terrainAt(world, x, y);
-        if (terrain !== 'forest' && terrain !== 'rock') {
-          continue;
-        }
-        const r = (n: number): number => hash2(seed + n * 977, x, y);
-        const groundX = (x + 0.5 + (r(1) - 0.5) * 0.3) * TILE_SIZE;
-        const groundY = (y + 0.84 + (r(2) - 0.5) * 0.2) * TILE_SIZE;
-        const isTree = terrain === 'forest';
-        const keys = isTree ? TREE_KEYS : ROCK_KEYS;
-        const key = keys[Math.floor(r(3) * keys.length)] ?? keys[0];
-        const origin = isTree ? OBJECT_ORIGIN.tree : OBJECT_ORIGIN.rock;
-        const size = (isTree ? 0.9 + r(4) * 0.25 : 0.85 + r(4) * 0.3) / TEXTURE_SCALE;
-        const sprite = this.add
-          .image(groundX, groundY, key)
-          .setOrigin(origin.x, origin.y)
-          .setScale(r(5) < 0.5 ? size : -size, size)
-          .setDepth(groundY);
-        this.worldLayer.add(sprite);
-        this.objects.set(y * world.width + x, sprite);
+        this.addObject(seed, x, y, false);
       }
     }
+  }
+
+  /** Puts the tree or rock of a forest or rock tile on the map (nothing for other terrain). A new one pops in. */
+  private addObject(seed: number, x: number, y: number, animate: boolean): void {
+    const { world } = this.simulation.state;
+    const terrain = terrainAt(world, x, y);
+    if (terrain !== 'forest' && terrain !== 'rock') {
+      return;
+    }
+    const r = (n: number): number => hash2(seed + n * 977, x, y);
+    const groundX = (x + 0.5 + (r(1) - 0.5) * 0.3) * TILE_SIZE;
+    const groundY = (y + 0.84 + (r(2) - 0.5) * 0.2) * TILE_SIZE;
+    const isTree = terrain === 'forest';
+    const keys = isTree ? TREE_KEYS : ROCK_KEYS;
+    const key = keys[Math.floor(r(3) * keys.length)] ?? keys[0];
+    const origin = isTree ? OBJECT_ORIGIN.tree : OBJECT_ORIGIN.rock;
+    const size = (isTree ? 0.9 + r(4) * 0.25 : 0.85 + r(4) * 0.3) / TEXTURE_SCALE;
+    const flip = r(5) < 0.5 ? size : -size;
+    const sprite = this.add.image(groundX, groundY, key).setOrigin(origin.x, origin.y).setScale(flip, size).setDepth(groundY);
+    this.worldLayer.add(sprite);
+    this.objects.set(y * world.width + x, sprite);
+    if (animate) {
+      sprite.setScale(flip * 0.3, size * 0.3);
+      this.tweens.add({ targets: sprite, scaleX: flip, scaleY: size, duration: 320, ease: 'Back.easeOut' });
+    }
+  }
+
+  /** Makes the ground, the trees and rocks, the sea glints and the camera limits follow the terrain of the state. */
+  private syncTerrain(): void {
+    const { world, seed } = this.simulation.state;
+    let x0 = Number.POSITIVE_INFINITY;
+    let y0 = Number.POSITIVE_INFINITY;
+    let x1 = Number.NEGATIVE_INFINITY;
+    let y1 = Number.NEGATIVE_INFINITY;
+    let landChanged = false;
+    const changed: { x: number; y: number }[] = [];
+    for (let y = 0; y < world.height; y += 1) {
+      for (let x = 0; x < world.width; x += 1) {
+        const now = terrainAt(world, x, y);
+        const before = this.drawnTerrain[y * world.width + x];
+        if (now !== before) {
+          changed.push({ x, y });
+          x0 = Math.min(x0, x);
+          y0 = Math.min(y0, y);
+          x1 = Math.max(x1, x);
+          y1 = Math.max(y1, y);
+          landChanged ||= isLand(now) !== (before !== undefined && isLand(before));
+          this.drawnTerrain[y * world.width + x] = now;
+        }
+      }
+    }
+    if (changed.length === 0) {
+      return;
+    }
+    // Ground: only the blocks the changed tiles touch are painted again and uploaded to the graphics card.
+    const started = performance.now();
+    const touched = new Set<string>();
+    for (const { x, y } of changed) {
+      for (const block of blocksTouching(world, { x0: x, y0: y, x1: x, y1: y })) {
+        touched.add(`${String(block.bx)},${String(block.by)}`);
+      }
+    }
+    for (const entry of this.groundBlocks) {
+      if (touched.has(`${String(entry.block.bx)},${String(entry.block.by)}`)) {
+        paintGroundBlock(entry.texture.getContext(), world, seed, entry.block);
+        entry.texture.refresh();
+      }
+    }
+    const elapsed = performance.now() - started;
+    this.repaint = {
+      count: this.repaint.count + 1,
+      last: elapsed,
+      max: Math.max(this.repaint.max, elapsed),
+      blocks: touched.size,
+      uploaded: this.repaint.uploaded + touched.size,
+      blocksTotal: this.groundBlocks.length,
+    };
+
+    for (const { x, y } of changed) {
+      const index = y * world.width + x;
+      this.objects.get(index)?.destroy();
+      this.objects.delete(index);
+      this.addObject(seed, x, y, true);
+      this.village.puff((x + 0.5) * TILE_SIZE, (y + 0.5) * TILE_SIZE, 1);
+    }
+    // Sea glints on tiles that are land now.
+    this.glints = this.glints.filter(({ sprite }) => {
+      if (isLand(terrainAt(world, Math.floor(sprite.x / TILE_SIZE), Math.floor(sprite.y / TILE_SIZE)))) {
+        sprite.destroy();
+        return false;
+      }
+      return true;
+    });
+    if (landChanged) {
+      // New land is somewhere the camera may look at.
+      this.cameraBounds.centerRegions = landRegions(world, TILE_SIZE, CAMERA_CONFIG.landMarginTiles);
+    }
+    this.terrain = terrainLetters(world);
   }
 
   /** The tree or rock sprite standing on a tile, if there is one. */
@@ -346,6 +434,13 @@ export class IslandScene extends Phaser.Scene {
     if (this.buildUI.worldTapsPaused(eventTime)) {
       return;
     }
+    // The open shop covers the island: a tap beside the panel closes it and does nothing else (no building, no ring).
+    if (this.buildUI.shopOpen) {
+      this.buildTool.closeShop();
+      return;
+    }
+    // An explanation stays until the next tap.
+    this.buildUI.clearNotice();
     // A tap beside the open info card closes it and does nothing else.
     if (this.buildTool.inspectedId !== undefined) {
       this.buildTool.closeInfo();
@@ -380,13 +475,18 @@ export class IslandScene extends Phaser.Scene {
 
   /** Keeps the drawn village and the building controls in line with the state and the tool. */
   private updateVillage(seconds: number, deltaMs: number): void {
+    // Terrain first (trees, beaches), so the village and the signs see the new ground.
+    if (this.simulation.state.revision !== this.terrainRevision) {
+      this.terrainRevision = this.simulation.state.revision;
+      this.syncTerrain();
+    }
     if (this.village.sync()) {
       this.buildTool.refresh();
     }
     this.buildUI.update();
-    // A tool is on: the greeting makes room for the hint bar.
-    if (this.buildTool.tool !== 'view') {
-      this.greeting.setVisible(false);
+    // The open shop covers the screen: no zoom buttons over it.
+    for (const button of this.zoomButtons) {
+      button.setVisible(!this.buildUI.shopOpen);
     }
 
     const { revision } = this.simulation.state;
@@ -424,7 +524,7 @@ export class IslandScene extends Phaser.Scene {
     }
     markVillage({
       tool: this.buildTool.tool,
-      variant: this.buildTool.variant ?? '',
+      variant: this.buildTool.item ?? '',
       preview: this.previewText,
       hint: this.buildUI.shownHint,
       markers: this.village.markerCount,
@@ -435,6 +535,12 @@ export class IslandScene extends Phaser.Scene {
       stock: this.buildUI.shownStock,
       producers: this.producers,
       card: this.buildTool.inspectedId === undefined ? '' : String(this.buildTool.inspectedId),
+      shop: this.buildUI.shownShopState,
+      tip: this.buildUI.shownTip,
+      unlocked: state.unlocked.join(','),
+      earned: String(state.earnedCoins),
+      planted: String(state.planted.length),
+      repaint: JSON.stringify(this.repaint),
     });
   }
 

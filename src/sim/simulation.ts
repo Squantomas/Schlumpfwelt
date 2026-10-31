@@ -3,6 +3,7 @@ import { applyCommand, type Command } from './commands';
 import type { DeepReadonly } from './readonly';
 import { refreshStatuses, tickProduction } from './production';
 import { createInitialState, type SimState } from './state';
+import { checkUnlocks } from './unlocks';
 
 /**
  * Owns the simulation state and advances it in fixed ticks.
@@ -72,9 +73,11 @@ export class Simulation {
     if (this.current.paused) {
       // Time stands still, but a building placed meanwhile shows its real state (no path, no trees …) at once.
       refreshStatuses(this.current);
+      checkUnlocks(this.current);
       return;
     }
     this.current.tick += 1;
     tickProduction(this.current);
+    checkUnlocks(this.current);
   }
 }

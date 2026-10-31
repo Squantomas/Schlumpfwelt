@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { applyCommand, type Command } from '../../src/sim/commands';
 import type { SimState } from '../../src/sim/state';
 import { t } from '../../src/data/texts';
-import { BuildTool, TOOLS, TOOL_CATEGORIES, anchorFor, problemHint, type RefundInfo } from '../../src/ui/buildTool';
+import { BuildTool, TOOLS, anchorFor, problemHint, type RefundInfo } from '../../src/ui/buildTool';
+import { shopItems } from '../../src/data/buildings';
 import { buildConnected, fillTerrain, grassState, pathAt, run, setStore, setTerrainAt } from '../sim/helpers';
 
 /** A tool on a grass map whose commands are applied right away (the real game applies them at the next tick). */
@@ -25,6 +26,11 @@ describe('Werkzeuge', () => {
     expect(tool.hint).toBeUndefined();
     expect(tool.preview()).toEqual({ kind: 'none' });
     expect(tool.hasPreview).toBe(false);
+    expect(tool.shopOpen).toBe(false);
+  });
+
+  it('hat vier Werkzeuge: Weg, Shop, Verschieben, Abreißen', () => {
+    expect([...TOOLS]).toEqual(['path', 'shop', 'move', 'demolish']);
   });
 
   it('schaltet ein Werkzeug ein; erneutes Antippen lässt es an (nur exitTool beendet es)', () => {
@@ -34,37 +40,61 @@ describe('Werkzeuge', () => {
       expect(tool.tool).toBe(id);
       tool.selectTool(id);
       expect(tool.tool).toBe(id);
-      tool.exitTool();
+      if (id === 'shop') {
+        tool.closeShop();
+      } else {
+        tool.exitTool();
+      }
       expect(tool.tool).toBe('view');
     }
   });
 
-  it('behält beim erneuten Antippen des Werkzeugs die Vorschau', () => {
+  it('behält beim erneuten Antippen des Werkzeugs (Weg) die Vorschau (R9)', () => {
     const { tool } = setup();
-    tool.selectTool('deco');
+    tool.selectTool('path');
     tool.tap({ x: 3, y: 3 });
-    tool.selectTool('deco');
+    expect(tool.hasPreview).toBe(true);
+    tool.selectTool('path');
+    expect(tool.tool).toBe('path');
     expect(tool.hasPreview).toBe(true);
   });
 
-  it('ordnet Werkzeuge ihren Kategorien zu (datengetrieben)', () => {
-    expect(TOOL_CATEGORIES).toEqual({ house: 'house', building: 'production', deco: 'deco' });
+  it('behält beim erneuten Antippen des Shop-Knopfes aus dem Platzieren die Vorschau (sie liegt nur unter dem Shop)', () => {
     const { tool } = setup();
-    for (const id of TOOLS) {
-      tool.selectTool(id);
-      expect(tool.variantCategory).toBe(TOOL_CATEGORIES[id]);
-      expect(tool.variant !== undefined).toBe(TOOL_CATEGORIES[id] !== undefined);
-    }
+    tool.chooseItem('flower');
+    tool.tap({ x: 3, y: 3 });
+    tool.selectTool('shop');
+    expect(tool.shopOpen).toBe(true);
+    expect(tool.hasPreview).toBe(true);
+  });
+
+  it('kennt „place“ nur über die Wahl eines Artikels, nicht über selectTool', () => {
+    const { tool } = setup();
+    tool.selectTool('place');
+    expect(tool.tool).toBe('view');
+    tool.chooseItem('flower');
+    expect(tool.tool).toBe('place');
+    expect(tool.item).toBe('flower');
   });
 
   it('wechselt direkt zwischen Werkzeugen und verwirft dabei die Vorschau', () => {
     const { tool } = setup();
-    tool.selectTool('house');
+    tool.chooseItem('house-red');
     tool.tap({ x: 5, y: 5 });
     expect(tool.hasPreview).toBe(true);
-    tool.selectTool('deco');
-    expect(tool.tool).toBe('deco');
+    tool.selectTool('path');
+    expect(tool.tool).toBe('path');
     expect(tool.hasPreview).toBe(false);
+    expect(tool.item).toBeUndefined();
+  });
+
+  it('wechselt von einem Artikel zum anderen: der getippte Platz bleibt, der neue Artikel steht darauf', () => {
+    const { tool } = setup();
+    tool.chooseItem('house-red');
+    tool.tap({ x: 5, y: 5 });
+    tool.chooseItem('house-blue');
+    expect(tool.item).toBe('house-blue');
+    expect(tool.preview()).toMatchObject({ kind: 'place', typeId: 'house-blue', x: 5, y: 4, result: 'ok' });
   });
 
   it('exitTool geht zurück auf Anschauen', () => {
@@ -72,45 +102,272 @@ describe('Werkzeuge', () => {
     tool.selectTool('path');
     tool.exitTool();
     expect(tool.tool).toBe('view');
+    tool.chooseItem('flower');
+    tool.exitTool();
+    expect(tool.tool).toBe('view');
+    expect(tool.item).toBeUndefined();
   });
 
-  it('bietet Varianten nur für Haus und Deko an, mit der ersten als Vorgabe', () => {
+  it('zeigt zu jedem Werkzeug außer dem Shop einen kurzen Hinweis', () => {
     const { tool } = setup();
-    expect(tool.variant).toBeUndefined();
-    tool.selectTool('house');
-    expect(tool.variantCategory).toBe('house');
-    expect(tool.variant).toBe('house-red');
-    tool.selectVariant('house-blue');
-    expect(tool.variant).toBe('house-blue');
-    tool.selectVariant('flower');
-    expect(tool.variant).toBe('house-blue');
-    tool.selectTool('house');
-    tool.selectTool('deco');
-    expect(tool.variant).toBe('flower');
-    tool.selectVariant('fountain');
-    expect(tool.variant).toBe('fountain');
-    tool.selectTool('deco');
-    tool.selectTool('house');
-    expect(tool.variant).toBe('house-blue');
-    tool.selectTool('path');
-    expect(tool.variantCategory).toBeUndefined();
-  });
-
-  it('zeigt zu jedem Werkzeug einen kurzen Hinweis', () => {
-    const { tool } = setup();
-    const hints = TOOLS.map((id) => {
+    for (const id of TOOLS) {
       tool.exitTool();
       tool.selectTool(id);
-      return tool.hint;
-    });
-    expect(hints.every((hint) => hint !== undefined)).toBe(true);
+      if (id === 'shop') {
+        // Der Shop erklärt sich selbst (Karten, Reiter): keine Hinweisleiste.
+        expect(tool.hint).toBeUndefined();
+        tool.closeShop();
+      } else {
+        expect(tool.hint, id).toBeDefined();
+      }
+    }
+    tool.chooseItem('flower');
+    expect(tool.hint).toBe('hint.place');
+  });
+});
+
+describe('Shop (M4)', () => {
+  it('öffnet mit dem Shop-Werkzeug, verwirft die Vorschau und schließt mit ✕ wieder auf Anschauen', () => {
+    const { tool } = setup();
+    tool.selectTool('shop');
+    expect(tool.shopOpen).toBe(true);
+    expect(tool.tool).toBe('shop');
+    expect(tool.hasPreview).toBe(false);
+    tool.closeShop();
+    expect(tool.shopOpen).toBe(false);
+    expect(tool.tool).toBe('view');
+    expect(tool.item).toBeUndefined();
+  });
+
+  it('eine Karte antippen schließt den Shop und startet das Platzieren', () => {
+    const { tool, sent } = setup();
+    tool.selectTool('shop');
+    expect(tool.chooseItem('bench')).toBeUndefined();
+    expect(tool.shopOpen).toBe(false);
+    expect(tool.tool).toBe('place');
+    expect(tool.item).toBe('bench');
+    tool.tap({ x: 4, y: 4 });
+    expect(tool.preview()).toMatchObject({ kind: 'place', typeId: 'bench', x: 4, y: 4, result: 'ok' });
+    expect(tool.confirm()).toBeUndefined();
+    expect(sent).toEqual([{ type: 'placeBuilding', buildingType: 'bench', x: 4, y: 4 }]);
+    // Nach dem Setzen bleibt der Artikel gewählt.
+    expect(tool.tool).toBe('place');
+    expect(tool.item).toBe('bench');
+    expect(tool.hasPreview).toBe(false);
+  });
+
+  it('der Shop öffnet auf dem Reiter des zuletzt gewählten Artikels und merkt sich den Reiter', () => {
+    const { tool } = setup();
+    expect(tool.shopTab).toBe('houses');
+    tool.chooseItem('flower');
+    expect(tool.shopTab).toBe('deco');
+    tool.chooseItem('lumberjack');
+    expect(tool.shopTab).toBe('production');
+    tool.setShopTab('island');
+    expect(tool.shopTab).toBe('island');
+    tool.setShopTab('houses');
+    expect(tool.shopTab).toBe('houses');
+  });
+
+  it('aus dem Platzieren zurück in den Shop (Chip) und mit ✕ wieder zum gleichen Artikel auf dem gleichen Platz', () => {
+    const { tool } = setup();
+    tool.chooseItem('house-blue');
+    tool.tap({ x: 5, y: 5 });
+    tool.openShop();
+    expect(tool.shopOpen).toBe(true);
+    tool.closeShop();
+    expect(tool.tool).toBe('place');
+    expect(tool.item).toBe('house-blue');
+    expect(tool.preview()).toMatchObject({ kind: 'place', typeId: 'house-blue', x: 5, y: 4 });
+    // Oder ein anderer Artikel auf dem gleichen Platz.
+    tool.openShop();
+    tool.chooseItem('house-yellow');
+    expect(tool.item).toBe('house-yellow');
+    expect(tool.preview()).toMatchObject({ kind: 'place', typeId: 'house-yellow', x: 5, y: 4 });
+  });
+
+  it('aus Weg, Verschieben und Abreißen kommt man nicht mit einem Platz in den Shop', () => {
+    const { tool } = setup();
+    tool.selectTool('path');
+    tool.tap({ x: 3, y: 3 });
+    expect(tool.hasPreview).toBe(true);
+    tool.selectTool('shop');
+    expect(tool.hasPreview).toBe(false);
+    tool.chooseItem('flower');
+    expect(tool.hasPreview).toBe(false);
+  });
+
+  it('nimmt in „shop“ keine Tipps auf die Karte an', () => {
+    const { tool } = setup();
+    tool.selectTool('shop');
+    expect(tool.tap({ x: 3, y: 3 })).toBeUndefined();
+    expect(tool.hasPreview).toBe(false);
+  });
+
+  it('wählt unbekannte Artikel und Wege nicht', () => {
+    const { tool } = setup();
+    expect(tool.chooseItem('nope')).toBeUndefined();
+    expect(tool.chooseItem('path')).toBeUndefined();
+    expect(tool.tool).toBe('view');
+  });
+
+  it('wählt einen gesperrten Artikel nicht, sondern sagt „gesperrt“', () => {
+    const state = grassState();
+    state.unlocked = [];
+    const { tool } = setup(state);
+    tool.selectTool('shop');
+    expect(tool.chooseItem('carpenter')).toBe('hint.locked');
+    expect(tool.shopOpen).toBe(true);
+    expect(tool.item).toBeUndefined();
+    state.unlocked.push('carpenter');
+    expect(tool.chooseItem('carpenter')).toBeUndefined();
+    expect(tool.item).toBe('carpenter');
+  });
+
+  it('wählt einen zu teuren Artikel (grau, aber wählbar) und sagt dann, was fehlt', () => {
+    const state = grassState();
+    setStore(state, { coins: 1 });
+    const { tool } = setup(state);
+    tool.selectTool('shop');
+    expect(tool.chooseItem('fountain')).toBeUndefined();
+    expect(tool.item).toBe('fountain');
+    expect(tool.itemAffordable).toBe(false);
+    expect(tool.hint).toBe('hint.missing');
+  });
+
+  it('merkt Neues im Shop: Stern am Knopf, bis er geöffnet wurde; Karten mit Stern, bis er geschlossen wird', () => {
+    const state = grassState();
+    state.unlocked = [];
+    const { tool } = setup(state);
+    expect(tool.shopHasNews).toBe(false);
+    state.unlocked.push('bench', 'lantern');
+    expect(tool.shopHasNews).toBe(true);
+    tool.openShop();
+    expect(tool.shopHasNews).toBe(false);
+    expect(tool.isFresh('bench')).toBe(true);
+    expect(tool.isFresh('lantern')).toBe(true);
+    expect(tool.isFresh('fountain')).toBe(false);
+    // Etwas wird frei, während der Shop offen ist: gesehen und mit Stern.
+    state.unlocked.push('pond');
+    tool.sync();
+    expect(tool.shopHasNews).toBe(false);
+    expect(tool.isFresh('pond')).toBe(true);
+    tool.closeShop();
+    expect(tool.isFresh('bench')).toBe(false);
+    expect(tool.shopHasNews).toBe(false);
+  });
+
+  it('meldet jede Freischaltung genau einmal („Neu im Shop“) und beim Start nichts', () => {
+    const state = grassState();
+    state.unlocked = ['bench'];
+    const { tool } = setup(state);
+    expect(tool.takeAnnouncements()).toEqual([]);
+    state.unlocked.push('lantern', 'pond');
+    expect(tool.takeAnnouncements()).toEqual(['lantern', 'pond']);
+    expect(tool.takeAnnouncements()).toEqual([]);
+  });
+
+  it('zählt Neuigkeiten nach Artikel, nicht nach Platz in der Liste (ein später geladener Zustand meldet nichts Altes, R10)', () => {
+    const state = grassState();
+    state.unlocked = ['bench', 'lantern'];
+    const { tool } = setup(state);
+    // Die Liste wird neu geordnet und um Altes ergänzt, als käme sie aus einem Spielstand.
+    state.unlocked = ['pond', 'lantern', 'bench'];
+    expect(tool.takeAnnouncements()).toEqual(['pond']);
+    expect(tool.shopHasNews).toBe(true);
+    tool.openShop();
+    expect([tool.isFresh('pond'), tool.isFresh('bench'), tool.isFresh('lantern')]).toEqual([true, false, false]);
+  });
+
+  it('eine Wahl im Shop zählt als frisch gewählt: auch die Hinweise für zu teure Karten kommen sofort', () => {
+    const state = grassState();
+    setStore(state, { coins: 2 });
+    const { tool } = setup(state);
+    tool.chooseItem('house-red');
+    expect(tool.hint).toBe('hint.missing');
+  });
+});
+
+describe('Inselartikel (M4)', () => {
+  it('Baum pflanzen: Vorschau auf der Wiese, ✓ sendet plantTree', () => {
+    const { tool, sent, state } = setup();
+    tool.chooseItem('tree');
+    expect(tool.hint).toBe('hint.place');
+    tool.tap({ x: 6, y: 6 });
+    expect(tool.preview()).toMatchObject({ kind: 'place', typeId: 'tree', x: 6, y: 6, result: 'ok' });
+    tool.confirm();
+    expect(sent).toEqual([{ type: 'plantTree', typeId: 'tree', x: 6, y: 6 }]);
+    expect(state.world.tiles[6 * state.world.width + 6]).toBe('forest');
+  });
+
+  it('Fels setzen sendet placeRock, Strand sendet fillLand, Wiese sendet makeMeadow', () => {
+    const state = grassState();
+    setTerrainAt(state, 2, 2, 'water');
+    setTerrainAt(state, 8, 8, 'sand');
+    const { tool, sent } = setup(state);
+    tool.chooseItem('rock');
+    tool.tap({ x: 6, y: 6 });
+    tool.confirm();
+    tool.chooseItem('beach');
+    expect(tool.hint).toBe('hint.placeWater');
+    tool.tap({ x: 2, y: 2 });
+    expect(tool.preview()).toMatchObject({ kind: 'place', typeId: 'beach', result: 'ok' });
+    tool.confirm();
+    tool.chooseItem('meadow');
+    expect(tool.hint).toBe('hint.placeSand');
+    tool.tap({ x: 8, y: 8 });
+    tool.confirm();
+    expect(sent.map((command) => command.type)).toEqual(['placeRock', 'fillLand', 'makeMeadow']);
+  });
+
+  it('sagt in der roten Vorschau, warum es nicht geht – mit den Worten der Insel', () => {
+    const state = grassState();
+    setTerrainAt(state, 3, 3, 'sand');
+    setTerrainAt(state, 4, 3, 'forest');
+    fillTerrain(state, 8, 8, 3, 3, 'water');
+    const { tool } = setup(state);
+    tool.chooseItem('tree');
+    tool.tap({ x: 3, y: 3 });
+    expect(tool.hint).toBe('hint.islandGrassOnly');
+    tool.tap({ x: 4, y: 3 });
+    expect(tool.hint).toBe('hint.occupied');
+    tool.tap({ x: 9, y: 9 });
+    expect(tool.hint).toBe('hint.water');
+    tool.chooseItem('beach');
+    tool.tap({ x: 6, y: 6 });
+    expect(tool.hint).toBe('hint.islandWaterOnly');
+    tool.tap({ x: 9, y: 9 });
+    expect(tool.hint).toBe('hint.islandNoCoast');
+    tool.chooseItem('meadow');
+    tool.tap({ x: 6, y: 6 });
+    expect(tool.hint).toBe('hint.islandSandOnly');
+  });
+
+  it('Abreißen: ein gepflanzter Baum zeigt die Erstattung, ein natürlicher sagt „bleibt“', () => {
+    const state = grassState();
+    setStore(state, { coins: 20 });
+    setTerrainAt(state, 8, 8, 'forest');
+    const { tool, sent } = setup(state);
+    tool.chooseItem('tree');
+    tool.tap({ x: 6, y: 6 });
+    tool.confirm();
+    tool.selectTool('demolish');
+    expect(tool.tap({ x: 6, y: 6 })).toBeUndefined();
+    expect(tool.preview()).toMatchObject({ kind: 'demolish', tiles: [{ x: 6, y: 6 }], refund: { coins: 5 } });
+    expect(tool.hint).toBe('hint.refund');
+    tool.confirm();
+    expect(sent.at(-1)).toEqual({ type: 'demolish', x: 6, y: 6 });
+    expect(state.world.tiles[6 * state.world.width + 6]).toBe('grass');
+    expect(tool.tap({ x: 8, y: 8 })).toBe('hint.naturalObject');
+    expect(tool.hasPreview).toBe(false);
+    expect(tool.tap({ x: 1, y: 1 })).toBe('hint.nothingToDemolish');
   });
 });
 
 describe('Setzen: Haus und Deko', () => {
   it('zeigt nach dem Antippen eine grüne Vorschau, die untere linke Kachel ist die angetippte', () => {
     const { tool } = setup();
-    tool.selectTool('house');
+    tool.chooseItem('house-red');
     tool.tap({ x: 5, y: 6 });
     expect(tool.preview()).toEqual({ kind: 'place', typeId: 'house-red', x: 5, y: 5, connected: false, result: 'ok' });
     expect(tool.canConfirm).toBe(true);
@@ -124,7 +381,7 @@ describe('Setzen: Haus und Deko', () => {
 
   it('verschiebt die Vorschau beim erneuten Antippen einer anderen Kachel', () => {
     const { tool } = setup();
-    tool.selectTool('deco');
+    tool.chooseItem('flower');
     tool.tap({ x: 2, y: 2 });
     tool.tap({ x: 8, y: 9 });
     expect(tool.preview()).toMatchObject({ kind: 'place', x: 8, y: 9, result: 'ok' });
@@ -134,7 +391,7 @@ describe('Setzen: Haus und Deko', () => {
     const state = grassState();
     setTerrainAt(state, 3, 3, 'water');
     const { tool, sent } = setup(state);
-    tool.selectTool('deco');
+    tool.chooseItem('flower');
     tool.tap({ x: 3, y: 3 });
     expect(tool.preview()).toMatchObject({ kind: 'place', result: 'terrain' });
     expect(tool.canConfirm).toBe(false);
@@ -146,22 +403,22 @@ describe('Setzen: Haus und Deko', () => {
   it('zeigt „blocked“ auf einem Gebäude und „outOfMap“ am Rand', () => {
     const { state, tool } = setup();
     run(state, { type: 'placeBuilding', buildingType: 'house-blue', x: 4, y: 4 });
-    tool.selectTool('deco');
+    tool.chooseItem('flower');
     tool.tap({ x: 4, y: 4 });
     expect(tool.preview()).toMatchObject({ result: 'blocked' });
-    tool.selectTool('deco');
-    tool.selectTool('house');
+    tool.chooseItem('flower');
+    tool.chooseItem('house-red');
     tool.tap({ x: 15, y: 15 });
     expect(tool.preview()).toMatchObject({ result: 'outOfMap' });
   });
 
   it('baut beim ✓, behält das Werkzeug und löscht die Vorschau – mehrere Blumen nacheinander', () => {
     const { state, tool, sent } = setup();
-    tool.selectTool('deco');
+    tool.chooseItem('flower');
     for (const x of [2, 4, 6]) {
       tool.tap({ x, y: 3 });
       expect(tool.confirm()).toBeUndefined();
-      expect(tool.tool).toBe('deco');
+      expect(tool.tool).toBe('place');
       expect(tool.hasPreview).toBe(false);
     }
     expect(sent).toHaveLength(3);
@@ -174,8 +431,8 @@ describe('Setzen: Haus und Deko', () => {
 
   it('baut die gewählte Variante', () => {
     const { state, tool } = setup();
-    tool.selectTool('house');
-    tool.selectVariant('house-yellow');
+    tool.chooseItem('house-red');
+    tool.chooseItem('house-yellow');
     tool.tap({ x: 6, y: 6 });
     tool.confirm();
     expect(state.buildings).toEqual([{ id: 1, type: 'house-yellow', x: 6, y: 5 }]);
@@ -183,26 +440,26 @@ describe('Setzen: Haus und Deko', () => {
 
   it('wertet die Vorschau mit der neuen Variante neu aus', () => {
     const { tool } = setup();
-    tool.selectTool('deco');
+    tool.chooseItem('flower');
     tool.tap({ x: 15, y: 15 });
     expect(tool.preview()).toMatchObject({ typeId: 'flower', result: 'ok' });
-    tool.selectVariant('fountain');
+    tool.chooseItem('fountain');
     expect(tool.preview()).toMatchObject({ typeId: 'fountain', result: 'outOfMap' });
   });
 
   it('bricht beim ✕ ab, ohne etwas zu senden', () => {
     const { tool, sent } = setup();
-    tool.selectTool('deco');
+    tool.chooseItem('flower');
     tool.tap({ x: 3, y: 3 });
     tool.cancel();
     expect(tool.hasPreview).toBe(false);
-    expect(tool.tool).toBe('deco');
+    expect(tool.tool).toBe('place');
     expect(sent).toEqual([]);
   });
 
   it('tut beim ✓ ohne Vorschau nichts', () => {
     const { tool, sent } = setup();
-    tool.selectTool('deco');
+    tool.chooseItem('flower');
     expect(tool.confirm()).toBeUndefined();
     expect(sent).toEqual([]);
   });
@@ -479,7 +736,7 @@ describe('Version', () => {
   it('zählt bei jeder sichtbaren Änderung hoch', () => {
     const { tool } = setup();
     const versions = new Set<number>([tool.version]);
-    tool.selectTool('deco');
+    tool.chooseItem('flower');
     versions.add(tool.version);
     tool.tap({ x: 2, y: 2 });
     versions.add(tool.version);
@@ -500,6 +757,29 @@ describe('Tipp aufs Dach (Regression)', () => {
   /** Tipp aufs Dach über der Wegkachel (5,4) und über der leeren Kachel (6,4). */
   const roofOverPath = { tile: { x: 5, y: 4 }, world: { x: 5.5 * T, y: 4.5 * T } };
   const roofOverEmpty = { tile: { x: 6, y: 4 }, world: { x: 6.5 * T, y: 4.5 * T } };
+
+  it('reißt einen gepflanzten Baum direkt hinter einem Haus ab, auch wenn dort das Dach darüber ragt (R5)', () => {
+    const { state, tool, sent } = setup();
+    run(state, { type: 'placeBuilding', buildingType: 'house-red', x: 5, y: 5 }, { type: 'plantTree', typeId: 'tree', x: 5, y: 4 });
+    expect(state.world.tiles[4 * state.world.width + 5]).toBe('forest');
+    tool.selectTool('demolish');
+    tool.tap(roofOverPath.tile, roofOverPath.world);
+    expect(tool.preview()).toMatchObject({ kind: 'demolish', tiles: [{ x: 5, y: 4 }], refund: { coins: 5 } });
+    tool.confirm();
+    expect(sent.at(-1)).toEqual({ type: 'demolish', x: 5, y: 4 });
+    expect(state.world.tiles[4 * state.world.width + 5]).toBe('grass');
+    expect(state.buildings).toHaveLength(1);
+  });
+
+  it('wählt hinter dem Haus ohne gepflanzten Baum weiter das Haus (Dach)', () => {
+    const { state, tool } = setup();
+    run(state, { type: 'placeBuilding', buildingType: 'house-red', x: 5, y: 5 });
+    tool.selectTool('demolish');
+    tool.tap(roofOverEmpty.tile, roofOverEmpty.world);
+    const preview = tool.preview();
+    expect(preview.kind).toBe('demolish');
+    expect(preview.kind === 'demolish' && preview.tiles.some((tile) => tile.x === 5 && tile.y === 5)).toBe(true);
+  });
 
   it('reißt den Weg ab, wenn die Kachel unter dem Finger ein Weg ist (auch unter dem Dach)', () => {
     const { state, tool } = withRoofPath();
@@ -567,7 +847,7 @@ describe('Tipp aufs Dach (Regression)', () => {
 
   it('baut beim Platzieren weiter nach der Kachel, nicht nach der Grafik eines Hauses', () => {
     const { tool } = withRoofPath();
-    tool.selectTool('deco');
+    tool.chooseItem('flower');
     tool.tap(roofOverPath.tile, roofOverPath.world);
     expect(tool.preview()).toMatchObject({ kind: 'place', x: 5, y: 4, result: 'blocked' });
   });
@@ -596,20 +876,20 @@ describe('Weg mit Ziel im Wald oder auf Fels', () => {
 describe('Variantenwechsel (Regression)', () => {
   it('rechnet den Anker mit der neuen Variante neu, aus der angetippten Kachel', () => {
     const { tool } = setup();
-    tool.selectTool('deco');
+    tool.chooseItem('flower');
     tool.tap({ x: 6, y: 6 });
     expect(tool.preview()).toMatchObject({ typeId: 'flower', x: 6, y: 6 });
-    tool.selectVariant('fountain');
+    tool.chooseItem('fountain');
     expect(tool.preview()).toMatchObject({ typeId: 'fountain', x: 6, y: 5 });
-    tool.selectVariant('bench');
+    tool.chooseItem('bench');
     expect(tool.preview()).toMatchObject({ typeId: 'bench', x: 6, y: 6 });
   });
 
   it('baut die zuletzt gewählte Variante', () => {
     const { state, tool } = setup();
-    tool.selectTool('deco');
+    tool.chooseItem('flower');
     tool.tap({ x: 6, y: 6 });
-    tool.selectVariant('fountain');
+    tool.chooseItem('fountain');
     tool.confirm();
     expect(state.buildings).toEqual([{ id: 1, type: 'fountain', x: 6, y: 5 }]);
   });
@@ -620,7 +900,7 @@ describe('Grund in der Vorschau', () => {
     const state = grassState();
     setTerrainAt(state, 6, 6, terrain);
     const ctx = setup(state);
-    ctx.tool.selectTool(tool);
+    ctx.tool.chooseItem(tool === 'house' ? 'house-red' : 'flower');
     ctx.tool.tap({ x: 6, y: 6 });
     return ctx.tool.hint;
   };
@@ -635,17 +915,17 @@ describe('Grund in der Vorschau', () => {
   it('nennt „schon etwas da“ und „zu nah am Rand“', () => {
     const { state, tool } = setup();
     run(state, { type: 'placeBuilding', buildingType: 'bush', x: 3, y: 3 });
-    tool.selectTool('deco');
+    tool.chooseItem('flower');
     tool.tap({ x: 3, y: 3 });
     expect(tool.hint).toBe('hint.occupied');
-    tool.selectTool('house');
+    tool.chooseItem('house-red');
     tool.tap({ x: 15, y: 15 });
     expect(tool.hint).toBe('hint.edge');
   });
 
   it('zeigt bei grüner Vorschau wieder den normalen Hinweis', () => {
     const { tool } = setup();
-    tool.selectTool('deco');
+    tool.chooseItem('flower');
     tool.tap({ x: 3, y: 3 });
     expect(tool.hint).toBe('hint.place');
   });
@@ -672,7 +952,7 @@ describe('Grund in der Vorschau', () => {
 describe('Zwischenspeicher', () => {
   it('liefert dieselbe Vorschau, bis sich etwas ändert', () => {
     const { state, tool } = setup();
-    tool.selectTool('deco');
+    tool.chooseItem('flower');
     tool.tap({ x: 3, y: 3 });
     const first = tool.preview();
     expect(tool.preview()).toBe(first);
@@ -687,26 +967,21 @@ describe('Zwischenspeicher', () => {
 });
 
 describe('Gebäude-Werkzeug und Kosten (M3)', () => {
-  it('hat sechs Werkzeuge: Weg, Haus, Gebäude, Deko, Verschieben, Abreißen', () => {
-    expect([...TOOLS]).toEqual(['path', 'house', 'building', 'deco', 'move', 'demolish']);
-  });
-
-  it('bietet im Gebäude-Werkzeug die sechs Produktionsgebäude an', () => {
+  it('lässt alle sechs Produktionsgebäude im Shop wählen und merkt sich den Reiter „Gebäude“', () => {
     const { tool } = setup();
-    tool.selectTool('building');
-    expect(tool.variantCategory).toBe('production');
-    expect(tool.variant).toBe('lumberjack');
-    tool.selectVariant('market');
-    expect(tool.variant).toBe('market');
-    tool.selectVariant('house-red');
-    expect(tool.variant).toBe('market');
+    for (const type of shopItems('production')) {
+      expect(tool.chooseItem(type.id), type.id).toBeUndefined();
+      expect(tool.item).toBe(type.id);
+      expect(tool.shopTab).toBe('production');
+    }
+    expect(shopItems('production')).toHaveLength(6);
   });
 
   it('färbt eine zu teure Vorschau rot, sperrt ✓ und sagt, was fehlt', () => {
     const state = grassState();
     setStore(state, { coins: 100, wood: 5 });
     const { tool, sent } = setup(state);
-    tool.selectTool('house');
+    tool.chooseItem('house-red');
     tool.tap({ x: 6, y: 6 });
     expect(tool.preview()).toMatchObject({ kind: 'place', result: 'cost', missing: { wood: 3 } });
     expect(tool.canConfirm).toBe(false);
@@ -720,7 +995,7 @@ describe('Gebäude-Werkzeug und Kosten (M3)', () => {
     const state = grassState();
     setStore(state, { coins: 100, wood: 7 });
     const { tool } = setup(state);
-    tool.selectTool('house');
+    tool.chooseItem('house-red');
     tool.tap({ x: 6, y: 6 });
     expect(tool.hint).toBe('hint.missingOne');
     expect(t(tool.hint ?? 'hint.missing', tool.hintParams)).toBe('Dir fehlt 1 Holz. Holz bringt der Holzfäller – oder reiß etwas ab.');
@@ -733,26 +1008,24 @@ describe('Gebäude-Werkzeug und Kosten (M3)', () => {
     const state = grassState();
     setStore(state, { coins: 100, wood: 5 });
     const { tool } = setup(state);
-    tool.selectTool('house');
-    expect(tool.variantAffordable).toBe(false);
-    // Noch nichts gewählt (nur die Vorgabe): kein „Dir fehlen …“, nur die Anleitung.
-    expect(tool.hint).toBe('hint.place');
-    tool.selectVariant('house-red');
+    tool.chooseItem('house-red');
+    expect(tool.itemAffordable).toBe(false);
+    // Die Karte ist mit Absicht gewählt: der Hinweis sagt gleich, was fehlt.
     expect(tool.hint).toBe('hint.missing');
     expect(t(tool.hint ?? 'hint.missing', tool.hintParams)).toBe('Dir fehlen 3 Holz. Holz bringt der Holzfäller – oder reiß etwas ab.');
     state.inventory['wood'] = 8;
-    expect(tool.variantAffordable).toBe(true);
+    expect(tool.itemAffordable).toBe(true);
     expect(tool.hint).toBe('hint.place');
     expect(tool.hintParams).toBeUndefined();
     tool.selectTool('path');
-    expect(tool.variantAffordable).toBe(true);
+    expect(tool.itemAffordable).toBe(true);
   });
 
   it('baut mit ✓, sobald alles da ist, und bucht ab', () => {
     const state = grassState();
     setStore(state, { coins: 100, wood: 20 });
     const { tool } = setup(state);
-    tool.selectTool('house');
+    tool.chooseItem('house-red');
     tool.tap({ x: 6, y: 6 });
     expect(tool.canConfirm).toBe(true);
     tool.confirm();
@@ -764,7 +1037,7 @@ describe('Gebäude-Werkzeug und Kosten (M3)', () => {
     const state = grassState(24);
     fillTerrain(state, 14, 2, 3, 4, 'forest');
     const { tool } = setup(state);
-    tool.selectTool('building');
+    tool.chooseItem('lumberjack');
     tool.tap({ x: 3, y: 15 });
     expect(tool.preview()).toMatchObject({ kind: 'place', result: 'noNearby', terrain: 'forest' });
     expect(tool.hint).toBe('hint.noForest');
@@ -779,8 +1052,8 @@ describe('Gebäude-Werkzeug und Kosten (M3)', () => {
 
   it('sagt beim Steinbruch, dass Felsen fehlen', () => {
     const { tool } = setup(grassState(24));
-    tool.selectTool('building');
-    tool.selectVariant('quarry');
+    tool.chooseItem('lumberjack');
+    tool.chooseItem('quarry');
     tool.tap({ x: 5, y: 5 });
     expect(tool.hint).toBe('hint.noRock');
     expect(t('hint.noRock')).toBe('Hier sind keine Felsen in der Nähe.');
@@ -871,7 +1144,7 @@ describe('Infokarte öffnen und schließen (M3)', () => {
     tool.closeInfo();
     expect(tool.inspectedId).toBeUndefined();
     tool.tap({ x: 4, y: 3 });
-    tool.selectTool('deco');
+    tool.chooseItem('flower');
     expect(tool.inspectedId).toBeUndefined();
     tool.exitTool();
     expect(tool.inspectedId).toBeUndefined();
@@ -909,7 +1182,7 @@ describe('Vorschau folgt dem Lager (Korrekturrunde 1)', () => {
     const state = grassState();
     setStore(state, { coins: 0 });
     const { tool } = setup(state);
-    tool.selectTool('deco');
+    tool.chooseItem('flower');
     tool.tap({ x: 6, y: 6 });
     expect(tool.preview()).toMatchObject({ kind: 'place', result: 'cost', missing: { coins: 3 } });
     expect(tool.canConfirm).toBe(false);
@@ -926,7 +1199,7 @@ describe('Vorschau folgt dem Lager (Korrekturrunde 1)', () => {
     const state = grassState();
     setStore(state, { coins: 100 });
     const { tool, sent } = setup(state);
-    tool.selectTool('deco');
+    tool.chooseItem('flower');
     tool.tap({ x: 6, y: 6 });
     expect(tool.canConfirm).toBe(true);
     state.inventory['coins'] = 1;
@@ -939,7 +1212,7 @@ describe('Vorschau folgt dem Lager (Korrekturrunde 1)', () => {
   it('bleibt ohne Änderung des Lagers beim zwischengespeicherten Ergebnis und zählt dann nicht', () => {
     const state = grassState();
     const { tool } = setup(state);
-    tool.selectTool('deco');
+    tool.chooseItem('flower');
     tool.tap({ x: 6, y: 6 });
     const first = tool.preview();
     const version = tool.version;
@@ -955,7 +1228,7 @@ describe('Vorschau folgt dem Lager (Korrekturrunde 1)', () => {
     state.inventory['coins'] = 1;
     tool.sync();
     expect(tool.version).toBe(before);
-    tool.selectTool('house');
+    tool.chooseItem('house-red');
     const inTool = tool.version;
     state.inventory['coins'] = 2;
     expect(tool.version).toBe(inTool);
@@ -984,7 +1257,7 @@ describe('Hinweise ohne falsche Anleitung (T3, T8)', () => {
     const state = grassState();
     setStore(state, { coins: 100, wood: 20 });
     const { tool } = setup(state);
-    tool.selectTool('house');
+    tool.chooseItem('house-red');
     tool.tap({ x: 6, y: 6 });
     expect(tool.hint).toBe('hint.noPathHouse');
     expect(tool.canConfirm).toBe(true);
@@ -995,7 +1268,7 @@ describe('Hinweise ohne falsche Anleitung (T3, T8)', () => {
     setStore(state, { coins: 100, wood: 20 });
     run(state, { type: 'placePaths', tiles: [{ x: 6, y: 7 }] });
     const { tool } = setup(state);
-    tool.selectTool('house');
+    tool.chooseItem('house-red');
     tool.tap({ x: 6, y: 6 });
     expect(tool.preview()).toMatchObject({ result: 'ok', connected: true });
     expect(tool.hint).toBe('hint.place');
@@ -1018,22 +1291,22 @@ describe('Hinweise ohne falsche Anleitung (T3, T8)', () => {
     setStore(state, { coins: 40, wood: 8 });
     run(state, { type: 'placePaths', tiles: [{ x: 6, y: 7 }] });
     const { tool } = setup(state);
-    tool.selectTool('house');
-    tool.selectVariant('house-red');
+    tool.chooseItem('house-red');
+    tool.chooseItem('house-red');
     tool.tap({ x: 6, y: 6 });
     tool.confirm();
     expect(state.buildings).toHaveLength(1);
-    expect(tool.variantAffordable).toBe(false);
+    expect(tool.itemAffordable).toBe(false);
     expect(tool.hint).toBe('hint.place');
   });
 
-  it('zeigt beim Einschalten des Haus-Werkzeugs nicht „Dir fehlen …“, bevor etwas gewählt ist', () => {
+  it('zeigt bei einem Artikel, der bezahlbar ist, nur die Anleitung – bei einem unbezahlbaren, was fehlt', () => {
     const state = grassState();
-    setStore(state);
+    setStore(state, { coins: 3 });
     const { tool } = setup(state);
-    tool.selectTool('house');
+    tool.chooseItem('flower');
     expect(tool.hint).toBe('hint.place');
-    tool.selectTool('deco');
-    expect(tool.hint).toBe('hint.place');
+    tool.chooseItem('house-red');
+    expect(tool.hint).toBe('hint.missing');
   });
 });

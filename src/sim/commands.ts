@@ -1,4 +1,6 @@
+import { buildingType } from '../data/buildings';
 import { addBuilding, addPaths, demolishAt, relocateBuilding, type Tile } from './buildings';
+import { demolishPlanted, placeIslandItem } from './island';
 import type { SimState } from './state';
 
 /**
@@ -14,7 +16,11 @@ export type Command =
   | PlaceBuildingCommand
   | PlacePathsCommand
   | MoveBuildingCommand
-  | DemolishCommand;
+  | DemolishCommand
+  | PlantTreeCommand
+  | PlaceRockCommand
+  | FillLandCommand
+  | MakeMeadowCommand;
 
 export interface SetPausedCommand {
   readonly type: 'setPaused';
@@ -55,6 +61,66 @@ export interface DemolishCommand {
 }
 
 /**
+ * The island commands (shop tab "Insel", see `island.ts`): each changes the
+ * terrain of the tile (x, y) and takes the cost of its item (`typeId`) from the store.
+ * Ignored if `typeId` is not an item with exactly this island action.
+ * Ignored if the item is still locked, the tile is not right for it or it
+ * is too expensive. They count as a change (`revision`).
+ *
+ * - `plantTree`: meadow → forest (a tree; demolishing it gives the cost back).
+ * - `placeRock`: meadow → rock (demolishing it gives the cost back).
+ * - `fillLand`: water that touches land → beach (final, no refund).
+ * - `makeMeadow`: beach → meadow (final, no refund).
+ */
+export interface PlantTreeCommand {
+  readonly type: 'plantTree';
+  /** The shop item (`buildings.json`) whose `island.action` is this command, e.g. `tree`. */
+  readonly typeId: string;
+  readonly x: number;
+  readonly y: number;
+}
+
+export interface PlaceRockCommand {
+  readonly type: 'placeRock';
+  /** The shop item (`buildings.json`) whose `island.action` is this command, e.g. `tree`. */
+  readonly typeId: string;
+  readonly x: number;
+  readonly y: number;
+}
+
+export interface FillLandCommand {
+  readonly type: 'fillLand';
+  /** The shop item (`buildings.json`) whose `island.action` is this command, e.g. `tree`. */
+  readonly typeId: string;
+  readonly x: number;
+  readonly y: number;
+}
+
+export interface MakeMeadowCommand {
+  readonly type: 'makeMeadow';
+  /** The shop item (`buildings.json`) whose `island.action` is this command, e.g. `tree`. */
+  readonly typeId: string;
+  readonly x: number;
+  readonly y: number;
+}
+
+/** The command that puts a shop item on the tile (x, y): a building command, or for island items their own island command. */
+export function placementCommand(typeId: string, x: number, y: number): Command {
+  switch (buildingType(typeId)?.island?.action) {
+    case 'plantTree':
+      return { type: 'plantTree', typeId, x, y };
+    case 'placeRock':
+      return { type: 'placeRock', typeId, x, y };
+    case 'fillLand':
+      return { type: 'fillLand', typeId, x, y };
+    case 'makeMeadow':
+      return { type: 'makeMeadow', typeId, x, y };
+    case undefined:
+      return { type: 'placeBuilding', buildingType: typeId, x, y };
+  }
+}
+
+/**
  * Applies a single command to the state (mutates `state`). Commands with
  * invalid data (unknown type or id, tile outside the map, not allowed there)
  * are ignored – they never throw and never change anything.
@@ -74,7 +140,16 @@ export function applyCommand(state: SimState, command: Command): void {
       relocateBuilding(state, command.id, command.x, command.y);
       return;
     case 'demolish':
-      demolishAt(state, command.x, command.y);
+      // A building first, then a path, then a tree or rock the player planted.
+      if (!demolishAt(state, command.x, command.y)) {
+        demolishPlanted(state, command.x, command.y);
+      }
+      return;
+    case 'plantTree':
+    case 'placeRock':
+    case 'fillLand':
+    case 'makeMeadow':
+      placeIslandItem(state, command.typeId, command.x, command.y, command.type);
       return;
     default:
       return assertNever(command);

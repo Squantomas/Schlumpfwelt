@@ -53,6 +53,16 @@ export function isLand(terrain: Terrain): boolean {
   return terrain !== 'water';
 }
 
+/** Is one of the four tiles right next to (x, y) land? (Water that touches land can be filled up.) */
+export function hasLandNeighbor(world: WorldView, x: number, y: number): boolean {
+  return (
+    isLand(terrainAt(world, x - 1, y)) || isLand(terrainAt(world, x + 1, y)) || isLand(terrainAt(world, x, y - 1)) || isLand(terrainAt(world, x, y + 1))
+  );
+}
+
+/** Land can not be made closer than this many tiles to the edge of the map: the island always stays surrounded by water. */
+export const ISLAND_EDGE = 2;
+
 export interface TileBounds {
   readonly minX: number;
   readonly minY: number;

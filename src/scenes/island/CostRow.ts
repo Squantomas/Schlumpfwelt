@@ -12,7 +12,8 @@ interface CostEntry {
   readonly amount: Phaser.GameObjects.Text;
 }
 
-const MAX_ENTRIES = ITEM_IDS.length;
+/** The most different items a cost row can show (a building costs coins, wood and stone at most). */
+export const COST_ROW_ENTRIES = 4;
 
 /**
  * A row of little pictures with numbers: what something costs, e.g. a coin
@@ -27,9 +28,9 @@ export class CostRow extends Phaser.GameObjects.Container {
   private rowHeight = 0;
   private key = '';
 
-  constructor(scene: Phaser.Scene) {
+  constructor(scene: Phaser.Scene, maxEntries = COST_ROW_ENTRIES) {
     super(scene, 0, 0);
-    for (let i = 0; i < MAX_ENTRIES; i += 1) {
+    for (let i = 0; i < maxEntries; i += 1) {
       const icon = scene.add.image(0, 0, goodTextureKey(ITEM_IDS[0] ?? 'coins')).setVisible(false);
       const amount = createLabel(scene, '0', 14).setVisible(false);
       this.add([icon, amount]);

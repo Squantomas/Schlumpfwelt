@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { BUILDING_TYPES } from '../../src/data/buildings';
+import { BUILDING_TYPES, LOCKED_TYPE_IDS } from '../../src/data/buildings';
 import { ITEM_IDS, START_INVENTORY } from '../../src/data/goods';
 import { canPlace, checkPlacement, unconnectedBuildings } from '../../src/sim/buildings';
 import { costOf, productionOf } from '../../src/sim/economy';
@@ -84,7 +84,8 @@ describe('Bauen kostet Material und Geld', () => {
 
 describe('Abreißen erstattet die vollen Baukosten', () => {
   it('gibt für jeden Bautyp genau die Kosten zurück: Bauen und Abreißen ändert das Lager nicht', () => {
-    for (const type of BUILDING_TYPES.filter((t) => t.category !== 'path')) {
+    // Inselartikel (Baum, Fels …) bauen keine Gebäude: ihr Abreißen und die Ausnahmen stehen in island.test.ts.
+    for (const type of BUILDING_TYPES.filter((t) => t.category !== 'path' && t.category !== 'island')) {
       const state = grassState(24);
       fillTerrain(state, 14, 2, 3, 4, 'forest');
       fillTerrain(state, 14, 8, 3, 4, 'rock');
@@ -245,6 +246,8 @@ describe('Startzustand', () => {
     for (let seed = 0; seed < 40; seed += 1) {
       const state = createInitialState(seed);
       state.inventory = { coins: 999, wood: 999, stone: 999, berries: 0, furniture: 0, cake: 0 };
+      // Der Steinbruch wird mit dem ersten Holzfäller frei; hier zählt nur, ob es einen Platz gibt.
+      state.unlocked = [...LOCKED_TYPE_IDS];
       for (const id of ['lumberjack', 'quarry']) {
         let found = false;
         for (let y = 0; y < state.world.height && !found; y += 1) {

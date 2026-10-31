@@ -47,39 +47,168 @@ export function groundSize(world: WorldView): { width: number; height: number } 
   return { width: world.width * TILE_SIZE, height: world.height * TILE_SIZE };
 }
 
+/** A rectangle of tiles, both ends included. */
+export interface TileRange {
+  readonly x0: number;
+  readonly y0: number;
+  readonly x1: number;
+  readonly y1: number;
+}
+
+/** The sea halos around land, widest first: how far each reaches beyond the edge of a land tile (px) and its colour. */
+const HALOS: readonly (readonly [number, number])[] = [
+  [TILE_SIZE * 1.3, COLORS.waterMid],
+  [TILE_SIZE * 0.55, COLORS.waterShallow],
+];
+/** The white foam line is this much wider than a land tile (px), and shifted down by {@link LIP}. */
+const FOAM_GROW = 5;
+/** The biggest radius of a soft patch or blob of detail (px): the grass patches are `16 + 8` wide. */
+const MAX_DETAIL_RADIUS = 24;
+
+/** How far (px) the biggest detail reaches beyond its own tile (it sits `DECO_MARGIN` inside it). */
+export const DETAIL_REACH_PX = MAX_DETAIL_RADIUS - DECO_MARGIN;
+
+/**
+ * How far (px) the painting of one tile reaches beyond the tile itself: the widest sea halo, the foam, the lip below
+ * the edges and the biggest detail. `tests` check that it stays within {@link REPAINT_REACH} tiles, and that the
+ * details the code really paints stay within {@link DETAIL_REACH_PX}.
+ */
+export const PAINT_REACH_PX = Math.max(...HALOS.map(([grow]) => grow), FOAM_GROW + LIP, LIP + 1, DETAIL_REACH_PX);
+
+/**
+ * How far (in tiles) the painting of one tile reaches into its neighbours, rounded up: {@link PAINT_REACH_PX} (the
+ * 1.3-tile sea halo is the widest) in tiles. A change of one tile therefore needs the {@link REPAINT_REACH} tiles
+ * around it painted again, and the tiles up to {@link REPAINT_REACH} further out painted into that area.
+ */
+export const REPAINT_REACH = 2;
+
+/** The ground is cut into blocks of this many tiles (a side) – each its own texture, so a change uploads one or a few small ones. */
+export const GROUND_BLOCK_TILES = 8;
+/**
+ * The part of a block texture that is shown reaches this many pixels over its neighbours, so blocks overlap and no
+ * hairline gap shows between them whatever the zoom (the camera does not sit on whole pixels).
+ */
+export const GROUND_BLEED_PX = 4;
+/**
+ * The texture has a ring of this many more pixels around the shown part that is painted but never shown: the very edge
+ * pixels of a canvas come out a little different from the rest (up to 30 of 255 in Chromium, still 5 to 13 two pixels in), the neighbouring block
+ * must not be covered by them.
+ */
+export const GROUND_EDGE_PX = 4;
+
+export interface GroundBlock {
+  /** Column and row of the block. */
+  readonly bx: number;
+  readonly by: number;
+  /** The tiles the block is made of. */
+  readonly range: TileRange;
+}
+
+/** All blocks of a map, row by row; the last ones are smaller if the map is not a multiple of the block size. */
+export function groundBlocks(world: Pick<WorldView, 'width' | 'height'>): GroundBlock[] {
+  const blocks: GroundBlock[] = [];
+  for (let by = 0; by * GROUND_BLOCK_TILES < world.height; by += 1) {
+    for (let bx = 0; bx * GROUND_BLOCK_TILES < world.width; bx += 1) {
+      blocks.push({
+        bx,
+        by,
+        range: {
+          x0: bx * GROUND_BLOCK_TILES,
+          y0: by * GROUND_BLOCK_TILES,
+          x1: Math.min(world.width, (bx + 1) * GROUND_BLOCK_TILES) - 1,
+          y1: Math.min(world.height, (by + 1) * GROUND_BLOCK_TILES) - 1,
+        },
+      });
+    }
+  }
+  return blocks;
+}
+
+/** The area a block's canvas covers in world pixels: its tiles plus the bleed and the unseen edge ring all around. */
+export function blockArea(block: GroundBlock): { x: number; y: number; width: number; height: number } {
+  const ring = GROUND_BLEED_PX + GROUND_EDGE_PX;
+  return {
+    x: block.range.x0 * TILE_SIZE - ring,
+    y: block.range.y0 * TILE_SIZE - ring,
+    width: (block.range.x1 - block.range.x0 + 1) * TILE_SIZE + 2 * ring,
+    height: (block.range.y1 - block.range.y0 + 1) * TILE_SIZE + 2 * ring,
+  };
+}
+
+/** The part of the canvas that is shown, in world pixels (the canvas without its unseen edge ring). */
+export function blockShown(block: GroundBlock): { x: number; y: number; width: number; height: number } {
+  const area = blockArea(block);
+  return { x: area.x + GROUND_EDGE_PX, y: area.y + GROUND_EDGE_PX, width: area.width - 2 * GROUND_EDGE_PX, height: area.height - 2 * GROUND_EDGE_PX };
+}
+
+/** Paints one block from scratch onto a canvas of the size {@link blockArea} says (the origin of the canvas is the corner of that area). */
+export function paintGroundBlock(ctx: CanvasRenderingContext2D, world: WorldView, seed: number, block: GroundBlock): void {
+  const area = blockArea(block);
+  ctx.save();
+  ctx.translate(-area.x, -area.y);
+  ctx.fillStyle = cssColor(COLORS.waterDeep);
+  ctx.fillRect(area.x, area.y, area.width, area.height);
+  // Tiles up to REPAINT_REACH outside the block can reach into it (halos, foam, details).
+  paintLayers(ctx, world, seed, growRange(world, block.range, REPAINT_REACH));
+  ctx.restore();
+}
+
+/**
+ * The blocks that look different after the terrain of the tiles in `changed` changed: every block whose area
+ * (with its bleed) meets the {@link PAINT_REACH_PX} pixels around the change.
+ */
+export function blocksTouching(world: Pick<WorldView, 'width' | 'height'>, changed: TileRange): GroundBlock[] {
+  const x0 = changed.x0 * TILE_SIZE - PAINT_REACH_PX;
+  const y0 = changed.y0 * TILE_SIZE - PAINT_REACH_PX;
+  const x1 = (changed.x1 + 1) * TILE_SIZE + PAINT_REACH_PX;
+  const y1 = (changed.y1 + 1) * TILE_SIZE + PAINT_REACH_PX;
+  return groundBlocks(world).filter((block) => {
+    const area = blockArea(block);
+    return area.x < x1 && x0 < area.x + area.width && area.y < y1 && y0 < area.y + area.height;
+  });
+}
+
 export function paintGround(ctx: CanvasRenderingContext2D, world: WorldView, seed: number): void {
-  const level = (x: number, y: number): number => levelOf(terrainAt(world, x, y));
   const { width, height } = groundSize(world);
   if (Math.max(width, height) > MAX_GROUND_TEXTURE_SIZE) {
     throw new Error(`Ground texture ${String(width)}×${String(height)} is bigger than ${String(MAX_GROUND_TEXTURE_SIZE)} px`);
   }
-
   ctx.fillStyle = cssColor(COLORS.waterDeep);
   ctx.fillRect(0, 0, width, height);
+  paintLayers(ctx, world, seed, { x0: 0, y0: 0, x1: world.width - 1, y1: world.height - 1 });
+}
 
-  paintSeaHalos(ctx, world, level);
-  paintFoam(ctx, world, level);
+function growRange(world: WorldView, range: TileRange, by: number): TileRange {
+  return {
+    x0: Math.max(0, range.x0 - by),
+    y0: Math.max(0, range.y0 - by),
+    x1: Math.min(world.width - 1, range.x1 + by),
+    y1: Math.min(world.height - 1, range.y1 + by),
+  };
+}
+
+/** All layers, bottom to top, for the tiles in `range` (the sea under them has been filled already). */
+function paintLayers(ctx: CanvasRenderingContext2D, world: WorldView, seed: number, range: TileRange): void {
+  const level = (x: number, y: number): number => levelOf(terrainAt(world, x, y));
+  paintSeaHalos(ctx, level, range);
+  paintFoam(ctx, level, range);
   // Beach: lip first, then the sand on top; then the same for the meadow.
-  paintTiles(ctx, world, (x, y) => level(x, y) < 1, 1, LIP + 1, () => COLORS.sandShade);
-  paintTiles(ctx, world, (x, y) => level(x, y) < 1, 1, 0, () => COLORS.sand);
-  paintTiles(ctx, world, (x, y) => level(x, y) < 2, 2, LIP, () => COLORS.grassShade);
-  paintTiles(ctx, world, (x, y) => level(x, y) < 2, 2, 0, () => COLORS.grass);
+  paintTiles(ctx, world, range, (x, y) => level(x, y) < 1, 1, LIP + 1, () => COLORS.sandShade);
+  paintTiles(ctx, world, range, (x, y) => level(x, y) < 1, 1, 0, () => COLORS.sand);
+  paintTiles(ctx, world, range, (x, y) => level(x, y) < 2, 2, LIP, () => COLORS.grassShade);
+  paintTiles(ctx, world, range, (x, y) => level(x, y) < 2, 2, 0, () => COLORS.grass);
   // Forest floor and rocky ground are patches on the meadow with their own colour.
-  paintPatch(ctx, world, 'forest', COLORS.forestFloor);
-  paintPatch(ctx, world, 'rock', COLORS.rockFloor);
+  paintPatch(ctx, world, range, 'forest', COLORS.forestFloor);
+  paintPatch(ctx, world, range, 'rock', COLORS.rockFloor);
 
-  paintDetails(ctx, world, seed);
+  paintDetails(ctx, world, seed, range);
 }
 
 /** Lighter water around the land: three soft steps from deep to shallow. */
-function paintSeaHalos(ctx: CanvasRenderingContext2D, world: WorldView, level: (x: number, y: number) => number): void {
-  const halos: readonly [number, number][] = [
-    [TILE_SIZE * 1.3, COLORS.waterMid],
-    [TILE_SIZE * 0.55, COLORS.waterShallow],
-  ];
-  for (const [grow, color] of halos) {
+function paintSeaHalos(ctx: CanvasRenderingContext2D, level: (x: number, y: number) => number, range: TileRange): void {
+  for (const [grow, color] of HALOS) {
     ctx.fillStyle = cssColor(color);
-    forEachTile(world, (x, y) => {
+    forEachTile(range, (x, y) => {
       if (level(x, y) >= 1) {
         roundedRect(ctx, x * TILE_SIZE - grow, y * TILE_SIZE - grow, TILE_SIZE + 2 * grow, TILE_SIZE + 2 * grow, grow + CORNER);
         ctx.fill();
@@ -89,10 +218,10 @@ function paintSeaHalos(ctx: CanvasRenderingContext2D, world: WorldView, level: (
 }
 
 /** White foam line along the coast, just outside the beach. */
-function paintFoam(ctx: CanvasRenderingContext2D, world: WorldView, level: (x: number, y: number) => number): void {
+function paintFoam(ctx: CanvasRenderingContext2D, level: (x: number, y: number) => number, range: TileRange): void {
   ctx.fillStyle = cssRgba(COLORS.foam, 0.75);
-  const grow = 5;
-  forEachTile(world, (x, y) => {
+  const grow = FOAM_GROW;
+  forEachTile(range, (x, y) => {
     if (level(x, y) >= 1) {
       roundedRect(ctx, x * TILE_SIZE - grow, y * TILE_SIZE - grow + LIP, TILE_SIZE + 2 * grow, TILE_SIZE + 2 * grow, CORNER + grow);
       ctx.fill();
@@ -107,12 +236,13 @@ function paintFoam(ctx: CanvasRenderingContext2D, world: WorldView, level: (x: n
 function paintTiles(
   ctx: CanvasRenderingContext2D,
   world: WorldView,
+  range: TileRange,
   lower: (x: number, y: number) => boolean,
   minLevel: number,
   offset: number,
   colorOf: (terrain: Terrain) => number,
 ): void {
-  forEachTile(world, (x, y) => {
+  forEachTile(range, (x, y) => {
     if (levelOf(terrainAt(world, x, y)) < minLevel) {
       return;
     }
@@ -123,10 +253,10 @@ function paintTiles(
 }
 
 /** Paints all tiles of one terrain in `color`; outer corners are rounded where both neighbours are another terrain. */
-function paintPatch(ctx: CanvasRenderingContext2D, world: WorldView, terrain: Terrain, color: number): void {
+function paintPatch(ctx: CanvasRenderingContext2D, world: WorldView, range: TileRange, terrain: Terrain, color: number): void {
   ctx.fillStyle = cssColor(color);
   const other = (x: number, y: number): boolean => terrainAt(world, x, y) !== terrain;
-  forEachTile(world, (x, y) => {
+  forEachTile(range, (x, y) => {
     if (terrainAt(world, x, y) === terrain) {
       paintTile(ctx, x, y, 0, other);
       ctx.fill();
@@ -149,8 +279,8 @@ function paintTile(
 }
 
 /** Flowers and tufts on the meadow, moss and needles in the forest, pebbles on rocky ground, specks on sand. */
-function paintDetails(ctx: CanvasRenderingContext2D, world: WorldView, seed: number): void {
-  forEachTile(world, (x, y) => {
+function paintDetails(ctx: CanvasRenderingContext2D, world: WorldView, seed: number, range: TileRange): void {
+  forEachTile(range, (x, y) => {
     const terrain = terrainAt(world, x, y);
     const r = (n: number): number => hash2(seed + n * 101, x, y);
     const px = x * TILE_SIZE;
@@ -306,9 +436,9 @@ function mushroom(ctx: CanvasRenderingContext2D, x: number, y: number): void {
   }
 }
 
-function forEachTile(world: WorldView, visit: (x: number, y: number) => void): void {
-  for (let y = 0; y < world.height; y += 1) {
-    for (let x = 0; x < world.width; x += 1) {
+function forEachTile(range: TileRange, visit: (x: number, y: number) => void): void {
+  for (let y = range.y0; y <= range.y1; y += 1) {
+    for (let x = range.x0; x <= range.x1; x += 1) {
       visit(x, y);
     }
   }
@@ -343,4 +473,15 @@ function cornerRect(
   ctx.lineTo(x, y + a);
   ctx.arcTo(x, y, x + a, y, a);
   ctx.closePath();
+}
+
+/**
+ * Removes the textures of the ground blocks and returns the empty list that replaces them: a scene that restarts (loading a
+ * game, M5) must not try to remove the same textures again ("No texture found matching key").
+ */
+export function releaseGroundBlocks<T extends { readonly key: string }>(blocks: readonly T[], remove: (key: string) => void): T[] {
+  for (const { key } of blocks) {
+    remove(key);
+  }
+  return [];
 }

@@ -20,19 +20,20 @@
  * products come first, so berries are only sold when there is nothing better
  * and never eat into the bakery's supply), and leaves `keep` units (the
  * bakery's reserve of berries) and `keepForFood` units (food) in the store.
- * With nothing to sell it is `idle`.
+ * With nothing to sell it is `idle`. Every sale also counts into
+ * `earnedCoins`, the progress of the unlocks that ask for money.
  *
  * Buildings are processed in the order of `state.production` (the order they
  * were built), so the result is the same every time.
  */
 import { buildingType } from '../data/buildings';
-import { COINS, goodDef, sellableGoods } from '../data/goods';
+import { COINS, MAX_AMOUNT, goodDef, sellableGoods } from '../data/goods';
 import { addAmounts, amountOf, hasAmounts, hasNearby, productionOf, takeAmounts, type ProducerState, type ProducerStatus, type ProductionView } from './economy';
 import { findBuilding, isConnected, type PlacedBuilding } from './buildings';
 import type { SimState } from './state';
 
 /** What the production rules read and change. */
-export type ProductionState = Pick<SimState, 'world' | 'buildings' | 'paths' | 'revision' | 'inventory' | 'production'>;
+export type ProductionState = Pick<SimState, 'world' | 'buildings' | 'paths' | 'revision' | 'inventory' | 'production' | 'earnedCoins' | 'unlocked' | 'planted'>;
 
 /** Units of a good the market may sell now (what is there beyond `keep` and `keepForFood`). */
 export function sellableAmount(inventory: Readonly<Record<string, number>>, goodId: string): number {
@@ -128,6 +129,7 @@ function finishRound(state: ProductionState, producer: ProducerState, rules: Pro
     }
     if (earned > 0) {
       addAmounts(state.inventory, { [COINS]: earned });
+      state.earnedCoins = Math.min(MAX_AMOUNT, state.earnedCoins + earned);
       producer.lastSale = earned;
       producer.delivered += 1;
     }

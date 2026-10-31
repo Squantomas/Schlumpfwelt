@@ -1,4 +1,4 @@
-import { buildingType, typesOf, type BuildingCategory } from '../data/buildings';
+import { buildingType, shopCategoryOf, type ShopCategory } from '../data/buildings';
 import type { TextKey, TextParams } from '../data/texts';
 import {
   buildingAt,
@@ -11,12 +11,15 @@ import {
   type PlacementView,
   type Tile,
 } from '../sim/buildings';
-import type { Command } from '../sim/commands';
+import { placementCommand, type Command } from '../sim/commands';
+import { plantedRefund, plantedTypeAt } from '../sim/island';
 import type { DeepReadonly } from '../sim/readonly';
 import type { SimState } from '../sim/state';
 import { ITEM_IDS } from '../data/goods';
 import { canAfford, missingFor, refundFor } from '../sim/economy';
 import { findRoute, type RouteFailure } from '../sim/route';
+import { isUnlocked } from '../sim/unlocks';
+import { terrainAt, type Terrain } from '../sim/world';
 import type { Point } from './cameraMath';
 import { listText, missingParams, totalUnits } from './costText';
 import { TILE_SIZE } from './style';
@@ -26,31 +29,24 @@ import { TILE_SIZE } from './style';
  * the child has tapped so far (the "preview") and which commands ✓ sends.
  * Building works by tapping and confirming, never by dragging:
  *
- *   tool + variant → tap a tile (preview, green or red) → tap another tile
- *   (preview moves) → ✓ builds, ✕ cancels – the tool stays on.
+ *   shop item → tap a tile (preview, green or red) → tap another tile
+ *   (preview moves) → ✓ builds, ✕ cancels – the item stays chosen.
  *
  * It only reads the simulation state (through `getState`) and sends commands
  * (through `send`); the scene draws whatever `preview()` says.
  */
 
 /** What the tools read: the placement rules' view plus the working state (for refunds) and the tick (for the cards). */
-export type BuildToolState = PlacementView & DeepReadonly<Pick<SimState, 'production' | 'tick'>>;
+export type BuildToolState = PlacementView & DeepReadonly<Pick<SimState, 'production' | 'tick' | 'earnedCoins'>>;
 
-export type ToolId = 'view' | 'path' | 'house' | 'building' | 'deco' | 'move' | 'demolish';
-
-/** The tools in the order of the toolbar (without "view", which is "no tool"). */
-export const TOOLS: readonly Exclude<ToolId, 'view'>[] = ['path', 'house', 'building', 'deco', 'move', 'demolish'];
+export type ToolId = 'view' | 'path' | 'shop' | 'place' | 'move' | 'demolish';
 
 /**
- * Tools that place things of a category, and which category: the toolbar shows
- * the picker with all types of that category. A new category only needs a
- * tool and a line here (M3: "building" = the production buildings).
+ * The buttons of the toolbar, in order (without "view", which is "no tool", and
+ * "place", which is reached by choosing something in the shop): the shop
+ * replaces the three buy tools of M2/M3 (house, building, deco).
  */
-export const TOOL_CATEGORIES: Readonly<Partial<Record<ToolId, BuildingCategory>>> = {
-  house: 'house',
-  building: 'production',
-  deco: 'deco',
-};
+export const TOOLS: readonly Exclude<ToolId, 'view' | 'place'>[] = ['path', 'shop', 'move', 'demolish'];
 
 export interface PathPreviewTile extends Tile {
   /** `ok`: will be laid; `existing`: already a path; `blocked`: can not be laid there. */
@@ -97,11 +93,19 @@ export function anchorFor(typeId: string, tile: Tile): Tile {
   return { x: tile.x - Math.floor((type.footprint.w - 1) / 2), y: tile.y - (type.footprint.h - 1) };
 }
 
-/** The sentence that explains why something can not be built there. */
-export function problemHint(problem: PlacementProblem, forPath = false): TextKey | undefined {
+/**
+ * The sentence that explains why something can not be built there. `typeId`
+ * (optional) is the thing that was meant: island items say it in their own
+ * words ("Das geht nur auf der Wiese.").
+ */
+export function problemHint(problem: PlacementProblem, forPath = false, typeId?: string): TextKey | undefined {
   switch (problem.result) {
     case 'ok':
       return undefined;
+    case 'locked':
+      return 'hint.locked';
+    case 'noCoast':
+      return 'hint.islandNoCoast';
     case 'blocked':
       return 'hint.occupied';
     case 'outOfMap':
@@ -110,7 +114,11 @@ export function problemHint(problem: PlacementProblem, forPath = false): TextKey
       return problem.terrain === 'rock' ? 'hint.noRock' : 'hint.noForest';
     case 'cost':
       return totalUnits(problem.missing ?? {}) === 1 ? 'hint.missingOne' : 'hint.missing';
-    case 'terrain':
+    case 'terrain': {
+      const island = typeId === undefined ? undefined : islandHint(typeId, problem.terrain);
+      if (island) {
+        return island;
+      }
       switch (problem.terrain) {
         case 'water':
           return 'hint.water';
@@ -124,6 +132,32 @@ export function problemHint(problem: PlacementProblem, forPath = false): TextKey
         case undefined:
           return 'hint.cantBuild';
       }
+    }
+  }
+}
+
+/** The sentence that says where to tap for the item that is being placed. */
+function placeHint(typeId: string | undefined): TextKey {
+  const action = buildingType(typeId ?? '')?.island?.action;
+  if (action === 'fillLand') {
+    return 'hint.placeWater';
+  }
+  return action === 'makeMeadow' ? 'hint.placeSand' : 'hint.place';
+}
+
+/** What an island item says when the ground under it is wrong (`undefined`: not an island item). */
+function islandHint(typeId: string, terrain: Terrain | undefined): TextKey | undefined {
+  switch (buildingType(typeId)?.island?.action) {
+    case 'plantTree':
+    case 'placeRock':
+      // On water the plain "Hier ist Wasser." says it best; a tree or rock already there is "occupied".
+      return terrain === 'water' ? 'hint.water' : terrain === 'forest' || terrain === 'rock' ? 'hint.occupied' : 'hint.islandGrassOnly';
+    case 'fillLand':
+      return 'hint.islandWaterOnly';
+    case 'makeMeadow':
+      return terrain === 'water' ? 'hint.water' : 'hint.islandSandOnly';
+    case undefined:
+      return undefined;
   }
 }
 
@@ -142,7 +176,17 @@ export interface RefundInfo {
 export class BuildTool {
   private current: ToolId = 'view';
   private pending: Pending = { kind: 'none' };
-  private readonly variants = new Map<ToolId, string>();
+  /** The shop item that is being placed (while the tool is `place`; kept while the shop is open from there). */
+  private chosen: string | undefined;
+  /** What the shop returns to when it is closed with ✕. */
+  private backTo: 'view' | 'place' = 'view';
+  private tab: ShopCategory = 'houses';
+  /** How many unlocked types the player has been told about (the message "Neu im Shop"). */
+  private readonly announced: Set<string>;
+  /** How many unlocked types the player has seen in the shop (the star on the shop button). */
+  private readonly seenInShop: Set<string>;
+  /** The types that were unlocked since the shop was last open: their cards carry a star. */
+  private fresh = new Set<string>();
   private changes = 0;
   private cache: { readonly key: string; readonly preview: Preview } | undefined;
   private inspected: number | undefined;
@@ -156,9 +200,9 @@ export class BuildTool {
     private readonly send: (command: Command) => void,
     private readonly onRefund?: (info: RefundInfo) => void,
   ) {
-    for (const [tool, category] of Object.entries(TOOL_CATEGORIES) as [ToolId, BuildingCategory][]) {
-      this.variants.set(tool, typesOf(category)[0]?.id ?? '');
-    }
+    // By id, not by position in the list: a state that is loaded (M5) must not announce what it already had.
+    this.announced = new Set(this.getState().unlocked);
+    this.seenInShop = new Set(this.getState().unlocked);
     this.lastStoreKey = this.storeKey();
   }
 
@@ -174,6 +218,10 @@ export class BuildTool {
       if (this.current !== 'view') {
         this.changes += 1;
       }
+    }
+    // Things unlocked while the shop is open count as seen at once, but their cards carry the star.
+    if (this.current === 'shop') {
+      this.markShopSeen();
     }
   }
 
@@ -196,25 +244,26 @@ export class BuildTool {
     return this.current;
   }
 
-  /** The chosen type of a tool that places things, `undefined` for the other tools. */
-  get variant(): string | undefined {
-    return this.variants.get(this.current);
-  }
-
-  /** The category the picker offers for the current tool (none for other tools). */
-  get variantCategory(): BuildingCategory | undefined {
-    return TOOL_CATEGORIES[this.current];
+  /** The shop item that is being placed, `undefined` for the other tools. */
+  get item(): string | undefined {
+    return this.current === 'place' ? this.chosen : undefined;
   }
 
   /**
-   * Switches to a tool. Choosing the tool that is already on keeps it on (the
-   * picker may open again); going back to "view" is {@link exitTool}.
+   * Switches to a tool of the toolbar. `shop` opens the shop. Choosing the
+   * tool that is already on keeps it on; going back to "view" is {@link exitTool}.
+   * Items are placed with {@link chooseItem}, so `place` can not be selected here.
    */
   selectTool(tool: ToolId): void {
-    if (tool === this.current) {
+    if (tool === this.current || tool === 'place') {
+      return;
+    }
+    if (tool === 'shop') {
+      this.openShop();
       return;
     }
     this.current = tool;
+    this.chosen = undefined;
     this.pending = { kind: 'none' };
     this.inspected = undefined;
     this.variantChosen = false;
@@ -224,8 +273,116 @@ export class BuildTool {
   /** Back to "view" (the ✕ in the hint bar). */
   exitTool(): void {
     this.current = 'view';
+    this.chosen = undefined;
     this.pending = { kind: 'none' };
     this.changes += 1;
+  }
+
+  // --- The shop ---
+
+  get shopOpen(): boolean {
+    return this.current === 'shop';
+  }
+
+  /** The tab of the shop that is shown (the shop opens on the tab of the item that was placed last). */
+  get shopTab(): ShopCategory {
+    return this.tab;
+  }
+
+  setShopTab(category: ShopCategory): void {
+    if (category !== this.tab) {
+      this.tab = category;
+      this.changes += 1;
+    }
+  }
+
+  /**
+   * Opens the shop. A place that was tapped while placing an item is kept (but
+   * hidden by the shop): ✕ in the shop ({@link closeShop}) goes back to it,
+   * and choosing another item puts that one on the same place.
+   */
+  openShop(): void {
+    if (this.current === 'shop') {
+      return;
+    }
+    this.backTo = this.current === 'place' && this.chosen !== undefined ? 'place' : 'view';
+    this.current = 'shop';
+    if (this.backTo !== 'place') {
+      this.pending = { kind: 'none' };
+    }
+    this.inspected = undefined;
+    this.fresh = new Set(this.getState().unlocked.filter((id) => !this.seenInShop.has(id)));
+    this.markShopSeen();
+    this.changes += 1;
+  }
+
+  /** ✕ in the shop: back to what was on before (placing the chosen item, or looking). */
+  closeShop(): void {
+    if (this.current !== 'shop') {
+      return;
+    }
+    this.current = this.backTo === 'place' && this.chosen !== undefined ? 'place' : 'view';
+    if (this.current === 'view') {
+      this.chosen = undefined;
+    }
+    this.fresh = new Set();
+    this.changes += 1;
+  }
+
+  private markShopSeen(): void {
+    const unlocked = this.getState().unlocked;
+    for (const id of unlocked) {
+      if (!this.seenInShop.has(id)) {
+        this.seenInShop.add(id);
+        this.fresh.add(id);
+      }
+    }
+  }
+
+  /** Is there something in the shop the player has not seen yet? (The star on the shop button.) */
+  get shopHasNews(): boolean {
+    return this.current !== 'shop' && this.getState().unlocked.some((id) => !this.seenInShop.has(id));
+  }
+
+  /** Is this item new in the shop (unlocked since the shop was last open)? Its card carries a star. */
+  isFresh(typeId: string): boolean {
+    return this.fresh.has(typeId);
+  }
+
+  /** The types that were unlocked since the last call (for the message "Neu im Shop: …"); each is announced once. */
+  takeAnnouncements(): string[] {
+    const unlocked = this.getState().unlocked;
+    const news = unlocked.filter((id) => !this.announced.has(id));
+    for (const id of news) {
+      this.announced.add(id);
+    }
+    return news;
+  }
+
+  /**
+   * A card of the shop was tapped: starts placing that item (the shop closes).
+   * A locked item is not chosen; the answer is the sentence "Das ist noch
+   * gesperrt." Tapping a card the player can not pay for does choose it –
+   * the hint then says what is missing (as in M3).
+   */
+  chooseItem(typeId: string): TextKey | undefined {
+    if (shopCategoryOf(typeId) === undefined) {
+      return undefined;
+    }
+    if (!isUnlocked(this.getState(), typeId)) {
+      return 'hint.locked';
+    }
+    // A place that was tapped before stays; the new item is shown on it.
+    const keep = this.pending.kind === 'place' ? this.pending.tile : undefined;
+    this.chosen = typeId;
+    this.current = 'place';
+    this.pending = keep ? { kind: 'place', tile: keep, typeId } : { kind: 'none' };
+    this.inspected = undefined;
+    this.tab = shopCategoryOf(typeId) ?? this.tab;
+    this.fresh = new Set();
+    this.variantChosen = true;
+    this.changes += 1;
+    return undefined;
   }
 
   /** The production building whose info card is open (only while looking), if any. */
@@ -250,23 +407,10 @@ export class BuildTool {
     }
   }
 
-  /** Can the player pay for the chosen variant right now? (`true` for tools without variants.) */
-  get variantAffordable(): boolean {
-    const variant = this.variant;
-    return variant === undefined || variant === '' || canAfford(this.getState(), variant);
-  }
-
-  /** Chooses a variant for the current tool; a placed preview stays where it is and changes its type. */
-  selectVariant(typeId: string): void {
-    const category = this.variantCategory;
-    if (category && buildingType(typeId)?.category === category) {
-      this.variants.set(this.current, typeId);
-      this.variantChosen = true;
-      if (this.pending.kind === 'place') {
-        this.pending = { ...this.pending, typeId };
-      }
-      this.changes += 1;
-    }
+  /** Can the player pay for the chosen item right now? (`true` when nothing is chosen.) */
+  get itemAffordable(): boolean {
+    const item = this.item;
+    return item === undefined || canAfford(this.getState(), item);
   }
 
   /**
@@ -287,13 +431,14 @@ export class BuildTool {
     if (noPath) {
       return noPath;
     }
-    // Before a place is tapped: a variant the player can not pay for says what is missing.
-    const variant = this.variant;
-    if (preview.kind === 'none' && variant && this.variantChosen && !this.variantAffordable) {
-      return totalUnits(missingFor(this.getState(), variant)) === 1 ? 'hint.missingOne' : 'hint.missing';
+    // Before a place is tapped: an item the player can not pay for says what is missing.
+    const item = this.item;
+    if (preview.kind === 'none' && item && this.variantChosen && !this.itemAffordable) {
+      return totalUnits(missingFor(this.getState(), item)) === 1 ? 'hint.missingOne' : 'hint.missing';
     }
     switch (this.current) {
       case 'view':
+      case 'shop':
         return undefined;
       case 'path':
         return this.pending.kind === 'path' ? 'hint.pathEnd' : 'hint.pathStart';
@@ -301,10 +446,8 @@ export class BuildTool {
         return this.pending.kind === 'move' ? 'hint.moveTarget' : 'hint.moveSelect';
       case 'demolish':
         return 'hint.demolish';
-      case 'house':
-      case 'building':
-      case 'deco':
-        return 'hint.place';
+      case 'place':
+        return placeHint(item);
     }
   }
 
@@ -329,8 +472,8 @@ export class BuildTool {
       case 'demolish':
         return totalUnits(preview.refund) > 0 ? { list: listText(preview.refund) } : undefined;
       case 'none': {
-        const variant = this.variant;
-        return variant && this.variantChosen && !this.variantAffordable ? missingParams(missingFor(this.getState(), variant)) : undefined;
+        const item = this.item;
+        return item && this.variantChosen && !this.itemAffordable ? missingParams(missingFor(this.getState(), item)) : undefined;
       }
       case 'path':
         return undefined;
@@ -340,9 +483,9 @@ export class BuildTool {
   private problemOf(preview: Preview): TextKey | undefined {
     switch (preview.kind) {
       case 'place':
-        return problemHint(preview);
+        return problemHint(preview, false, preview.typeId);
       case 'move':
-        return preview.target ? problemHint(preview.target) : undefined;
+        return preview.target ? problemHint(preview.target, false, preview.typeId) : undefined;
       case 'path': {
         if (preview.error === 'noRoute') {
           return 'hint.noRoute';
@@ -371,15 +514,17 @@ export class BuildTool {
     // empty the picture of a house reaching over it (its roof).
     const footprint = buildingAt(state, tile.x, tile.y);
     const onPath = isPath(state, tile.x, tile.y);
-    const roof = world && !footprint && !onPath ? buildingAtPoint(state, world.x, world.y, TILE_SIZE) : undefined;
+    // A tree or rock the player planted counts like a path: the tile wins over the roof of a house behind it.
+    const onPlanted = plantedTypeAt(state, tile.x, tile.y) !== undefined;
+    const roof = world && !footprint && !onPath && !onPlanted ? buildingAtPoint(state, world.x, world.y, TILE_SIZE) : undefined;
     const building = footprint ?? roof;
-    const category = this.variantCategory;
-    if (category) {
-      this.pending = { kind: 'place', tile, typeId: this.variants.get(this.current) ?? '' };
-      this.changes += 1;
-      return undefined;
-    }
     switch (this.current) {
+      case 'place':
+        this.pending = { kind: 'place', tile, typeId: this.chosen ?? '' };
+        this.changes += 1;
+        return undefined;
+      case 'shop':
+        return undefined;
       case 'view': {
         const type = building ? buildingType(building.type) : undefined;
         if (building && type?.category === 'production') {
@@ -401,20 +546,19 @@ export class BuildTool {
       case 'demolish': {
         if (building) {
           this.pending = { kind: 'demolish', x: building.x, y: building.y };
-        } else if (isPath(state, tile.x, tile.y)) {
+        } else if (isPath(state, tile.x, tile.y) || plantedTypeAt(state, tile.x, tile.y) !== undefined) {
+          // A path, or a tree / rock the player planted.
           this.pending = { kind: 'demolish', x: tile.x, y: tile.y };
         } else {
           this.pending = { kind: 'none' };
           this.changes += 1;
-          return 'hint.nothingToDemolish';
+          // Trees and rocks the island grew by itself stay.
+          const terrain = terrainAt(state.world, tile.x, tile.y);
+          return terrain === 'forest' || terrain === 'rock' ? 'hint.naturalObject' : 'hint.nothingToDemolish';
         }
         this.changes += 1;
         return undefined;
       }
-      case 'house':
-      case 'building':
-      case 'deco':
-        return undefined;
     }
   }
 
@@ -531,7 +675,12 @@ export class BuildTool {
           }
           return { kind: 'demolish', tiles, refund: refundFor(state, building.id) };
         }
-        return isPath(state, pending.x, pending.y) ? { kind: 'demolish', tiles: [{ x: pending.x, y: pending.y }], refund: {} } : { kind: 'none' };
+        if (isPath(state, pending.x, pending.y)) {
+          return { kind: 'demolish', tiles: [{ x: pending.x, y: pending.y }], refund: {} };
+        }
+        return plantedTypeAt(state, pending.x, pending.y) !== undefined
+          ? { kind: 'demolish', tiles: [{ x: pending.x, y: pending.y }], refund: plantedRefund(state, pending.x, pending.y) }
+          : { kind: 'none' };
       }
     }
   }
@@ -572,7 +721,7 @@ export class BuildTool {
     }
     switch (preview.kind) {
       case 'place':
-        this.send({ type: 'placeBuilding', buildingType: preview.typeId, x: preview.x, y: preview.y });
+        this.send(placementCommand(preview.typeId, preview.x, preview.y));
         this.variantChosen = false;
         break;
       case 'path':

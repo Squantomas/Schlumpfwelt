@@ -200,24 +200,46 @@ describe('Bautypen (buildings.json)', () => {
     expect(new Set(ids).size).toBe(ids.length);
   });
 
-  it('hat Pilzhäuser mit 2×2, Brunnen mit 2×2 und sonstige Deko mit 1×1', () => {
+  it('hat kleine Pilzhäuser mit 2×2, ein großes mit 3×3 und eines mit Garten mit 3×2; alle brauchen einen Weg', () => {
     for (const type of typesOf('house')) {
-      expect(type.footprint).toEqual({ w: 2, h: 2 });
-      expect(type.needsPath).toBe(true);
+      expect(type.needsPath, type.id).toBe(true);
     }
+    for (const id of ['house-red', 'house-blue', 'house-yellow']) {
+      expect(buildingType(id)?.footprint, id).toEqual({ w: 2, h: 2 });
+    }
+    expect(buildingType('house-big')?.footprint).toEqual({ w: 3, h: 3 });
+    expect(buildingType('house-garden')?.footprint).toEqual({ w: 3, h: 2 });
+    expect(typesOf('house')).toHaveLength(5);
+  });
+
+  it('die Häuser unterscheiden sich in Größe und Preis (größer = teurer)', () => {
+    const price = (id: string): number => buildingType(id)?.cost['coins'] ?? 0;
+    expect(price('house-big')).toBeGreaterThan(price('house-garden'));
+    expect(price('house-garden')).toBeGreaterThan(price('house-red'));
+  });
+
+  it('hat Brunnen und Teich mit 2×2, das Blumenbeet mit 2×1 und sonstige Deko mit 1×1', () => {
     expect(buildingType('fountain')?.footprint).toEqual({ w: 2, h: 2 });
+    expect(buildingType('pond')?.footprint).toEqual({ w: 2, h: 2 });
+    expect(buildingType('flowerbed')?.footprint).toEqual({ w: 2, h: 1 });
     for (const id of ['flower', 'bush', 'fence', 'bench', 'lantern']) {
       expect(buildingType(id)?.footprint).toEqual({ w: 1, h: 1 });
       expect(buildingType(id)?.needsPath).toBe(false);
     }
-    expect(typesOf('house')).toHaveLength(3);
-    expect(typesOf('deco')).toHaveLength(6);
+    expect(typesOf('deco')).toHaveLength(8);
   });
 
-  it('erlaubt Gebäude nur auf Wiese und Wege auf Wiese und Strand', () => {
+  it('erlaubt Gebäude nur auf Wiese, Wege auf Wiese und Strand, und Inselartikel auf dem Boden, den sie verändern', () => {
     for (const type of BUILDING_TYPES) {
+      if (type.category === 'island') {
+        continue;
+      }
       expect(type.terrains).toEqual(type.category === 'path' ? ['grass', 'sand'] : ['grass']);
     }
+    expect(buildingType('tree')?.terrains).toEqual(['grass']);
+    expect(buildingType('rock')?.terrains).toEqual(['grass']);
+    expect(buildingType('beach')?.terrains).toEqual(['water']);
+    expect(buildingType('meadow')?.terrains).toEqual(['sand']);
   });
 });
 

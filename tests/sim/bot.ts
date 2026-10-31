@@ -1,7 +1,9 @@
-import { buildingType } from '../../src/data/buildings';
+import { LOCKED_TYPE_IDS, buildingType } from '../../src/data/buildings';
+import { placementCommand } from '../../src/sim/commands';
 import { canPlacePath, checkPlacement, footprintTiles, isPath, unconnectedBuildings, type Tile } from '../../src/sim/buildings';
 import { canAfford } from '../../src/sim/economy';
 import type { Simulation } from '../../src/sim/simulation';
+import { isUnlocked } from '../../src/sim/unlocks';
 
 /** How far (in tiles) the bot is willing to lay a path to reach the network. */
 const MAX_PATH_DISTANCE = 25;
@@ -12,7 +14,12 @@ const key = (tile: Tile): string => `${String(tile.x)},${String(tile.y)}`;
  * A very simple player for the tests: saves up for the things on its list in
  * that order, builds each on the free spot nearest to the middle of the
  * island that can be reached by a path, and lays a free path from the
- * building to the path network. It only uses commands, like the real UI.
+ * building to the path network. Things that are still locked are skipped
+ * until the village has unlocked them (the bot does not do anything special
+ * for that: building and selling is all it takes). Island items (a tree, a
+ * rock, a beach, a meadow) go on the free spot farthest from the middle, so
+ * they never get in the way of the village. It only uses commands, like the
+ * real UI.
  */
 export class Bot {
   /** The tick at which each type was ordered. */
@@ -33,6 +40,10 @@ export class Bot {
       if (this.builtAt.has(typeId) || this.noSpot.has(typeId)) {
         continue;
       }
+      if (!isUnlocked(state, typeId)) {
+        // Not unlocked yet: build the other things meanwhile.
+        continue;
+      }
       if (!canAfford(state, typeId)) {
         return undefined;
       }
@@ -41,7 +52,7 @@ export class Bot {
         this.noSpot.add(typeId);
         continue;
       }
-      this.sim.send({ type: 'placeBuilding', buildingType: typeId, x: spot.x, y: spot.y });
+      this.sim.send(placementCommand(typeId, spot.x, spot.y));
       this.builtAt.set(typeId, state.tick);
       return typeId;
     }
@@ -57,7 +68,8 @@ export class Bot {
     }
     const cx = state.world.width / 2;
     const cy = state.world.height / 2;
-    const rich = { ...state, inventory: { coins: 99999, wood: 99999, stone: 99999, berries: 0, furniture: 0, cake: 0 } };
+    // The cost and the unlock are not the question here, only the place.
+    const rich = { ...state, inventory: { coins: 99999, wood: 99999, stone: 99999, berries: 0, furniture: 0, cake: 0 }, unlocked: LOCKED_TYPE_IDS };
     const candidates: { tile: Tile; distance: number }[] = [];
     for (let y = 0; y < state.world.height; y += 1) {
       for (let x = 0; x < state.world.width; x += 1) {
@@ -66,7 +78,9 @@ export class Bot {
         }
       }
     }
-    candidates.sort((a, b) => a.distance - b.distance);
+    // Island items (tree, rock, beach, meadow) go to the outskirts, everything else near the middle.
+    const sign = type.category === 'island' ? -1 : 1;
+    candidates.sort((a, b) => sign * (a.distance - b.distance));
     if (!type.needsPath) {
       return candidates[0]?.tile;
     }

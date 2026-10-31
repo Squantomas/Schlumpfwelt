@@ -1,5 +1,6 @@
 {
   "storage": { "max": 99999 },
+  "valuablePrice": 10,
   "coins": {
     "id": "coins",
     "nameKey": "good.coins",
@@ -8,9 +9,9 @@
   "goods": [
     { "id": "wood", "category": "material", "nameKey": "good.wood", "pluralKey": "good.woodMany" },
     { "id": "stone", "category": "material", "nameKey": "good.stone", "pluralKey": "good.stoneMany" },
-    { "id": "berries", "category": "raw", "nameKey": "good.berries", "pluralKey": "good.berriesMany", "price": 1, "keep": 4 },
+    { "id": "berries", "category": "raw", "nameKey": "good.berries", "pluralKey": "good.berriesMany", "price": 2, "keep": 4 },
     { "id": "furniture", "category": "product", "nameKey": "good.furniture", "pluralKey": "good.furnitureMany", "price": 12 },
-    { "id": "cake", "category": "product", "nameKey": "good.cake", "pluralKey": "good.cakeMany", "price": 6, "keepForFood": 0 }
+    { "id": "cake", "category": "product", "nameKey": "good.cake", "pluralKey": "good.cakeMany", "price": 8, "keepForFood": 0 }
   ],
   "startInventory": { "coins": 60, "wood": 14, "stone": 3, "berries": 0, "furniture": 0, "cake": 0 }
 }

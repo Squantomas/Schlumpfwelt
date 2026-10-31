@@ -1,3 +1,4 @@
+import { productionOf } from '../../src/sim/economy';
 import { describe, expect, it } from 'vitest';
 import { t } from '../../src/data/texts';
 import { createInitialState } from '../../src/sim/state';
@@ -41,7 +42,8 @@ describe('cardStatus: ein kurzer Satz und der Fortschritt', () => {
     const garden = state.buildings.find((b) => b.type === 'berry-garden');
     const id = garden?.id ?? -1;
     expect(cardStatus(state, id)).toMatchObject({ status: 'working', text: 'status.working', progress: 0 });
-    tickN(state, 25);
+    // Die Hälfte der Runde (der Takt steht in buildings.json).
+    tickN(state, Math.floor((productionOf('berry-garden')?.intervalTicks ?? 50) / 2));
     const status = cardStatus(state, id);
     expect(status?.progress).toBeGreaterThan(0.4);
     expect(status?.progress).toBeLessThan(0.6);

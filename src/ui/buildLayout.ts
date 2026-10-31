@@ -1,15 +1,16 @@
 import type { Rect } from './cameraMath';
 import { CANCEL_DIAMETER, CONFIRM_DIAMETER, placeConfirmButtons } from './confirmLayout';
 import { infoCardLayout, type InfoCardLayout } from './infoCardLayout';
-import { PICKER_EDGE, pickerLayout, type PickerLayout } from './pickerLayout';
+import { shopLayout, type ShopLayout } from './shopLayout';
 import { STOCK_GAP, stockLayout, type StockLayout } from './stockLayout';
 import { TOOLBAR_EDGE, TOOLBAR_GAP, TOOLBAR_PAD, toolbarLayout, type ToolbarLayout } from './toolbarLayout';
 
 /**
  * Where everything of the building controls goes, as pure maths (CSS px), so
  * a test can check that on every screen size nothing overlaps and nothing
- * leaves the screen: toolbar, hint bar, zoom buttons, picker or chip, and the
- * ✓ / ✕ pair.
+ * leaves the screen: toolbar, hint bar, zoom buttons, the chip, and the
+ * ✓ / ✕ pair – or, while the shop is open, the store bar and the shop panel
+ * (the shop covers the rest: toolbar, zoom buttons, hint bar and ✓ / ✕ are hidden).
  */
 
 /** Width kept free at the right (and, to stay centred, at the left) for the zoom buttons. */
@@ -54,9 +55,14 @@ export interface BuildLayoutInput {
   readonly width: number;
   readonly height: number;
   readonly toolCount: number;
-  /** Number of variants of the current tool (0 for tools without a picker). */
-  readonly variantCount: number;
-  readonly pickerOpen: boolean;
+  /** Is the shop open? Then it fills the screen below the store bar. */
+  readonly shopOpen: boolean;
+  /** Number of cards in the biggest tab of the shop (the panel has the same size for every tab). */
+  readonly shopCount: number;
+  /** Number of tabs of the shop. */
+  readonly shopTabs: number;
+  /** Is an item being placed (the chip "back to the shop" is shown)? */
+  readonly hasChip: boolean;
   readonly hasPreview: boolean;
   /** Height of the hint bar (0: none). */
   readonly hintHeight: number;
@@ -76,13 +82,13 @@ export interface BuildLayout {
   readonly toolbar: ToolbarLayout & { readonly rect: Rect };
   readonly hint: Rect | undefined;
   readonly zoom: ZoomLayout;
-  readonly picker: (PickerLayout & { readonly sideInset: number }) | undefined;
+  /** The shop, if open. Toolbar, zoom buttons, hint bar, chip and ✓ / ✕ are hidden then. */
+  readonly shop: ShopLayout | undefined;
+  /** The small button "back to the shop" (while an item is being placed). */
   readonly chip: Rect | undefined;
   /** Rects of the ✓ and ✕ buttons (only with a preview). */
   readonly confirm: Rect | undefined;
   readonly cancel: Rect | undefined;
-  /** Would the picker fit with the current preview? If not, a tap on the chip drops the preview first. */
-  readonly pickerFitsWithPreview: boolean;
 }
 
 export function layoutBuildUi(input: BuildLayoutInput): BuildLayout {
@@ -99,43 +105,26 @@ export function layoutBuildUi(input: BuildLayoutInput): BuildLayout {
 
   const bar = hintBarGeometry(width);
   let hint: Rect | undefined;
-  if (input.hintHeight > 0) {
+  if (input.hintHeight > 0 && !input.shopOpen) {
     const y = input.hintAtTop ? hintTop : toolbar.rect.y - 12 - input.hintHeight;
     hint = { x: bar.x, y, width: bar.width, height: input.hintHeight };
   }
 
-  const hasPicker = input.variantCount > 0;
-  const top = (input.hintAtTop && hint ? hint.y + hint.height : hintTop + HINT_MIN_HEIGHT) + GAP;
   const rowAbove = toolbar.rect.y - GAP;
-  const confirmRowTop = rowAbove - CONFIRM_DIAMETER - GAP;
-
-  const pickerFor = (withPreview: boolean): BuildLayout['picker'] => {
-    const bottom = withPreview ? confirmRowTop : rowAbove;
-    let layout = pickerLayout(width, input.variantCount, top, bottom);
-    let sideInset = 0;
-    // A panel that reaches up into the zoom buttons is made narrower, centred, clear of the zoom column.
-    if (layout.rect.y < zoom.rect.y + zoom.rect.height + GAP) {
-      sideInset = ZOOM_COLUMN - PICKER_EDGE;
-      layout = pickerLayout(width, input.variantCount, top, bottom, sideInset);
-    }
-    return { ...layout, sideInset };
-  };
-
-  const picker = hasPicker && input.pickerOpen ? pickerFor(input.hasPreview) : undefined;
-  const pickerFitsWithPreview = !hasPicker || (pickerFor(true)?.fits ?? true);
-  const chip = hasPicker && !input.pickerOpen ? { x: TOOLBAR_EDGE, y: rowAbove - CHIP_H, width: CHIP_W, height: CHIP_H } : undefined;
+  const chip = input.hasChip && !input.shopOpen ? { x: TOOLBAR_EDGE, y: rowAbove - CHIP_H, width: CHIP_W, height: CHIP_H } : undefined;
+  const shop = input.shopOpen ? shopLayout({ width, height, top: hintTop, count: input.shopCount, tabCount: input.shopTabs }) : undefined;
 
   let confirm: Rect | undefined;
   let cancel: Rect | undefined;
-  if (input.hasPreview) {
+  if (input.hasPreview && !input.shopOpen) {
     const placement = placeConfirmButtons(width, toolbar.rect.y);
     confirm = { x: placement.confirm.x - CONFIRM_DIAMETER / 2, y: placement.confirm.y - CONFIRM_DIAMETER / 2, width: CONFIRM_DIAMETER, height: CONFIRM_DIAMETER };
     cancel = { x: placement.cancel.x - CANCEL_DIAMETER / 2, y: placement.cancel.y - CANCEL_DIAMETER / 2, width: CANCEL_DIAMETER, height: CANCEL_DIAMETER };
   }
 
-  const card = input.infoOpen
+  const card = input.infoOpen && !input.shopOpen
     ? infoCardLayout({ top: stock.rect.y + stock.rect.height + GAP, bottom: toolbar.rect.y - GAP, width, zoom: zoom.rect })
     : undefined;
 
-  return { stock, card, toolbar, hint, zoom, picker, chip, confirm, cancel, pickerFitsWithPreview };
+  return { stock, card, toolbar, hint, zoom, shop, chip, confirm, cancel };
 }

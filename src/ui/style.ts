@@ -154,6 +154,8 @@ export const HOUSE_PALETTES: Readonly<Record<string, { readonly cap: number; rea
   red: { cap: 0xe65a5a, capShade: 0xc23f3f, dot: 0xffffff },
   blue: { cap: 0x4f8fe0, capShade: 0x3a6cb8, dot: 0xffffff },
   yellow: { cap: 0xf6c63a, capShade: 0xd9a21a, dot: 0xffffff },
+  green: { cap: 0x56b86a, capShade: 0x3a9150, dot: 0xffffff },
+  pink: { cap: 0xf08ac0, capShade: 0xcf63a0, dot: 0xffffff },
 };
 
 /** Petal colours of the meadow flowers. */
