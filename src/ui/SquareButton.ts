@@ -11,10 +11,15 @@ export interface SquareButtonOptions {
   readonly fitContent: (content: Phaser.GameObjects.Image | Phaser.GameObjects.Graphics, width: number, height: number) => void;
   /** Called when the button is released after being pressed (tap or click). */
   readonly onTap: (eventTime: number) => void;
+  /** An extra row at the bottom of the button (the cost); it gets `layoutTo(width, height)` and is placed there. */
+  readonly footer?: Phaser.GameObjects.Container & { layoutTo: (width: number, height: number) => unknown };
 }
 
 /** Share of the button height that the picture may use; the rest is for the label. */
 const PICTURE_SHARE = 0.64;
+/** With a footer row (the cost): picture, then the name, then the footer. */
+const FOOTER_PICTURE_SHARE = 0.44;
+const FOOTER_SHARE = 0.3;
 
 /**
  * Big rounded button with a picture and a short word underneath (toolbar and
@@ -30,14 +35,19 @@ export class SquareButton extends Phaser.GameObjects.Container {
   private buttonHeight = 0;
   private highlighted = false;
   private pressed = false;
+  private readonly footer: SquareButtonOptions['footer'];
 
   constructor(scene: Phaser.Scene, options: SquareButtonOptions) {
     super(scene, 0, 0);
     this.content = options.content;
     this.fitContent = options.fitContent;
+    this.footer = options.footer;
     this.face = scene.add.graphics();
     this.caption = createLabel(scene, options.label, 14);
     this.add([this.face, options.content, this.caption]);
+    if (this.footer) {
+      this.add(this.footer);
+    }
 
     this.on(Phaser.Input.Events.GAMEOBJECT_POINTER_DOWN, () => {
       this.pressed = true;
@@ -68,13 +78,32 @@ export class SquareButton extends Phaser.GameObjects.Container {
     } else {
       this.setInteractive({ hitArea: new Phaser.Geom.Rectangle(0, 0, width, height), hitAreaCallback: (area: Phaser.Geom.Rectangle, x: number, y: number) => area.contains(x, y), useHandCursor: true });
     }
-    const pictureHeight = height * PICTURE_SHARE;
+    const withFooter = this.footer !== undefined;
+    const pictureHeight = height * (withFooter ? FOOTER_PICTURE_SHARE : PICTURE_SHARE);
     this.fitContent(this.content, width * 0.8, pictureHeight * 0.9);
     this.content.setPosition(0, -height / 2 + pictureHeight / 2 + height * 0.04);
-    const lines = this.caption.text.split('\n').length;
-    setLabelSize(this.caption, Math.max(11, Math.min(17, height * (lines > 1 ? 0.15 : 0.19))), width - 6);
-    this.caption.setPosition(0, height / 2 - (height * (1 - PICTURE_SHARE)) / 2 - height * 0.02);
+    if (this.footer) {
+      const footerHeight = height * FOOTER_SHARE;
+      const captionHeight = height - pictureHeight - footerHeight - height * 0.04;
+      setLabelSize(this.caption, Math.max(11, Math.min(15, captionHeight * 0.8)), width - 6);
+      this.caption.setPosition(0, -height / 2 + height * 0.04 + pictureHeight + captionHeight / 2);
+      this.footer.layoutTo(width - 8, footerHeight * 0.8);
+      this.footer.setPosition(0, height / 2 - footerHeight / 2 - height * 0.03);
+    } else {
+      const lines = this.caption.text.split('\n').length;
+      setLabelSize(this.caption, Math.max(11, Math.min(17, height * (lines > 1 ? 0.15 : 0.19))), width - 6);
+      this.caption.setPosition(0, height / 2 - (height * (1 - PICTURE_SHARE)) / 2 - height * 0.02);
+    }
     this.draw();
+    return this;
+  }
+
+  /** A dimmed button looks switched off (what it needs is missing); it still takes taps. */
+  setDimmed(dimmed: boolean): this {
+    const alpha = dimmed ? 0.55 : 1;
+    this.face.setAlpha(alpha);
+    this.content.setAlpha(alpha);
+    this.caption.setAlpha(dimmed ? 0.8 : 1);
     return this;
   }
 

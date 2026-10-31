@@ -7,6 +7,7 @@
       "footprint": { "w": 1, "h": 1 },
       "terrains": ["grass", "sand"],
       "needsPath": false,
+      "cost": {},
       "look": { "shape": "path", "rise": 0 }
     },
     {
@@ -16,6 +17,7 @@
       "footprint": { "w": 2, "h": 2 },
       "terrains": ["grass"],
       "needsPath": true,
+      "cost": { "coins": 40, "wood": 8 },
       "look": { "shape": "mushroomHouse", "palette": "red", "rise": 84 }
     },
     {
@@ -25,6 +27,7 @@
       "footprint": { "w": 2, "h": 2 },
       "terrains": ["grass"],
       "needsPath": true,
+      "cost": { "coins": 40, "wood": 8 },
       "look": { "shape": "mushroomHouse", "palette": "blue", "rise": 84 }
     },
     {
@@ -34,6 +37,7 @@
       "footprint": { "w": 2, "h": 2 },
       "terrains": ["grass"],
       "needsPath": true,
+      "cost": { "coins": 40, "wood": 8 },
       "look": { "shape": "mushroomHouse", "palette": "yellow", "rise": 84 }
     },
     {
@@ -43,6 +47,7 @@
       "footprint": { "w": 1, "h": 1 },
       "terrains": ["grass"],
       "needsPath": false,
+      "cost": { "coins": 3 },
       "look": { "shape": "flower", "rise": 22 }
     },
     {
@@ -52,6 +57,7 @@
       "footprint": { "w": 1, "h": 1 },
       "terrains": ["grass"],
       "needsPath": false,
+      "cost": { "coins": 4 },
       "look": { "shape": "bush", "rise": 18 }
     },
     {
@@ -61,6 +67,7 @@
       "footprint": { "w": 1, "h": 1 },
       "terrains": ["grass"],
       "needsPath": false,
+      "cost": { "coins": 3, "wood": 1 },
       "look": { "shape": "fence", "rise": 14 }
     },
     {
@@ -70,6 +77,7 @@
       "footprint": { "w": 1, "h": 1 },
       "terrains": ["grass"],
       "needsPath": false,
+      "cost": { "coins": 8, "wood": 2 },
       "look": { "shape": "bench", "rise": 18 }
     },
     {
@@ -79,6 +87,7 @@
       "footprint": { "w": 1, "h": 1 },
       "terrains": ["grass"],
       "needsPath": false,
+      "cost": { "coins": 10, "stone": 1 },
       "look": { "shape": "lantern", "rise": 46 }
     },
     {
@@ -88,7 +97,74 @@
       "footprint": { "w": 2, "h": 2 },
       "terrains": ["grass"],
       "needsPath": false,
+      "cost": { "coins": 40, "stone": 5 },
       "look": { "shape": "fountain", "rise": 40 }
+    },
+    {
+      "id": "lumberjack",
+      "category": "production",
+      "nameKey": "build.lumberjack",
+      "footprint": { "w": 2, "h": 2 },
+      "terrains": ["grass"],
+      "needsPath": true,
+      "cost": { "coins": 15 },
+      "production": { "intervalTicks": 50, "outputs": { "wood": 1 }, "needsNearby": { "terrain": "forest", "radius": 4 } },
+      "look": { "shape": "lumberjackHut", "rise": 64 }
+    },
+    {
+      "id": "berry-garden",
+      "category": "production",
+      "nameKey": "build.berryGarden",
+      "footprint": { "w": 2, "h": 2 },
+      "terrains": ["grass"],
+      "needsPath": true,
+      "cost": { "coins": 10, "wood": 2 },
+      "production": { "intervalTicks": 50, "outputs": { "berries": 1 } },
+      "look": { "shape": "berryGarden", "rise": 38 }
+    },
+    {
+      "id": "quarry",
+      "category": "production",
+      "nameKey": "build.quarry",
+      "footprint": { "w": 2, "h": 2 },
+      "terrains": ["grass"],
+      "needsPath": true,
+      "cost": { "coins": 20, "wood": 6 },
+      "production": { "intervalTicks": 80, "outputs": { "stone": 1 }, "needsNearby": { "terrain": "rock", "radius": 5 } },
+      "look": { "shape": "quarry", "rise": 44 }
+    },
+    {
+      "id": "carpenter",
+      "category": "production",
+      "nameKey": "build.carpenter",
+      "footprint": { "w": 2, "h": 2 },
+      "terrains": ["grass"],
+      "needsPath": true,
+      "cost": { "coins": 30, "wood": 8, "stone": 2 },
+      "production": { "intervalTicks": 200, "inputs": { "wood": 2 }, "outputs": { "furniture": 1 } },
+      "look": { "shape": "carpenterShop", "rise": 70 }
+    },
+    {
+      "id": "bakery",
+      "category": "production",
+      "nameKey": "build.bakery",
+      "footprint": { "w": 2, "h": 2 },
+      "terrains": ["grass"],
+      "needsPath": true,
+      "cost": { "coins": 25, "wood": 6 },
+      "production": { "intervalTicks": 120, "inputs": { "berries": 2 }, "outputs": { "cake": 1 } },
+      "look": { "shape": "bakery", "rise": 78 }
+    },
+    {
+      "id": "market",
+      "category": "production",
+      "nameKey": "build.market",
+      "footprint": { "w": 3, "h": 3 },
+      "terrains": ["grass"],
+      "needsPath": true,
+      "cost": { "coins": 20, "wood": 8 },
+      "production": { "intervalTicks": 30, "sell": { "perCycle": 1 } },
+      "look": { "shape": "market", "rise": 84 }
     }
   ]
 }

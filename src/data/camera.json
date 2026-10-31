@@ -2,6 +2,7 @@
   "marginTiles": 2,
   "landMarginTiles": 1,
   "startPaddingTiles": 3,
+  "minStartTileCssPx": 32,
   "maxTileCssPx": 128,
   "buttonZoomFactor": 1.6,
   "wheelZoomPerPixel": 0.0015,

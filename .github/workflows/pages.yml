@@ -24,7 +24,15 @@ jobs:
     name: Prüfen und bauen
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    outputs:
+      # Der Name wird einmal im Build-Job festgelegt: `github.run_attempt` würde in jedem Job neu ausgewertet, und ein
+      # „Re-run failed jobs“ nur von `deploy` suchte sonst ein Artefakt mit dem neuen Versuch statt dem aus dem Build.
+      artifact: ${{ steps.name.outputs.artifact }}
     steps:
+      - name: Artefakt-Namen festlegen
+        id: name
+        run: echo "artifact=github-pages-${{ github.run_attempt }}" >> "$GITHUB_OUTPUT"
+
       - name: Checkout
         uses: actions/checkout@v7
         with:
@@ -58,6 +66,8 @@ jobs:
         uses: actions/upload-pages-artifact@v5
         with:
           path: dist
+          # Ein erneuter Start („Re-run“) desselben Laufs scheitert sonst mit „Multiple artifacts named github-pages“.
+          name: ${{ steps.name.outputs.artifact }}
 
   deploy:
     name: Veröffentlichen
@@ -73,3 +83,5 @@ jobs:
       - name: Auf GitHub Pages veröffentlichen
         id: deployment
         uses: actions/deploy-pages@v5
+        with:
+          artifact_name: ${{ needs.build.outputs.artifact }}

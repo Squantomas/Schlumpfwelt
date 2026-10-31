@@ -22,8 +22,9 @@ export interface SetPausedCommand {
 }
 
 /**
- * Places a house or decoration with its top left tile on (x, y). Ignored if
- * `canPlace` does not say `ok` or the type is unknown.
+ * Places a house, decoration or production building with its top left tile
+ * on (x, y) and takes its cost from the store. Ignored if `canPlace` does not
+ * say `ok` (including: too expensive) or the type is unknown.
  */
 export interface PlaceBuildingCommand {
   readonly type: 'placeBuilding';
@@ -38,7 +39,7 @@ export interface PlacePathsCommand {
   readonly tiles: readonly Tile[];
 }
 
-/** Moves a building so that its top left tile is (x, y); ignored if it does not fit there. */
+/** Moves a building so that its top left tile is (x, y); free of charge; ignored if it does not fit there. */
 export interface MoveBuildingCommand {
   readonly type: 'moveBuilding';
   readonly id: number;
@@ -46,7 +47,7 @@ export interface MoveBuildingCommand {
   readonly y: number;
 }
 
-/** Demolishes the building on the tile (x, y) or, if there is none, the path on it. */
+/** Demolishes the building on the tile (x, y) or, if there is none, the path on it. A building gives its whole cost back. */
 export interface DemolishCommand {
   readonly type: 'demolish';
   readonly x: number;

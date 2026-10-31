@@ -98,6 +98,21 @@ export function fitRect(viewSize: Size, rect: Rect, padding = 0): CameraView {
   };
 }
 
+/**
+ * The view at the start: the whole `focus` area if a tile then is at least
+ * `minTileCssPx` CSS pixels big; on a small screen (a phone held upright, the
+ * whole island would make tiles of 8 px) it is zoomed in so that a tile has
+ * that size, centred on `center` (the start village). Without `minTileCssPx`
+ * this is {@link fitRect}.
+ */
+export function startView(viewSize: Size, focus: Rect, padding: number, tileSize: number, minTileCssPx?: number, center?: Point): CameraView {
+  const fit = fitRect(viewSize, focus, padding);
+  if (minTileCssPx === undefined || fit.zoom * tileSize >= minTileCssPx) {
+    return fit;
+  }
+  return { centerX: center?.x ?? fit.centerX, centerY: center?.y ?? fit.centerY, zoom: minTileCssPx / tileSize };
+}
+
 function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max);
 }

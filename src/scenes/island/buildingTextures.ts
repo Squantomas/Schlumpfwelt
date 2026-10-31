@@ -1,7 +1,8 @@
 import type Phaser from 'phaser';
 import { BUILDING_TYPES, type BuildingType } from '../../data/buildings';
 import { COLORS, HOUSE_PALETTES, FLOWER_PETALS, TILE_SIZE, cssColor, cssRgba } from '../../ui/style';
-import { circle, ellipse, make, roundedBox, type Draw } from './objectTextures';
+import { PAD, circle, ellipse, make, roundedBox, type Draw } from './objectTextures';
+import { PRODUCTION_DRAWERS } from './productionTextures';
 
 /**
  * Placeholder pictures for houses, decoration, paths and the little signs
@@ -11,15 +12,13 @@ import { circle, ellipse, make, roundedBox, type Draw } from './objectTextures';
  * the bottom of the texture.
  */
 
-/** Free space around the footprint in the texture (logical px): room for the shadow. */
-export const PAD = 8;
 
 export const PUFF_KEY = 'puff';
 export const MARKER_KEY = 'marker-path';
 /** Logical size of the marker; its tip (bottom centre) points at the house. */
-export const MARKER_SIZE = { width: 72, height: 84 } as const;
+export const MARKER_SIZE = { width: 84, height: 98 } as const;
 /** Bubble diameter inside the marker texture (logical px). */
-export const MARKER_BUBBLE = 60;
+export const MARKER_BUBBLE = 70;
 
 export function buildingTextureKey(typeId: string): string {
   return `bld-${typeId}`;
@@ -45,6 +44,7 @@ export function buildingOrigin(type: BuildingType): { x: number; y: number } {
 }
 
 const DRAWERS: Readonly<Record<string, (type: BuildingType) => Draw>> = {
+  ...Object.fromEntries(Object.entries(PRODUCTION_DRAWERS).map(([shape, draw]) => [shape, (): Draw => draw])),
   mushroomHouse: (type) => (ctx, w, h) => {
     drawMushroomHouse(ctx, w, h, type.look.palette ?? 'red');
   },
@@ -341,7 +341,7 @@ function drawPathTile(ctx: CanvasRenderingContext2D, mask: number): void {
   arm(8, -1, 0);
 }
 
-/** A friendly speech bubble with a little road and an exclamation mark – not an alarm. */
+/** A friendly speech bubble with a crossed-out little road – not an alarm. */
 function drawMarker(ctx: CanvasRenderingContext2D, width: number, height: number): void {
   const cx = width / 2;
   const cy = MARKER_BUBBLE / 2 + 5;
@@ -365,26 +365,30 @@ function drawMarker(ctx: CanvasRenderingContext2D, width: number, height: number
   ctx.closePath();
   ctx.fill();
 
-  // Little road in perspective, wide at the bottom.
+  // A little road in perspective, wide at the bottom – crossed out: "no path here". Readable without reading.
+  const k = MARKER_BUBBLE / 60;
   ctx.fillStyle = css(COLORS.markerIcon);
   ctx.beginPath();
-  ctx.moveTo(cx - 5, cy - 20);
-  ctx.lineTo(cx + 5, cy - 20);
-  ctx.lineTo(cx + 19, cy + 21);
-  ctx.lineTo(cx - 19, cy + 21);
+  ctx.moveTo(cx - 5 * k, cy - 20 * k);
+  ctx.lineTo(cx + 5 * k, cy - 20 * k);
+  ctx.lineTo(cx + 19 * k, cy + 21 * k);
+  ctx.lineTo(cx - 19 * k, cy + 21 * k);
   ctx.closePath();
   ctx.fill();
-  ctx.fillStyle = css(COLORS.markerFill);
   for (const [y, w, h] of [[-12, 2, 5], [-2, 2.8, 6], [10, 3.6, 8]] as const) {
-    roundedBox(ctx, cx - w / 2, cy + y, w, h, 1, css(COLORS.markerFill));
+    roundedBox(ctx, cx - (w * k) / 2, cy + y * k, w * k, h * k, 1, css(COLORS.markerFill));
   }
-  // Exclamation badge at the top right.
-  const bx = cx + r - 8;
-  const by = cy - r + 8;
-  circle(ctx, bx, by, 11.5, css(COLORS.white));
-  circle(ctx, bx, by, 9.5, css(COLORS.markerMark));
-  roundedBox(ctx, bx - 1.9, by - 6.5, 3.8, 8.5, 1.9, css(COLORS.white));
-  circle(ctx, bx, by + 5.2, 2.1, css(COLORS.white));
+  // The red slash over the road (with a light edge so it stands out on the brown).
+  ctx.lineCap = 'round';
+  ctx.strokeStyle = css(COLORS.white);
+  ctx.lineWidth = 11 * k;
+  ctx.beginPath();
+  ctx.moveTo(cx - 20 * k, cy - 21 * k);
+  ctx.lineTo(cx + 20 * k, cy + 21 * k);
+  ctx.stroke();
+  ctx.strokeStyle = css(COLORS.cancel);
+  ctx.lineWidth = 7 * k;
+  ctx.stroke();
 }
 
 function drawPuff(ctx: CanvasRenderingContext2D, width: number): void {

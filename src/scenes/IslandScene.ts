@@ -1,7 +1,8 @@
 import Phaser from 'phaser';
 import { CAMERA_CONFIG } from '../data/camera';
 import { t } from '../data/texts';
-import { isConnected } from '../sim/buildings';
+import { buildingType } from '../data/buildings';
+import { buildingAt, isConnected } from '../sim/buildings';
 import { hash2 } from '../sim/random';
 import type { Simulation } from '../sim/simulation';
 import { isLand, landBounds, terrainAt } from '../sim/world';
@@ -9,6 +10,7 @@ import { BuildTool, type Preview } from '../ui/buildTool';
 import { zoomLayout } from '../ui/buildLayout';
 import { growRect, tileAtWorld, visibleRect, type CameraBounds, type Point, type Rect } from '../ui/cameraMath';
 import { landRegions } from '../ui/cameraRegions';
+import { simulationDelta } from '../ui/frameTime';
 import { createLabel, setLabelSize } from '../ui/label';
 import { RoundButton } from '../ui/RoundButton';
 import { COLORS, TILE_SIZE, clamp, rgb } from '../ui/style';
@@ -85,6 +87,8 @@ export class IslandScene extends Phaser.Scene {
   private paths = '';
   private terrain = '';
   private previewText = 'none';
+  private producers = '[]';
+  private producersTick = -1;
 
   constructor(simulation: Simulation) {
     super(SCENES.island);
@@ -124,6 +128,17 @@ export class IslandScene extends Phaser.Scene {
       (command) => {
         this.simulation.send(command);
       },
+      ({ at, refund }) => {
+        // What the player gets back for a demolished building floats up where it stood.
+        const type = buildingAt(this.simulation.state, at.x, at.y);
+        const size = type ? buildingType(type.type)?.footprint : undefined;
+        this.village.popAmounts(
+          (at.x + (size?.w ?? 1) / 2) * TILE_SIZE,
+          (at.y + (size?.h ?? 1) / 2) * TILE_SIZE,
+          Object.entries(refund),
+          this.controller.view.zoom,
+        );
+      },
     );
     this.terrain = terrainLetters(world);
     this.ring = this.add.image(0, 0, RING_KEY).setDepth(TOP_DEPTH).setVisible(false);
@@ -143,6 +158,9 @@ export class IslandScene extends Phaser.Scene {
       focusPadding: 12,
       tileSize: TILE_SIZE,
       maxTileCssPx: CAMERA_CONFIG.maxTileCssPx,
+      minStartTileCssPx: CAMERA_CONFIG.minStartTileCssPx,
+      // The start village sits in the middle of the island.
+      startCenter: { x: (world.width / 2) * TILE_SIZE, y: (world.height / 2) * TILE_SIZE },
       tapMaxMovePx: CAMERA_CONFIG.tapMaxMovePx,
       wheelZoomPerPixel: CAMERA_CONFIG.wheelZoomPerPixel,
       blocksCamera: (object) => object.displayList === this.uiLayer,
@@ -166,16 +184,21 @@ export class IslandScene extends Phaser.Scene {
       onTap: () => this.controller.zoomBy(1 / CAMERA_CONFIG.buttonZoomFactor),
     });
     this.uiLayer.add([zoomIn, zoomOut]);
-    this.buildUI = new BuildUI(this, this.uiLayer, this.buildTool, () => {
-      this.previewKey = '';
-    });
+    this.buildUI = new BuildUI(
+      this,
+      this.uiLayer,
+      this.buildTool,
+      () => this.simulation.state,
+      () => {
+        this.previewKey = '';
+      },
+    );
 
     onViewportChange(this, ({ width, height }: ViewSize) => {
       this.controller.layout({ width, height });
 
       const m = Math.min(width, height);
       setLabelSize(greeting, clamp(m * 0.07, 26, 64), width * 0.9);
-      greeting.setPosition(width / 2, Math.max(14, height * 0.04) + greeting.height / 2);
 
       // The zoom buttons sit at the top right; the bottom belongs to the toolbar.
       const zoom = zoomLayout(width, height);
@@ -188,6 +211,8 @@ export class IslandScene extends Phaser.Scene {
           'zoom-out': { x: zoomOut.x, y: zoomOut.y, enabled: true },
         },
       );
+      // The greeting sits below the store bar.
+      greeting.setPosition(width / 2, this.buildUI.stockBottom + 12 + greeting.height / 2);
     });
 
     const fade = rgb(COLORS.waterDeep);
@@ -200,7 +225,8 @@ export class IslandScene extends Phaser.Scene {
   }
 
   override update(_time: number, delta: number): void {
-    const alpha = this.simulation.update(delta);
+    // The raw frame time, not Phaser's smoothed `delta`: only the clock of the simulation caps a frame (see frameTime.ts).
+    const alpha = this.simulation.update(simulationDelta(this.game.loop.rawDelta, delta));
     const seconds = ((this.simulation.state.tick + alpha) * this.simulation.tickMs) / 1000;
 
     this.controller.update(delta);
@@ -320,6 +346,11 @@ export class IslandScene extends Phaser.Scene {
     if (this.buildUI.worldTapsPaused(eventTime)) {
       return;
     }
+    // A tap beside the open info card closes it and does nothing else.
+    if (this.buildTool.inspectedId !== undefined) {
+      this.buildTool.closeInfo();
+      return;
+    }
     const map = this.simulation.state.world;
     const tile = tileAtWorld(world, TILE_SIZE, map);
     if (!tile) {
@@ -334,9 +365,16 @@ export class IslandScene extends Phaser.Scene {
     const notice = this.buildTool.tap(tile, world);
     if (notice) {
       this.buildUI.showNotice(notice);
-    } else if (this.buildTool.tool === 'view' && this.village.markerAt(world.x, world.y) !== undefined) {
-      // The sign above a house is tapped too: say what is missing.
-      this.buildUI.showNotice('hint.needsPath');
+    } else if (this.buildTool.tool === 'view') {
+      // The sign above a building is tapped too: a production building opens its card, a house says what is missing.
+      const signOf = this.village.markerAt(world.x, world.y);
+      if (signOf !== undefined) {
+        if (buildingType(this.simulation.state.buildings.find((b) => b.id === signOf)?.type ?? '')?.category === 'production') {
+          this.buildTool.inspect(signOf);
+        } else {
+          this.buildUI.showNotice('hint.needsPath');
+        }
+      }
     }
   }
 
@@ -359,6 +397,7 @@ export class IslandScene extends Phaser.Scene {
       this.previewText = describePreview(this.preview);
       this.village.setPreview(this.preview);
     }
+    this.village.setInspect(this.buildTool.inspectedId);
     const view = this.controller.view;
     // The top of the visible world below the hint bar: house signs do not slide under the bar.
     const topEdge = view.centerY - this.controller.viewSize.height / (2 * view.zoom) + this.buildUI.topInset / view.zoom;
@@ -369,6 +408,11 @@ export class IslandScene extends Phaser.Scene {
   /** Publishes the building state for tests (`<html data-tool data-buildings …>`). */
   private publishVillage(revision: number): void {
     const state = this.simulation.state;
+    if (state.tick !== this.producersTick) {
+      this.producersTick = state.tick;
+      // [building id, status, times delivered] – changes rarely, so the page attribute is rarely written.
+      this.producers = JSON.stringify(state.production.map((p) => [p.buildingId, p.status, p.delivered]));
+    }
     if (revision !== this.publishedRevision) {
       this.publishedRevision = revision;
       this.buildings = JSON.stringify(state.buildings.map((b) => [b.id, b.type, b.x, b.y, isConnected(state, b.id) ? 1 : 0]));
@@ -388,6 +432,9 @@ export class IslandScene extends Phaser.Scene {
       paths: this.paths,
       terrain: this.terrain,
       ui: this.buildUI.spots,
+      stock: this.buildUI.shownStock,
+      producers: this.producers,
+      card: this.buildTool.inspectedId === undefined ? '' : String(this.buildTool.inspectedId),
     });
   }
 

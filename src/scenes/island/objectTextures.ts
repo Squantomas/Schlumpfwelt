@@ -23,6 +23,9 @@ export const RING_OUTER_FRACTION = 0.89;
 /** Where the object touches the ground, as fraction of the texture (for `setOrigin`). */
 export const OBJECT_ORIGIN = { tree: { x: 0.5, y: 0.92 }, rock: { x: 0.5, y: 0.86 } } as const;
 
+/** Free space around the footprint in the texture of a building (logical px): room for the shadow. */
+export const PAD = 8;
+
 export type Draw = (ctx: CanvasRenderingContext2D, width: number, height: number) => void;
 
 /** Creates all object textures (once; later scenes reuse them). */

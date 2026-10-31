@@ -44,7 +44,7 @@ Sammeln → Verarbeiten → Verkaufen → **Geld** → Shop (Häuser, Deko, Schl
 | Bäckerei | Bäcker-Schlumpf | Beeren | Beerenkuchen |
 | Marktplatz | Händler-Schlumpf | Waren | Geld |
 
-Bau-Materialien (Holz, Stein) werden fürs Bauen verbraucht, Endprodukte (Möbel, Kuchen) bringen auf dem Markt Geld. Kuchen ist zugleich Essen.
+Bau-Materialien (Holz, Stein) werden fürs Bauen verbraucht, Endprodukte (Möbel, Kuchen) bringen auf dem Markt Geld. Kuchen ist zugleich Essen. Der Markt kauft zusätzlich überschüssige Beeren für wenig Geld (Reserve für die Bäckerei bleibt): So führt schon ein Beerengarten mit Markt immer wieder zu Geld, und der Holzfäller kostet nur Taler – man kann sich nie festspielen (Entscheidung M3, Korrekturrunde 1).
 
 ### Schlümpfe
 - Name, Beruf, Mützenfarbe, Stimmung (fröhlich / normal / traurig) – antippen zeigt eine Karte

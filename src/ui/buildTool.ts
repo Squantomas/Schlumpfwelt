@@ -1,18 +1,24 @@
 import { buildingType, typesOf, type BuildingCategory } from '../data/buildings';
-import type { TextKey } from '../data/texts';
+import type { TextKey, TextParams } from '../data/texts';
 import {
   buildingAt,
   buildingAtPoint,
   checkPlacement,
   isConnected,
   isPath,
+  wouldBeConnected,
   type PlacementProblem,
   type PlacementView,
   type Tile,
 } from '../sim/buildings';
 import type { Command } from '../sim/commands';
+import type { DeepReadonly } from '../sim/readonly';
+import type { SimState } from '../sim/state';
+import { ITEM_IDS } from '../data/goods';
+import { canAfford, missingFor, refundFor } from '../sim/economy';
 import { findRoute, type RouteFailure } from '../sim/route';
 import type { Point } from './cameraMath';
+import { listText, missingParams, totalUnits } from './costText';
 import { TILE_SIZE } from './style';
 
 /**
@@ -27,18 +33,22 @@ import { TILE_SIZE } from './style';
  * (through `send`); the scene draws whatever `preview()` says.
  */
 
-export type ToolId = 'view' | 'path' | 'house' | 'deco' | 'move' | 'demolish';
+/** What the tools read: the placement rules' view plus the working state (for refunds) and the tick (for the cards). */
+export type BuildToolState = PlacementView & DeepReadonly<Pick<SimState, 'production' | 'tick'>>;
+
+export type ToolId = 'view' | 'path' | 'house' | 'building' | 'deco' | 'move' | 'demolish';
 
 /** The tools in the order of the toolbar (without "view", which is "no tool"). */
-export const TOOLS: readonly Exclude<ToolId, 'view'>[] = ['path', 'house', 'deco', 'move', 'demolish'];
+export const TOOLS: readonly Exclude<ToolId, 'view'>[] = ['path', 'house', 'building', 'deco', 'move', 'demolish'];
 
 /**
  * Tools that place things of a category, and which category: the toolbar shows
- * the picker with all types of that category. A new category (M3: production
- * buildings) only needs a tool and a line here.
+ * the picker with all types of that category. A new category only needs a
+ * tool and a line here (M3: "building" = the production buildings).
  */
 export const TOOL_CATEGORIES: Readonly<Partial<Record<ToolId, BuildingCategory>>> = {
   house: 'house',
+  building: 'production',
   deco: 'deco',
 };
 
@@ -52,7 +62,7 @@ export interface PathPreviewTile extends Tile {
 export type Preview =
   | { readonly kind: 'none' }
   /** A house or decoration, top left tile (x, y). */
-  | ({ readonly kind: 'place'; readonly typeId: string; readonly x: number; readonly y: number } & PlacementProblem)
+  | ({ readonly kind: 'place'; readonly typeId: string; readonly x: number; readonly y: number; readonly connected: boolean } & PlacementProblem)
   /** The route of a new path. `error` is set when there is none (blocked end, no way, too long). */
   | { readonly kind: 'path'; readonly tiles: readonly PathPreviewTile[]; readonly error?: RouteFailure }
   /** A chosen building and, once a tile was tapped, where it would go. */
@@ -61,10 +71,10 @@ export type Preview =
       readonly id: number;
       readonly typeId: string;
       readonly from: Tile;
-      readonly target?: { readonly x: number; readonly y: number } & PlacementProblem;
+      readonly target?: { readonly x: number; readonly y: number; readonly connected: boolean } & PlacementProblem;
     }
-  /** A building or path tile marked for demolition; `tiles` is everything that disappears. */
-  | { readonly kind: 'demolish'; readonly tiles: readonly Tile[] };
+  /** A building or path tile marked for demolition; `tiles` is everything that disappears, `refund` what the player gets back. */
+  | { readonly kind: 'demolish'; readonly tiles: readonly Tile[]; readonly refund: Readonly<Record<string, number>> };
 
 type Pending =
   | { readonly kind: 'none' }
@@ -96,6 +106,10 @@ export function problemHint(problem: PlacementProblem, forPath = false): TextKey
       return 'hint.occupied';
     case 'outOfMap':
       return 'hint.edge';
+    case 'noNearby':
+      return problem.terrain === 'rock' ? 'hint.noRock' : 'hint.noForest';
+    case 'cost':
+      return totalUnits(problem.missing ?? {}) === 1 ? 'hint.missingOne' : 'hint.missing';
     case 'terrain':
       switch (problem.terrain) {
         case 'water':
@@ -113,25 +127,69 @@ export function problemHint(problem: PlacementProblem, forPath = false): TextKey
   }
 }
 
+/** The values for the placeholders of the hint of a problem (`{list}` of the missing amounts for `cost`). */
+export function problemParams(problem: PlacementProblem): TextParams | undefined {
+  return problem.result === 'cost' ? missingParams(problem.missing ?? {}) : undefined;
+}
+
+/** A demolished building and what the player got back for it (for the little display where it stood). */
+export interface RefundInfo {
+  /** The tile that was demolished (top left of the building). */
+  readonly at: Tile;
+  readonly refund: Readonly<Record<string, number>>;
+}
+
 export class BuildTool {
   private current: ToolId = 'view';
   private pending: Pending = { kind: 'none' };
   private readonly variants = new Map<ToolId, string>();
   private changes = 0;
   private cache: { readonly key: string; readonly preview: Preview } | undefined;
+  private inspected: number | undefined;
+  /** Has the child chosen a card since the tool was switched on (or the last ✓)? Only then a card it can not pay says what is missing. */
+  private variantChosen = false;
+  private lastStoreKey = 0;
 
+  /** `onRefund` is called when ✓ demolishes a building that gives something back (for the little "+10" display). */
   constructor(
-    private readonly getState: () => PlacementView,
+    private readonly getState: () => BuildToolState,
     private readonly send: (command: Command) => void,
+    private readonly onRefund?: (info: RefundInfo) => void,
   ) {
     for (const [tool, category] of Object.entries(TOOL_CATEGORIES) as [ToolId, BuildingCategory][]) {
       this.variants.set(tool, typesOf(category)[0]?.id ?? '');
     }
+    this.lastStoreKey = this.storeKey();
   }
 
-  /** Counts every change of tool, variant or preview (for redrawing). */
+  /**
+   * Looks at the store: while a building tool is on, a change of any amount counts as a change of the tool (for redrawing),
+   * so a preview that was red because something was missing turns green when it arrives, and the other way round.
+   * Call once per frame before reading {@link version}. (`preview()` also knows the store by itself.)
+   */
+  sync(): void {
+    const key = this.storeKey();
+    if (key !== this.lastStoreKey) {
+      this.lastStoreKey = key;
+      if (this.current !== 'view') {
+        this.changes += 1;
+      }
+    }
+  }
+
+  /** Counts every change of tool, variant, preview and (see {@link sync}) store, for redrawing. */
   get version(): number {
     return this.changes;
+  }
+
+  /** A number that changes when the amount of something in the store changes (no allocation, called every frame). */
+  private storeKey(): number {
+    const { inventory } = this.getState();
+    let key = 17;
+    for (const id of ITEM_IDS) {
+      key = (Math.imul(key, 31) + (inventory[id] ?? 0)) | 0;
+    }
+    return key;
   }
 
   get tool(): ToolId {
@@ -158,6 +216,8 @@ export class BuildTool {
     }
     this.current = tool;
     this.pending = { kind: 'none' };
+    this.inspected = undefined;
+    this.variantChosen = false;
     this.changes += 1;
   }
 
@@ -168,11 +228,40 @@ export class BuildTool {
     this.changes += 1;
   }
 
+  /** The production building whose info card is open (only while looking), if any. */
+  get inspectedId(): number | undefined {
+    return this.current === 'view' ? this.inspected : undefined;
+  }
+
+  /** Opens the info card of a production building (a tap on the sign above it). */
+  inspect(buildingId: number): void {
+    const building = this.getState().buildings.find((b) => b.id === buildingId);
+    if (this.current === 'view' && building && buildingType(building.type)?.category === 'production') {
+      this.inspected = buildingId;
+      this.changes += 1;
+    }
+  }
+
+  /** Closes the info card. */
+  closeInfo(): void {
+    if (this.inspected !== undefined) {
+      this.inspected = undefined;
+      this.changes += 1;
+    }
+  }
+
+  /** Can the player pay for the chosen variant right now? (`true` for tools without variants.) */
+  get variantAffordable(): boolean {
+    const variant = this.variant;
+    return variant === undefined || variant === '' || canAfford(this.getState(), variant);
+  }
+
   /** Chooses a variant for the current tool; a placed preview stays where it is and changes its type. */
   selectVariant(typeId: string): void {
     const category = this.variantCategory;
     if (category && buildingType(typeId)?.category === category) {
       this.variants.set(this.current, typeId);
+      this.variantChosen = true;
       if (this.pending.kind === 'place') {
         this.pending = { ...this.pending, typeId };
       }
@@ -189,6 +278,20 @@ export class BuildTool {
     if (problem) {
       return problem;
     }
+    const preview = this.preview();
+    if (preview.kind === 'demolish' && totalUnits(preview.refund) > 0) {
+      return 'hint.refund';
+    }
+    // A place that works, but where the building will have no path yet: say what to do next.
+    const noPath = this.noPathHint(preview);
+    if (noPath) {
+      return noPath;
+    }
+    // Before a place is tapped: a variant the player can not pay for says what is missing.
+    const variant = this.variant;
+    if (preview.kind === 'none' && variant && this.variantChosen && !this.variantAffordable) {
+      return totalUnits(missingFor(this.getState(), variant)) === 1 ? 'hint.missingOne' : 'hint.missing';
+    }
     switch (this.current) {
       case 'view':
         return undefined;
@@ -199,8 +302,38 @@ export class BuildTool {
       case 'demolish':
         return 'hint.demolish';
       case 'house':
+      case 'building':
       case 'deco':
         return 'hint.place';
+    }
+  }
+
+  private noPathHint(preview: Preview): TextKey | undefined {
+    const target = preview.kind === 'place' ? preview : preview.kind === 'move' ? preview.target : undefined;
+    const typeId = preview.kind === 'place' ? preview.typeId : preview.kind === 'move' ? preview.typeId : undefined;
+    const type = typeId ? buildingType(typeId) : undefined;
+    if (target?.result !== 'ok' || target.connected || !type?.needsPath) {
+      return undefined;
+    }
+    return type.category === 'production' ? 'hint.noPathWork' : 'hint.noPathHouse';
+  }
+
+  /** The values for the placeholders of {@link hint} (`{list}`), if it has any. */
+  get hintParams(): TextParams | undefined {
+    const preview = this.preview();
+    switch (preview.kind) {
+      case 'place':
+        return problemParams(preview);
+      case 'move':
+        return preview.target ? problemParams(preview.target) : undefined;
+      case 'demolish':
+        return totalUnits(preview.refund) > 0 ? { list: listText(preview.refund) } : undefined;
+      case 'none': {
+        const variant = this.variant;
+        return variant && this.variantChosen && !this.variantAffordable ? missingParams(missingFor(this.getState(), variant)) : undefined;
+      }
+      case 'path':
+        return undefined;
     }
   }
 
@@ -247,8 +380,20 @@ export class BuildTool {
       return undefined;
     }
     switch (this.current) {
-      case 'view':
-        return building && buildingType(building.type)?.needsPath && !isConnected(state, building.id) ? 'hint.needsPath' : undefined;
+      case 'view': {
+        const type = building ? buildingType(building.type) : undefined;
+        if (building && type?.category === 'production') {
+          // A production building opens its info card (it says by itself if a path is missing).
+          this.inspected = building.id;
+          this.changes += 1;
+          return undefined;
+        }
+        if (this.inspected !== undefined) {
+          this.inspected = undefined;
+          this.changes += 1;
+        }
+        return building && type?.needsPath && !isConnected(state, building.id) ? 'hint.needsPath' : undefined;
+      }
       case 'path':
         return this.tapPath(tile);
       case 'move':
@@ -267,6 +412,7 @@ export class BuildTool {
         return undefined;
       }
       case 'house':
+      case 'building':
       case 'deco':
         return undefined;
     }
@@ -317,7 +463,7 @@ export class BuildTool {
 
   /** What to show right now, computed from the pending taps and the current state (cached until something changes). */
   preview(): Preview {
-    const key = `${String(this.changes)}|${String(this.getState().revision)}`;
+    const key = `${String(this.changes)}|${String(this.getState().revision)}|${String(this.storeKey())}`;
     if (this.cache?.key !== key) {
       this.cache = { key, preview: this.computePreview() };
     }
@@ -332,7 +478,8 @@ export class BuildTool {
         return { kind: 'none' };
       case 'place': {
         const anchor = anchorFor(pending.typeId, pending.tile);
-        return { kind: 'place', typeId: pending.typeId, x: anchor.x, y: anchor.y, ...checkPlacement(state, pending.typeId, anchor.x, anchor.y) };
+        const connected = wouldBeConnected(state, pending.typeId, anchor.x, anchor.y);
+        return { kind: 'place', typeId: pending.typeId, x: anchor.x, y: anchor.y, connected, ...checkPlacement(state, pending.typeId, anchor.x, anchor.y) };
       }
       case 'path': {
         const tileOf = (tile: Tile): PathPreviewTile => {
@@ -367,7 +514,9 @@ export class BuildTool {
           id: building.id,
           typeId: building.type,
           from: { x: building.x, y: building.y },
-          ...(target ? { target: { x: target.x, y: target.y, ...checkPlacement(state, building.type, target.x, target.y, building.id) } } : {}),
+          ...(target
+            ? { target: { x: target.x, y: target.y, connected: wouldBeConnected(state, building.type, target.x, target.y), ...checkPlacement(state, building.type, target.x, target.y, building.id) } }
+            : {}),
         };
       }
       case 'demolish': {
@@ -380,9 +529,9 @@ export class BuildTool {
               tiles.push({ x: building.x + dx, y: building.y + dy });
             }
           }
-          return { kind: 'demolish', tiles };
+          return { kind: 'demolish', tiles, refund: refundFor(state, building.id) };
         }
-        return isPath(state, pending.x, pending.y) ? { kind: 'demolish', tiles: [{ x: pending.x, y: pending.y }] } : { kind: 'none' };
+        return isPath(state, pending.x, pending.y) ? { kind: 'demolish', tiles: [{ x: pending.x, y: pending.y }], refund: {} } : { kind: 'none' };
       }
     }
   }
@@ -424,6 +573,7 @@ export class BuildTool {
     switch (preview.kind) {
       case 'place':
         this.send({ type: 'placeBuilding', buildingType: preview.typeId, x: preview.x, y: preview.y });
+        this.variantChosen = false;
         break;
       case 'path':
         this.send({ type: 'placePaths', tiles: preview.tiles.filter((tile) => tile.status === 'ok').map(({ x, y }) => ({ x, y })) });
@@ -437,6 +587,9 @@ export class BuildTool {
         const tile = preview.tiles[0];
         if (tile) {
           this.send({ type: 'demolish', x: tile.x, y: tile.y });
+          if (totalUnits(preview.refund) > 0) {
+            this.onRefund?.({ at: tile, refund: preview.refund });
+          }
         }
         break;
       }
@@ -459,6 +612,10 @@ export class BuildTool {
   refresh(): void {
     if (this.pending.kind !== 'none' && this.preview().kind === 'none') {
       this.pending = { kind: 'none' };
+    }
+    const inspected = this.inspected;
+    if (inspected !== undefined && !this.getState().buildings.some((b) => b.id === inspected)) {
+      this.inspected = undefined;
     }
     this.changes += 1;
   }

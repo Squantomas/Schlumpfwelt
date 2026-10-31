@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { applyCommand, type Command } from '../../src/sim/commands';
 import type { SimState } from '../../src/sim/state';
-import { BuildTool, TOOLS, TOOL_CATEGORIES, anchorFor, problemHint } from '../../src/ui/buildTool';
-import { grassState, pathAt, run, setTerrainAt } from '../sim/helpers';
+import { t } from '../../src/data/texts';
+import { BuildTool, TOOLS, TOOL_CATEGORIES, anchorFor, problemHint, type RefundInfo } from '../../src/ui/buildTool';
+import { buildConnected, fillTerrain, grassState, pathAt, run, setStore, setTerrainAt } from '../sim/helpers';
 
 /** A tool on a grass map whose commands are applied right away (the real game applies them at the next tick). */
 function setup(state: SimState = grassState()): { state: SimState; tool: BuildTool; sent: Command[] } {
@@ -47,7 +48,7 @@ describe('Werkzeuge', () => {
   });
 
   it('ordnet Werkzeuge ihren Kategorien zu (datengetrieben)', () => {
-    expect(TOOL_CATEGORIES).toEqual({ house: 'house', deco: 'deco' });
+    expect(TOOL_CATEGORIES).toEqual({ house: 'house', building: 'production', deco: 'deco' });
     const { tool } = setup();
     for (const id of TOOLS) {
       tool.selectTool(id);
@@ -111,7 +112,7 @@ describe('Setzen: Haus und Deko', () => {
     const { tool } = setup();
     tool.selectTool('house');
     tool.tap({ x: 5, y: 6 });
-    expect(tool.preview()).toEqual({ kind: 'place', typeId: 'house-red', x: 5, y: 5, result: 'ok' });
+    expect(tool.preview()).toEqual({ kind: 'place', typeId: 'house-red', x: 5, y: 5, connected: false, result: 'ok' });
     expect(tool.canConfirm).toBe(true);
   });
 
@@ -420,6 +421,7 @@ describe('Abreißen', () => {
     expect(tool.preview()).toEqual({
       kind: 'demolish',
       tiles: [{ x: 3, y: 3 }, { x: 4, y: 3 }, { x: 3, y: 4 }, { x: 4, y: 4 }],
+      refund: { coins: 40, stone: 5 },
     });
   });
 
@@ -435,7 +437,7 @@ describe('Abreißen', () => {
   it('reißt genau eine Weg-Kachel ab', () => {
     const { state, tool } = withVillage();
     tool.tap({ x: 8, y: 8 });
-    expect(tool.preview()).toEqual({ kind: 'demolish', tiles: [{ x: 8, y: 8 }] });
+    expect(tool.preview()).toEqual({ kind: 'demolish', tiles: [{ x: 8, y: 8 }], refund: {} });
     tool.confirm();
     expect(pathAt(state, 8, 8)).toBe(false);
     expect(pathAt(state, 9, 8)).toBe(true);
@@ -445,7 +447,7 @@ describe('Abreißen', () => {
     const { tool } = withVillage();
     tool.tap({ x: 4, y: 4 });
     tool.tap({ x: 9, y: 8 });
-    expect(tool.preview()).toEqual({ kind: 'demolish', tiles: [{ x: 9, y: 8 }] });
+    expect(tool.preview()).toEqual({ kind: 'demolish', tiles: [{ x: 9, y: 8 }], refund: {} });
   });
 
   it('erklärt, wenn nichts da ist, und räumt die Markierung weg', () => {
@@ -503,7 +505,7 @@ describe('Tipp aufs Dach (Regression)', () => {
     const { state, tool } = withRoofPath();
     tool.selectTool('demolish');
     tool.tap(roofOverPath.tile, roofOverPath.world);
-    expect(tool.preview()).toEqual({ kind: 'demolish', tiles: [{ x: 5, y: 4 }] });
+    expect(tool.preview()).toEqual({ kind: 'demolish', tiles: [{ x: 5, y: 4 }], refund: {} });
     tool.confirm();
     expect(pathAt(state, 5, 4)).toBe(false);
     expect(state.buildings).toHaveLength(1);
@@ -560,7 +562,7 @@ describe('Tipp aufs Dach (Regression)', () => {
     const { tool } = withRoofPath();
     tool.selectTool('demolish');
     tool.tap({ x: 5, y: 4 });
-    expect(tool.preview()).toEqual({ kind: 'demolish', tiles: [{ x: 5, y: 4 }] });
+    expect(tool.preview()).toEqual({ kind: 'demolish', tiles: [{ x: 5, y: 4 }], refund: {} });
   });
 
   it('baut beim Platzieren weiter nach der Kachel, nicht nach der Grafik eines Hauses', () => {
@@ -681,5 +683,357 @@ describe('Zwischenspeicher', () => {
     expect(second).not.toBe(first);
     expect(second).toMatchObject({ result: 'blocked' });
     expect(tool.canConfirm).toBe(false);
+  });
+});
+
+describe('Gebäude-Werkzeug und Kosten (M3)', () => {
+  it('hat sechs Werkzeuge: Weg, Haus, Gebäude, Deko, Verschieben, Abreißen', () => {
+    expect([...TOOLS]).toEqual(['path', 'house', 'building', 'deco', 'move', 'demolish']);
+  });
+
+  it('bietet im Gebäude-Werkzeug die sechs Produktionsgebäude an', () => {
+    const { tool } = setup();
+    tool.selectTool('building');
+    expect(tool.variantCategory).toBe('production');
+    expect(tool.variant).toBe('lumberjack');
+    tool.selectVariant('market');
+    expect(tool.variant).toBe('market');
+    tool.selectVariant('house-red');
+    expect(tool.variant).toBe('market');
+  });
+
+  it('färbt eine zu teure Vorschau rot, sperrt ✓ und sagt, was fehlt', () => {
+    const state = grassState();
+    setStore(state, { coins: 100, wood: 5 });
+    const { tool, sent } = setup(state);
+    tool.selectTool('house');
+    tool.tap({ x: 6, y: 6 });
+    expect(tool.preview()).toMatchObject({ kind: 'place', result: 'cost', missing: { wood: 3 } });
+    expect(tool.canConfirm).toBe(false);
+    expect(tool.hint).toBe('hint.missing');
+    expect(t(tool.hint ?? 'hint.missing', tool.hintParams)).toBe('Dir fehlen 3 Holz. Holz bringt der Holzfäller – oder reiß etwas ab.');
+    expect(tool.confirm()).toBe('hint.missing');
+    expect(sent).toHaveLength(0);
+  });
+
+  it('sagt bei genau einem fehlenden Stück „fehlt“ und nennt mehrere Dinge', () => {
+    const state = grassState();
+    setStore(state, { coins: 100, wood: 7 });
+    const { tool } = setup(state);
+    tool.selectTool('house');
+    tool.tap({ x: 6, y: 6 });
+    expect(tool.hint).toBe('hint.missingOne');
+    expect(t(tool.hint ?? 'hint.missing', tool.hintParams)).toBe('Dir fehlt 1 Holz. Holz bringt der Holzfäller – oder reiß etwas ab.');
+    setStore(state, { coins: 10 });
+    tool.tap({ x: 6, y: 6 });
+    expect(t(tool.hint ?? 'hint.missing', tool.hintParams)).toBe('Dir fehlen 30 Taler und 8 Holz. Taler bringt der Markt – oder reiß etwas ab.');
+  });
+
+  it('sagt schon beim Wählen einer zu teuren Variante, was fehlt, und wird beim Auffüllen wieder frei', () => {
+    const state = grassState();
+    setStore(state, { coins: 100, wood: 5 });
+    const { tool } = setup(state);
+    tool.selectTool('house');
+    expect(tool.variantAffordable).toBe(false);
+    // Noch nichts gewählt (nur die Vorgabe): kein „Dir fehlen …“, nur die Anleitung.
+    expect(tool.hint).toBe('hint.place');
+    tool.selectVariant('house-red');
+    expect(tool.hint).toBe('hint.missing');
+    expect(t(tool.hint ?? 'hint.missing', tool.hintParams)).toBe('Dir fehlen 3 Holz. Holz bringt der Holzfäller – oder reiß etwas ab.');
+    state.inventory['wood'] = 8;
+    expect(tool.variantAffordable).toBe(true);
+    expect(tool.hint).toBe('hint.place');
+    expect(tool.hintParams).toBeUndefined();
+    tool.selectTool('path');
+    expect(tool.variantAffordable).toBe(true);
+  });
+
+  it('baut mit ✓, sobald alles da ist, und bucht ab', () => {
+    const state = grassState();
+    setStore(state, { coins: 100, wood: 20 });
+    const { tool } = setup(state);
+    tool.selectTool('house');
+    tool.tap({ x: 6, y: 6 });
+    expect(tool.canConfirm).toBe(true);
+    tool.confirm();
+    expect(state.buildings).toHaveLength(1);
+    expect(state.inventory['coins']).toBe(60);
+  });
+
+  it('färbt einen Holzfäller ohne Bäume in der Nähe rot und sagt es; mit Bäumen wird er grün', () => {
+    const state = grassState(24);
+    fillTerrain(state, 14, 2, 3, 4, 'forest');
+    const { tool } = setup(state);
+    tool.selectTool('building');
+    tool.tap({ x: 3, y: 15 });
+    expect(tool.preview()).toMatchObject({ kind: 'place', result: 'noNearby', terrain: 'forest' });
+    expect(tool.hint).toBe('hint.noForest');
+    expect(t('hint.noForest')).toBe('Hier sind keine Bäume in der Nähe.');
+    expect(tool.canConfirm).toBe(false);
+    tool.tap({ x: 11, y: 4 });
+    expect(tool.preview()).toMatchObject({ kind: 'place', result: 'ok', connected: false });
+    // Ohne Weg daneben ist die Vorschau grün, der Hinweis sagt aber, was als Nächstes zu tun ist.
+    expect(tool.hint).toBe('hint.noPathWork');
+    expect(tool.canConfirm).toBe(true);
+  });
+
+  it('sagt beim Steinbruch, dass Felsen fehlen', () => {
+    const { tool } = setup(grassState(24));
+    tool.selectTool('building');
+    tool.selectVariant('quarry');
+    tool.tap({ x: 5, y: 5 });
+    expect(tool.hint).toBe('hint.noRock');
+    expect(t('hint.noRock')).toBe('Hier sind keine Felsen in der Nähe.');
+  });
+
+  it('zeigt vor dem Abreißen, was man zurückbekommt, und meldet es nach ✓', () => {
+    const state = grassState();
+    setStore(state, { coins: 100, wood: 20 });
+    run(state, { type: 'placeBuilding', buildingType: 'house-red', x: 4, y: 4 });
+    const refunds: RefundInfo[] = [];
+    const tool = new BuildTool(
+      () => state,
+      (command) => {
+        applyCommand(state, command);
+      },
+      (info) => refunds.push(info),
+    );
+    tool.selectTool('demolish');
+    tool.tap({ x: 5, y: 5 });
+    expect(tool.hint).toBe('hint.refund');
+    expect(t('hint.refund', tool.hintParams)).toBe('Du bekommst 40 Taler und 8 Holz zurück. Dann ✓.');
+    tool.confirm();
+    expect(refunds).toEqual([{ at: { x: 4, y: 4 }, refund: { coins: 40, wood: 8 } }]);
+    expect(state.inventory['coins']).toBe(60 + 40);
+  });
+
+  it('meldet keine Erstattung für Wege', () => {
+    const state = grassState();
+    run(state, { type: 'placePaths', tiles: [{ x: 3, y: 3 }] });
+    const refunds: RefundInfo[] = [];
+    const tool = new BuildTool(() => state, (command) => { applyCommand(state, command); }, (info) => refunds.push(info));
+    tool.selectTool('demolish');
+    tool.tap({ x: 3, y: 3 });
+    expect(tool.hint).toBe('hint.demolish');
+    tool.confirm();
+    expect(refunds).toEqual([]);
+  });
+
+  it('erlaubt das Verschieben auch mit leerem Lager (kostenlos)', () => {
+    const state = grassState();
+    setStore(state, { coins: 100, wood: 20 });
+    run(state, { type: 'placeBuilding', buildingType: 'house-red', x: 4, y: 4 });
+    setStore(state);
+    const { tool } = setup(state);
+    tool.selectTool('move');
+    tool.tap({ x: 4, y: 4 });
+    tool.tap({ x: 9, y: 9 });
+    expect(tool.preview()).toMatchObject({ kind: 'move', target: { result: 'ok' } });
+    expect(tool.canConfirm).toBe(true);
+  });
+});
+
+describe('Infokarte öffnen und schließen (M3)', () => {
+  const withProduction = (): ReturnType<typeof setup> & { id: number } => {
+    const state = grassState(24);
+    setStore(state, { coins: 100, wood: 20 });
+    const id = buildConnected(state, 'berry-garden', 4, 3);
+    run(state, { type: 'placeBuilding', buildingType: 'house-red', x: 10, y: 3 });
+    return { ...setup(state), id };
+  };
+
+  it('öffnet beim Antippen eines Produktionsgebäudes im Anschauen die Karte', () => {
+    const { tool, id } = withProduction();
+    expect(tool.inspectedId).toBeUndefined();
+    expect(tool.tap({ x: 4, y: 3 })).toBeUndefined();
+    expect(tool.inspectedId).toBe(id);
+  });
+
+  it('öffnet die Karte auch über das Dach', () => {
+    const { tool, id } = withProduction();
+    // Das Dach des Beerengartens ragt über die Kachel (4, 2) hinaus.
+    tool.tap({ x: 4, y: 2 }, { x: 4.5 * 64, y: 3 * 64 - 20 });
+    expect(tool.inspectedId).toBe(id);
+  });
+
+  it('öffnet keine Karte für Häuser und leere Wiese, und das Haus ohne Weg sagt weiter „braucht Weg“', () => {
+    const { tool } = withProduction();
+    expect(tool.tap({ x: 10, y: 3 })).toBe('hint.needsPath');
+    expect(tool.inspectedId).toBeUndefined();
+    tool.tap({ x: 4, y: 3 });
+    tool.tap({ x: 20, y: 20 });
+    expect(tool.inspectedId).toBeUndefined();
+  });
+
+  it('schließt die Karte mit closeInfo, beim Wählen eines Werkzeugs und wenn das Gebäude weg ist', () => {
+    const { tool, state } = withProduction();
+    tool.tap({ x: 4, y: 3 });
+    tool.closeInfo();
+    expect(tool.inspectedId).toBeUndefined();
+    tool.tap({ x: 4, y: 3 });
+    tool.selectTool('deco');
+    expect(tool.inspectedId).toBeUndefined();
+    tool.exitTool();
+    expect(tool.inspectedId).toBeUndefined();
+    tool.tap({ x: 4, y: 3 });
+    expect(tool.inspectedId).toBeDefined();
+    run(state, { type: 'demolish', x: 4, y: 3 });
+    tool.refresh();
+    expect(tool.inspectedId).toBeUndefined();
+  });
+
+  it('zeigt die Karte nur im Anschauen', () => {
+    const { tool } = withProduction();
+    tool.tap({ x: 4, y: 3 });
+    tool.selectTool('move');
+    tool.exitTool();
+    expect(tool.inspectedId).toBeUndefined();
+  });
+
+  it('zählt das Öffnen und Schließen als Änderung (für das Neuzeichnen)', () => {
+    const { tool } = withProduction();
+    const before = tool.version;
+    tool.tap({ x: 4, y: 3 });
+    expect(tool.version).toBeGreaterThan(before);
+    const opened = tool.version;
+    tool.closeInfo();
+    expect(tool.version).toBeGreaterThan(opened);
+    const closed = tool.version;
+    tool.closeInfo();
+    expect(tool.version).toBe(closed);
+  });
+});
+
+describe('Vorschau folgt dem Lager (Korrekturrunde 1)', () => {
+  it('wird grün, sobald das Fehlende ins Lager kommt (rote Vorschau war „cost“)', () => {
+    const state = grassState();
+    setStore(state, { coins: 0 });
+    const { tool } = setup(state);
+    tool.selectTool('deco');
+    tool.tap({ x: 6, y: 6 });
+    expect(tool.preview()).toMatchObject({ kind: 'place', result: 'cost', missing: { coins: 3 } });
+    expect(tool.canConfirm).toBe(false);
+    const before = tool.version;
+    state.inventory['coins'] = 100;
+    tool.sync();
+    expect(tool.version).toBeGreaterThan(before);
+    expect(tool.preview()).toMatchObject({ kind: 'place', result: 'ok' });
+    expect(tool.canConfirm).toBe(true);
+    expect(tool.hint).toBe('hint.place');
+  });
+
+  it('wird rot, sobald das Lager nicht mehr reicht (grüne Vorschau), und ✓ meldet es statt still zu verwerfen', () => {
+    const state = grassState();
+    setStore(state, { coins: 100 });
+    const { tool, sent } = setup(state);
+    tool.selectTool('deco');
+    tool.tap({ x: 6, y: 6 });
+    expect(tool.canConfirm).toBe(true);
+    state.inventory['coins'] = 1;
+    expect(tool.preview()).toMatchObject({ result: 'cost', missing: { coins: 2 } });
+    expect(tool.canConfirm).toBe(false);
+    expect(tool.confirm()).toBe('hint.missing');
+    expect(sent).toHaveLength(0);
+  });
+
+  it('bleibt ohne Änderung des Lagers beim zwischengespeicherten Ergebnis und zählt dann nicht', () => {
+    const state = grassState();
+    const { tool } = setup(state);
+    tool.selectTool('deco');
+    tool.tap({ x: 6, y: 6 });
+    const first = tool.preview();
+    const version = tool.version;
+    tool.sync();
+    expect(tool.preview()).toBe(first);
+    expect(tool.version).toBe(version);
+  });
+
+  it('zählt Lageränderungen erst bei sync() und nur, solange ein Werkzeug an ist', () => {
+    const state = grassState();
+    const { tool } = setup(state);
+    const before = tool.version;
+    state.inventory['coins'] = 1;
+    tool.sync();
+    expect(tool.version).toBe(before);
+    tool.selectTool('house');
+    const inTool = tool.version;
+    state.inventory['coins'] = 2;
+    expect(tool.version).toBe(inTool);
+    tool.sync();
+    expect(tool.version).toBeGreaterThan(inTool);
+  });
+
+  it('rechnet die Erstattung beim Abreißen mit dem aktuellen Stand, auch wenn sich das Lager änderte', () => {
+    const state = grassState();
+    setStore(state, { coins: 100, wood: 20 });
+    run(state, { type: 'placeBuilding', buildingType: 'house-red', x: 4, y: 4 });
+    const refunds: RefundInfo[] = [];
+    const tool = new BuildTool(() => state, (command) => { applyCommand(state, command); }, (info) => refunds.push(info));
+    tool.selectTool('demolish');
+    tool.tap({ x: 5, y: 5 });
+    state.inventory['coins'] = 7;
+    expect(tool.preview()).toMatchObject({ kind: 'demolish', refund: { coins: 40, wood: 8 } });
+    tool.confirm();
+    expect(refunds[0]?.refund).toEqual({ coins: 40, wood: 8 });
+    expect(state.inventory['coins']).toBe(47);
+  });
+});
+
+describe('Hinweise ohne falsche Anleitung (T3, T8)', () => {
+  it('sagt bei einem Haus ohne Weg daneben, dass es einen braucht, und lässt ✓ zu', () => {
+    const state = grassState();
+    setStore(state, { coins: 100, wood: 20 });
+    const { tool } = setup(state);
+    tool.selectTool('house');
+    tool.tap({ x: 6, y: 6 });
+    expect(tool.hint).toBe('hint.noPathHouse');
+    expect(tool.canConfirm).toBe(true);
+  });
+
+  it('zeigt mit Weg daneben den normalen Hinweis', () => {
+    const state = grassState();
+    setStore(state, { coins: 100, wood: 20 });
+    run(state, { type: 'placePaths', tiles: [{ x: 6, y: 7 }] });
+    const { tool } = setup(state);
+    tool.selectTool('house');
+    tool.tap({ x: 6, y: 6 });
+    expect(tool.preview()).toMatchObject({ result: 'ok', connected: true });
+    expect(tool.hint).toBe('hint.place');
+  });
+
+  it('sagt das auch beim Verschieben auf einen Platz ohne Weg', () => {
+    const state = grassState();
+    setStore(state, { coins: 100, wood: 20 });
+    const id = buildConnected(state, 'berry-garden', 2, 2);
+    const { tool } = setup(state);
+    tool.selectTool('move');
+    tool.tap({ x: 2, y: 2 });
+    tool.tap({ x: 10, y: 11 });
+    expect(tool.preview()).toMatchObject({ kind: 'move', id, target: { result: 'ok', connected: false } });
+    expect(tool.hint).toBe('hint.noPathWork');
+  });
+
+  it('zeigt nach dem Bauen kein „Dir fehlen …“ für die Karte, die gerade bezahlt wurde, sondern wieder die Anleitung', () => {
+    const state = grassState();
+    setStore(state, { coins: 40, wood: 8 });
+    run(state, { type: 'placePaths', tiles: [{ x: 6, y: 7 }] });
+    const { tool } = setup(state);
+    tool.selectTool('house');
+    tool.selectVariant('house-red');
+    tool.tap({ x: 6, y: 6 });
+    tool.confirm();
+    expect(state.buildings).toHaveLength(1);
+    expect(tool.variantAffordable).toBe(false);
+    expect(tool.hint).toBe('hint.place');
+  });
+
+  it('zeigt beim Einschalten des Haus-Werkzeugs nicht „Dir fehlen …“, bevor etwas gewählt ist', () => {
+    const state = grassState();
+    setStore(state);
+    const { tool } = setup(state);
+    tool.selectTool('house');
+    expect(tool.hint).toBe('hint.place');
+    tool.selectTool('deco');
+    expect(tool.hint).toBe('hint.place');
   });
 });

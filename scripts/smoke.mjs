@@ -4,8 +4,9 @@
  *
  *   npm run smoke                                # baut, startet `vite preview`, testet, räumt auf
  *   npm run smoke -- --no-build                  # vorhandenes dist/ verwenden
- *   npm run smoke -- --out docs/screenshots/m3   # anderer Screenshot-Ordner (Standard: m2)
- *   npm run smoke -- --m2-only                   # nur die Bau-Prüfungen (M2), ohne die Kamera-Prüfungen (schnell)
+ *   npm run smoke -- --out docs/screenshots/m4   # anderer Screenshot-Ordner (Standard: m3)
+ *   npm run smoke -- --m2-only                   # nur die Bau-Prüfungen (M2), ohne Kamera und Wirtschaft (schnell)
+ *   npm run smoke -- --m3-only                   # nur die Wirtschafts-Prüfungen (M3), ohne Kamera und Bauen (schnell)
  *   npm run smoke -- --profile tablet            # nur Tablet bzw. nur Desktop
  *
  * Öffnet das Spiel (feste Insel `?seed=1`) als Tablet (1024×768, Touch,
@@ -49,21 +50,22 @@ const URL = `http://localhost:${PORT}/Schlumpfwelt/`;
 /** Feste Insel, damit Screenshots und Prüfungen reproduzierbar sind. */
 const GAME_URL = `${URL}?seed=1`;
 const M2_ONLY = process.argv.includes('--m2-only');
+const M3_ONLY = process.argv.includes('--m3-only');
 /** `--profile tablet|desktop`: nur dieses Gerät testen (zum Entwickeln). */
 const ONLY_PROFILE = argValue('--profile');
-const SCREENSHOT_DIR = path.resolve(ROOT, argValue('--out') ?? path.join('docs', 'screenshots', 'm2'));
+const SCREENSHOT_DIR = path.resolve(ROOT, argValue('--out') ?? path.join('docs', 'screenshots', 'm3'));
 /** Alle übrigen Screenshots (Kamera-Prüfungen früherer Meilensteine, Zwischenschritte) landen hier, nicht im Repo. */
 const TEMP_SCREENSHOT_DIR = path.join(os.tmpdir(), 'schlumpfwelt-smoke');
-/** Nur diese Bilder gehören in `docs/screenshots/mN/` – die Bau-Screenshots dieses Meilensteins. */
+/** Nur diese Bilder gehören in `docs/screenshots/mN/` – die Screenshots dieses Meilensteins (M3: Wirtschaft). */
 const KEEP_SCREENSHOTS = new Set([
-  'tablet-werkzeugleiste',
-  'tablet-vorschau-gruen',
-  'tablet-vorschau-rot',
-  'tablet-weg-vorschau',
-  'tablet-haus-ohne-weg',
-  'tablet-verschieben',
-  'tablet-dorf',
-  'desktop-dorf',
+  'tablet-lagerleiste',
+  'tablet-gebaeude-auswahl',
+  'tablet-radius-vorschau',
+  'tablet-zu-teuer',
+  'tablet-info-karte',
+  'tablet-dorf-produktion',
+  'tablet-handy-hochkant',
+  'tablet-handy-quer',
 ]);
 
 /** Kachelgröße und Wasser-Rand der Kamera (siehe `TILE_SIZE` und `camera.json`). */
@@ -273,7 +275,7 @@ async function checkCorners({ page, check, shot, size, dragBy, name }) {
   const toCorner = async (fx, fy, label) => {
     let previous = await readCamera(page);
     for (let i = 0; i < 12; i += 1) {
-      await dragBy(fx * size.width * 0.8, fy * size.height * 0.8);
+      await dragBy(fx * size.width * 0.8, fy * size.height * 0.7);
       const current = await waitForCameraRest(page);
       checkInsideBounds(current, size, check, `Ecke ${label}`);
       if (Math.abs(current.x - previous.x) < 0.2 && Math.abs(current.y - previous.y) < 0.2) return current;
@@ -368,11 +370,11 @@ async function testTouchCamera({ page, context, check, shot, size }) {
   const stillLeft = await waitForCameraRest(page);
   check(Math.abs(stillLeft.x - left.x) < 0.3, `Grenze links: weiteres Ziehen verschob die Kamera (${left.x} → ${stillLeft.x})`);
   await shot('tablet-grenze'); // linker Rand: Insel rechts, Wasser links
-  const top = await reachEdge(0, size.height * 0.9, 'y', 'oben');
+  const top = await reachEdge(0, size.height * 0.7, 'y', 'oben');
   check(top.y < near.y - 100, `Grenze oben: Kamera y=${top.y} nicht über ${near.y}`);
   const right = await reachEdge(-size.width * 0.9, 0, 'x', 'rechts');
   check(right.x > left.x + 500, `Grenze rechts: Kamera x=${right.x} nicht rechts von ${left.x}`);
-  const bottom = await reachEdge(0, -size.height * 0.9, 'y', 'unten');
+  const bottom = await reachEdge(0, -size.height * 0.7, 'y', 'unten');
   check(bottom.y > top.y + 500, `Grenze unten: Kamera y=${bottom.y} nicht unter ${top.y}`);
 
   // --- Maximalzoom: in alle Ecken ziehen, es bleibt Land im Bild ---
@@ -539,11 +541,11 @@ async function testMouseCamera({ page, check, shot, size }) {
   const left = await reachEdge(size.width * 0.8, 0, 'x', 'links');
   check(left.x < near.x - 100, `Grenze links: Kamera x=${left.x} nicht links von ${near.x}`);
   await shot('desktop-grenze'); // linker Rand: Insel rechts, Wasser links
-  const top = await reachEdge(0, size.height * 0.8, 'y', 'oben');
+  const top = await reachEdge(0, size.height * 0.7, 'y', 'oben');
   check(top.y < near.y - 100, `Grenze oben: Kamera y=${top.y} nicht über ${near.y}`);
   const right = await reachEdge(-size.width * 0.8, 0, 'x', 'rechts');
   check(right.x > left.x + 500, `Grenze rechts: Kamera x=${right.x} nicht rechts von ${left.x}`);
-  const bottom = await reachEdge(0, -size.height * 0.8, 'y', 'unten');
+  const bottom = await reachEdge(0, -size.height * 0.7, 'y', 'unten');
   check(bottom.y > top.y + 500, `Grenze unten: Kamera y=${bottom.y} nicht unter ${top.y}`);
 
   // --- Maximalzoom: in alle Ecken ziehen, es bleibt Land im Bild ---
@@ -597,7 +599,18 @@ async function testMouseCamera({ page, check, shot, size }) {
 // ---------------------------------------------------------------------------------------------
 
 /** Kantenlänge der Gebäude in Kacheln (siehe `buildings.json`); alles andere ist 1×1. */
-const FOOTPRINT = { 'house-red': 2, 'house-blue': 2, 'house-yellow': 2, fountain: 2 };
+const FOOTPRINT = {
+  'house-red': 2,
+  'house-blue': 2,
+  'house-yellow': 2,
+  fountain: 2,
+  lumberjack: 2,
+  'berry-garden': 2,
+  quarry: 2,
+  carpenter: 2,
+  bakery: 2,
+  market: 3,
+};
 const footprintOf = (type) => FOOTPRINT[type] ?? 1;
 
 /** Bau-Zustand aus `<html data-tool|variant|preview|hint|markers|buildings|paths|terrain|ui>`. */
@@ -615,6 +628,9 @@ async function readVillage(page) {
       terrain: d.terrain ?? '',
       ui: JSON.parse(d.ui ?? '{}'),
       lastTap: d.lastTap,
+      stock: JSON.parse(d.stock ?? '{}'),
+      producers: JSON.parse(d.producers ?? '[]').map(([id, status, delivered]) => ({ id, status, delivered })),
+      card: d.card ?? '',
     };
   });
 }
@@ -659,7 +675,8 @@ function findFreeArea(village, cam, size, w, h, { margin = 1, near, skip = [] } 
   const occupied = occupiedTiles(village);
   for (const tile of skip) occupied.add(tileKey(tile.x, tile.y));
   const toolbarTop = village.ui['tool-path'].y - 52;
-  const usable = { left: 90, right: size.width - 140, top: 110, bottom: toolbarTop - 160 };
+  // Oben liegen Lagerleiste und (bei aktivem Werkzeug) die Hinweisleiste bis etwa y = 160.
+  const usable = { left: 90, right: size.width - 140, top: 170, bottom: toolbarTop - 160 };
   const target = near ?? { x: size.width / 2, y: (usable.top + usable.bottom) / 2 };
   const grass = (x, y) => village.terrain[y * MAP_TILES + x] === 'g' && !occupied.has(tileKey(x, y));
   let best;
@@ -694,11 +711,8 @@ function findWater(village, cam, size, near) {
   return best;
 }
 
-/**
- * Baut im Spiel (M2) und prüft den Zustand. `input.tap(point)` tippt oder klickt. Jeder Fehler wird als Problem
- * gemeldet, der Test bricht dann ab (die Schritte bauen aufeinander auf).
- */
-async function testBuilding({ page, check, shot, size, input, drag, name }) {
+/** Gemeinsame Bedien-Helfer für die Bau- und Wirtschafts-Prüfungen: Knöpfe, Kacheln, Werkzeug, ✓. */
+function buildHelpers({ page, check, size, input, name }) {
   const step = (what) => console.log(`  [${name}] ${what}`);
   const cameraAtRest = () => waitForCameraRest(page);
   const tapUi = async (spot) => {
@@ -729,13 +743,29 @@ async function testBuilding({ page, check, shot, size, input, drag, name }) {
     await tapUi('confirm');
     return waitForVillage(page, predicate, what);
   };
+  return { step, cameraAtRest, tapUi, tapTile, selectTool, exitTool, confirm };
+}
+
+/**
+ * Baut im Spiel (M2) und prüft den Zustand. `input.tap(point)` tippt oder klickt. Jeder Fehler wird als Problem
+ * gemeldet, der Test bricht dann ab (die Schritte bauen aufeinander auf).
+ */
+async function testBuilding({ page, check, shot, size, input, drag, name }) {
+  const { step, cameraAtRest, tapUi, tapTile, selectTool, exitTool, confirm } = buildHelpers({ page, check, size, input, name });
   const count = (village, type) => village.buildings.filter((b) => b.type === type).length;
 
   let village = await waitForVillage(page, (v) => v.buildings.length > 0, 'das Startdorf');
+  // Seit M3 startet die Kamera mit Kacheln von mindestens 32 px; die Bau-Prüfungen brauchen den Überblick (Wasser, freie Flächen) wie früher.
+  for (let i = 0; i < 2; i += 1) {
+    await input.tap(village.ui['zoom-out']);
+    await sleep(300);
+  }
+  await cameraAtRest();
+  village = await readVillage(page);
   check(village.tool === 'view', `Start: Werkzeug ${village.tool} statt „view“`);
   check(village.buildings.some((b) => b.type.startsWith('house') && b.connected) && village.paths.length > 0, 'Start: kein Haus mit Weg im Startdorf');
   check(village.markers === 0, `Start: ${village.markers} Markierungen, erwartet 0`);
-  for (const tool of ['path', 'house', 'deco', 'move', 'demolish']) check(`tool-${tool}` in village.ui, `Werkzeugleiste: Knopf ${tool} fehlt`);
+  for (const tool of ['path', 'house', 'building', 'deco', 'move', 'demolish']) check(`tool-${tool}` in village.ui, `Werkzeugleiste: Knopf ${tool} fehlt`);
   await sleep(800);
   await shot(`${name}-werkzeugleiste`);
 
@@ -789,7 +819,7 @@ async function testBuilding({ page, check, shot, size, input, drag, name }) {
     await sleep(200);
   }
   cam = await cameraAtRest();
-  check(cam.zoom * TILE > 40, `Heranzoomen: Kachel nur ${(cam.zoom * TILE).toFixed(0)} px groß`);
+  check(cam.zoom * TILE > 30, `Heranzoomen: Kachel nur ${(cam.zoom * TILE).toFixed(0)} px groß`);
   village = await readVillage(page);
 
   // --- Rot auch auf einem Gebäude („blocked“) ---
@@ -951,13 +981,15 @@ async function testBuilding({ page, check, shot, size, input, drag, name }) {
       const inBounds = (spot, p) => check(p.x - 24 >= 0 && p.x + 24 <= w && p.y - 24 >= 0 && p.y + 24 <= h, `${w}×${h}: „${spot}“ ragt über den Bildrand (${p.x.toFixed(0)}, ${p.y.toFixed(0)})`);
       // Ein antippbares Grasstück: links oben von der Mitte, frei vom Bedienfeld (Hinweisleiste oben, Werkzeugleiste unten).
       const toolbarTop = v.ui['tool-path'].y - 40;
+      // Oben liegen die Lagerleiste (M3) und darunter die Hinweisleiste (72 px), wenn ein Werkzeug an ist.
+      const topFree = v.ui.stock ? v.ui.stock.y + v.ui.stock.h / 2 + 90 : 100;
       let best;
       for (let y = 0; y < MAP_TILES; y += 1) {
         for (let x = 0; x < MAP_TILES; x += 1) {
           if (v.terrain[y * MAP_TILES + x] !== 'g') continue;
           const p = screenOfTile(cam, small, { x, y });
           // Frei von Chip (links unten), ✓/✕ (rechts unten), Zoom-Knöpfen (rechts oben), Hinweis- und Werkzeugleiste.
-          if (p.x < 92 || p.x > Math.max(150, w - 170) || p.y < 100 || p.y > toolbarTop - 24) continue;
+          if (p.x < 92 || p.x > Math.max(150, w - 170) || p.y < topFree || p.y > toolbarTop - 24) continue;
           const distance = Math.hypot(p.x - w * 0.3, p.y - h * 0.4);
           if (!best || distance < best.distance) best = { x, y, p, distance };
         }
@@ -1015,6 +1047,366 @@ async function testBuilding({ page, check, shot, size, input, drag, name }) {
     await page.setViewportSize(size);
     await sleep(1000);
   }
+}
+
+// ---------------------------------------------------------------------------------------------
+// M3 „Wirtschaft“: Lager, Kosten, Produktion, Markt, Infokarte
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * Sucht einen Bauplatz für ein Produktionsgebäude `fp × fp`: freie Wiese, mit einer Kante direkt an einem Weg
+ * (`atPath`), mit `terrain` (Buchstabe: `f` Wald, `r` Fels) im Radius `radius` (`withNearby: true`) oder gerade ohne
+ * (`withNearby: false`); gut antippbar, möglichst nah an der Bildschirmmitte. Gibt auch die Kachel zurück, die man antippt
+ * (untere Reihe, Mitte bzw. links davon).
+ */
+function findWorkSpot(village, cam, size, { fp = 2, atPath = true, terrain, radius = 4, withNearby = true, skip = [] }) {
+  const occupied = occupiedTiles(village);
+  for (const tile of skip) occupied.add(tileKey(tile.x, tile.y));
+  const pathSet = new Set(village.paths.map(([x, y]) => tileKey(x, y)));
+  const toolbarTop = village.ui['tool-path'].y - 52;
+  // Oben liegen Lagerleiste und (bei aktivem Werkzeug) die Hinweisleiste bis etwa y = 160.
+  const usable = { left: 90, right: size.width - 140, top: 170, bottom: toolbarTop - 170 };
+  const grass = (x, y) => village.terrain[y * MAP_TILES + x] === 'g' && !occupied.has(tileKey(x, y));
+  let best;
+  for (let y = 2; y < MAP_TILES - 2 - fp; y += 1) {
+    for (let x = 2; x < MAP_TILES - 2 - fp; x += 1) {
+      let free = true;
+      for (let dy = 0; dy < fp && free; dy += 1) for (let dx = 0; dx < fp && free; dx += 1) free = grass(x + dx, y + dy);
+      if (!free) continue;
+      let touchesPath = false;
+      for (let i = 0; i < fp; i += 1) {
+        touchesPath ||= pathSet.has(tileKey(x + i, y - 1)) || pathSet.has(tileKey(x + i, y + fp)) || pathSet.has(tileKey(x - 1, y + i)) || pathSet.has(tileKey(x + fp, y + i));
+      }
+      if (atPath && !touchesPath) continue;
+      if (!atPath && touchesPath) continue;
+      if (terrain) {
+        let found = false;
+        for (let ty = y - radius; ty <= y + fp - 1 + radius && !found; ty += 1) {
+          for (let tx = x - radius; tx <= x + fp - 1 + radius && !found; tx += 1) {
+            found = tx >= 0 && ty >= 0 && tx < MAP_TILES && ty < MAP_TILES && village.terrain[ty * MAP_TILES + tx] === terrain;
+          }
+        }
+        if (found !== withNearby) continue;
+      }
+      const tap = { x: x + Math.floor((fp - 1) / 2), y: y + fp - 1 };
+      const p = screenOfTile(cam, size, tap);
+      const top = screenOfTile(cam, size, { x, y });
+      if (p.x < usable.left || p.x > usable.right || top.y < usable.top || p.y > usable.bottom) continue;
+      const distance = Math.hypot(p.x - size.width / 2, p.y - size.height * 0.45);
+      if (!best || distance < best.distance) best = { x, y, tap, distance };
+    }
+  }
+  return best;
+}
+
+/** Überdeckt das Rechteck `rect` (Mitte x, y, Breite w, Höhe h) den Zoom-Knopf (Kreis um `zoom` mit Radius `radius`)? */
+function rectHitsCircle(rect, zoom, radius) {
+  const left = rect.x - rect.w / 2;
+  const top = rect.y - rect.h / 2;
+  const nearestX = Math.max(left, Math.min(zoom.x, left + rect.w));
+  const nearestY = Math.max(top, Math.min(zoom.y, top + rect.h));
+  return Math.hypot(zoom.x - nearestX, zoom.y - nearestY) < radius;
+}
+
+/** Wirtschaft (M3): Lager, Bauen kostet, Produktion, Abreißen erstattet, Infokarte, kleine Bildschirme. */
+async function testEconomy({ page, check, shot, size, input, name }) {
+  const { step, cameraAtRest, tapUi, tapTile, selectTool, exitTool, confirm } = buildHelpers({ page, check, size, input, name });
+  const waitStock = (predicate, what, timeoutMs = 30_000) => waitForVillage(page, (v) => Object.keys(v.stock).length > 0 && predicate(v.stock, v), what, timeoutMs);
+  const typeCount = (village, type) => village.buildings.filter((b) => b.type === type).length;
+
+  // --- Lageranzeige ---
+  step('Lagerleiste');
+  let village = await waitStock(() => true, 'die Lagerleiste');
+  check(village.buildings.some((b) => b.type === 'market') && village.buildings.some((b) => b.type === 'berry-garden'), 'Start: Marktplatz oder Beerengarten fehlt im Startdorf');
+  const start = village.stock;
+  check(start.coins > 0 && start.wood > 0, `Start: Lager ${JSON.stringify(start)} ist leer`);
+  for (const id of ['coins', 'wood', 'stone', 'berries', 'furniture', 'cake']) check(typeof start[id] === 'number', `Lagerleiste: ${id} fehlt`);
+  const stockSpot = village.ui.stock;
+  check(stockSpot !== undefined && stockSpot.w > 100 && stockSpot.h >= 30, 'Lagerleiste: keine Größe veröffentlicht');
+  const zoomIn = village.ui['zoom-in'];
+  const zoomRadius = size.height < 400 ? 28 : 34;
+  check(!rectHitsCircle(stockSpot, zoomIn, zoomRadius) && !rectHitsCircle(stockSpot, village.ui['zoom-out'], zoomRadius), 'Lagerleiste überdeckt die Zoom-Knöpfe');
+  const garden = village.buildings.find((b) => b.type === 'berry-garden');
+  const market = village.buildings.find((b) => b.type === 'market');
+  check(village.producers.find((p) => p.id === garden.id)?.status === 'working', 'Start: der Beerengarten arbeitet nicht');
+  // Der Markt kauft auch überschüssige Beeren: im Leerlauf, bis mehr als die Reserve da ist.
+  check(['idle', 'working'].includes(village.producers.find((p) => p.id === market.id)?.status), 'Start: der Markt ist weder im Leerlauf noch bei der Arbeit');
+  check(village.markers === 0, `Start: ${village.markers} Schilder, erwartet 0`);
+  await shot(`${name}-lagerleiste`);
+  // Der Beerengarten liefert von allein (der Markt kauft Beeren über der Reserve, darum zählt die Lieferung, nicht das Lager).
+  const gardenDelivered = village.producers.find((p) => p.id === garden.id)?.delivered ?? 0;
+  await waitForVillage(page, (v) => (v.producers.find((p) => p.id === garden.id)?.delivered ?? 0) > gardenDelivered, 'eine Lieferung des Beerengartens', 40_000);
+
+  // --- Auswahl „Gebäude“ mit Kosten ---
+  step('Auswahl Gebäude mit Kosten');
+  await selectTool('building');
+  village = await waitForVillage(page, (v) => 'variant-market' in v.ui, 'die Gebäude-Auswahl');
+  const productionTypes = ['lumberjack', 'berry-garden', 'quarry', 'carpenter', 'bakery', 'market'];
+  for (const type of productionTypes) check(`variant-${type}` in village.ui, `Gebäude-Auswahl: ${type} fehlt`);
+  check(productionTypes.every((type) => village.ui[`variant-${type}`]?.dim === false), 'Gebäude-Auswahl: am Start soll alles bezahlbar sein (nichts ausgegraut)');
+  await sleep(500);
+  await shot(`${name}-gebaeude-auswahl`);
+
+  // --- Bäckerei am Weg: Geld wird abgebucht ---
+  step('Bäckerei bauen');
+  await tapUi('variant-bakery');
+  await waitForVillage(page, (v) => v.variant === 'bakery', 'die Bäckerei');
+  let cam = await cameraAtRest();
+  const bakerySpot = findWorkSpot(village, cam, size, { fp: 2, atPath: true });
+  check(bakerySpot !== undefined, 'Kein Platz für die Bäckerei am Weg');
+  if (!bakerySpot) return;
+  const before = (await readVillage(page)).stock;
+  await tapTile(bakerySpot.tap);
+  await waitForVillage(page, (v) => v.preview === 'place:ok', 'grüne Vorschau für die Bäckerei');
+  village = await confirm((v) => typeCount(v, 'bakery') === 1, 'die Bäckerei');
+  const bakery = village.buildings.find((b) => b.type === 'bakery');
+  check(bakery.connected, 'Bäckerei steht nicht am Weg');
+  // Der Markt kauft nebenbei überschüssige Beeren: die Taler können ein paar Münzen über dem Preis liegen.
+  village = await waitStock((stock) => stock.coins <= before.coins - 25 + 8 && stock.wood <= before.wood - 6, 'abgebuchte Kosten der Bäckerei', 8000);
+  check(village.stock.coins >= before.coins - 25, `Bäckerei: Taler ${village.stock.coins}, erwartet mindestens ${before.coins - 25}`);
+
+  // --- Ohne Weg daneben: grün, aber der Hinweis sagt, was zu tun ist ---
+  step('Gebäude ohne Weg: Hinweis');
+  await tapUi('tool-building');
+  await waitForVillage(page, (v) => 'variant-bakery' in v.ui, 'die Auswahl');
+  await tapUi('variant-quarry');
+  await waitForVillage(page, (v) => v.variant === 'quarry', 'der Steinbruch');
+  village = await readVillage(page);
+  cam = await cameraAtRest();
+  const lonely = findWorkSpot(village, cam, size, { fp: 2, atPath: false, terrain: 'r', radius: 5, withNearby: true });
+  check(lonely !== undefined, 'Kein Platz am Fels ohne Weg gefunden');
+  if (lonely) {
+    await sleep(500);
+    await tapTile(lonely.tap);
+    village = await waitForVillage(page, (v) => v.preview === 'place:ok', 'grüne Vorschau ohne Weg');
+    check(/Weg/.test(village.hint), `Ohne Weg: Hinweis „${village.hint}“ sagt nichts vom Weg`);
+    await tapUi('cancel');
+    await waitForVillage(page, (v) => v.preview === 'none', 'ohne Vorschau nach ✕');
+  }
+
+  // --- Holzfäller ohne Bäume in der Nähe: rot mit Hinweis ---
+  step('Holzfäller ohne Bäume: rot');
+  await tapUi('tool-building');
+  await waitForVillage(page, (v) => 'variant-lumberjack' in v.ui, 'die geöffnete Gebäude-Auswahl');
+  await tapUi('variant-lumberjack');
+  await waitForVillage(page, (v) => v.variant === 'lumberjack', 'der Holzfäller');
+  village = await readVillage(page);
+  // Etwas herauszoomen: Platz ohne Bäume im Umkreis von 4 Kacheln gibt es erst mit größerem Ausschnitt.
+  await input.tap(village.ui['zoom-out']);
+  await sleep(300);
+  cam = await cameraAtRest();
+  const bare = findWorkSpot(village, cam, size, { fp: 2, atPath: false, terrain: 'f', radius: 4, withNearby: false });
+  check(bare !== undefined, 'Kein Platz ohne Bäume in der Nähe gefunden');
+  if (bare) {
+    await sleep(500);
+    await tapTile(bare.tap);
+    village = await waitForVillage(page, (v) => v.preview === 'place:noNearby', 'rote Vorschau ohne Bäume');
+    check(/Bäume/.test(village.hint), `Ohne Bäume: Hinweis „${village.hint}“ nennt den Grund nicht`);
+    check(village.ui.confirm?.enabled === false, 'Ohne Bäume: ✓ ist nicht gesperrt');
+    const count = village.buildings.length;
+    await tapUi('confirm');
+    await sleep(800);
+    check((await readVillage(page)).buildings.length === count, 'Ohne Bäume: ✓ hat trotzdem gebaut');
+    await tapUi('cancel');
+    await waitForVillage(page, (v) => v.preview === 'none', 'ohne Vorschau nach ✕');
+  }
+  await input.tap((await readVillage(page)).ui['zoom-in']);
+  await sleep(300);
+  await cameraAtRest();
+
+  // --- Holzfäller am Wald mit Weg: Radius-Vorschau, dann steigt das Holz ---
+  step('Holzfäller am Wald');
+  village = await readVillage(page);
+  cam = await cameraAtRest();
+  const wood = findWorkSpot(village, cam, size, { fp: 2, atPath: true, terrain: 'f', radius: 4, withNearby: true });
+  check(wood !== undefined, 'Kein Platz für den Holzfäller am Weg mit Wald in der Nähe gefunden');
+  if (!wood) return;
+  await sleep(500);
+  await tapTile(wood.tap);
+  await waitForVillage(page, (v) => v.preview === 'place:ok', 'grüne Vorschau mit Radius');
+  await sleep(600);
+  await shot(`${name}-radius-vorschau`);
+  const woodBefore = (await readVillage(page)).stock;
+  village = await confirm((v) => typeCount(v, 'lumberjack') === 1, 'der Holzfäller');
+  const lumberjack = village.buildings.find((b) => b.type === 'lumberjack');
+  check(lumberjack.connected, 'Holzfäller steht nicht am Weg');
+  village = await waitStock((stock) => stock.coins <= woodBefore.coins - 15 + 12 && stock.coins >= woodBefore.coins - 15, 'abgebuchte Kosten des Holzfällers (nur Taler)', 8000);
+  const afterLumberjack = village.stock;
+  check(afterLumberjack.wood >= woodBefore.wood, `Holzfäller: Holz ${afterLumberjack.wood} gesunken, er soll nur Taler kosten`);
+  // Nach ein paar Sekunden liefert er: das Lager steigt, und der Holzfäller meldet „working“.
+  village = await waitStock((stock) => stock.wood > afterLumberjack.wood, 'steigendes Holz (Holzfäller liefert)', 30_000);
+  check(village.producers.find((p) => p.id === lumberjack.id)?.delivered >= 1, 'Holzfäller: delivered ist 0, obwohl das Holz stieg');
+  check(village.producers.find((p) => p.id === lumberjack.id)?.status === 'working', 'Holzfäller arbeitet nicht');
+
+  // --- Zu teuer: rot, ✓ gesperrt, Hinweis nennt, was fehlt ---
+  step('Zu teuer: Brunnen');
+  await exitTool();
+  await selectTool('deco');
+  village = await waitForVillage(page, (v) => 'variant-fountain' in v.ui, 'die Deko-Auswahl');
+  check(village.ui['variant-fountain'].dim === true, 'Brunnen ist nicht ausgegraut, obwohl Steine fehlen');
+  check(village.ui['variant-flower'].dim === false, 'Blume ist ausgegraut, obwohl sie bezahlbar ist');
+  await tapUi('variant-fountain');
+  village = await waitForVillage(page, (v) => v.variant === 'fountain' && /fehl/.test(v.hint), 'den Hinweis „Dir fehlen …“ schon beim Wählen');
+  check(/Stein/.test(village.hint), `Brunnen: Hinweis „${village.hint}“ nennt die Steine nicht`);
+  village = await readVillage(page);
+  cam = await cameraAtRest();
+  const fountainSpot = findFreeArea(village, cam, size, 2, 2, { near: { x: size.width * 0.3, y: size.height * 0.4 } });
+  check(fountainSpot !== undefined, 'Kein Platz für den Brunnen');
+  if (fountainSpot) {
+    await sleep(500);
+    await tapTile({ x: fountainSpot.x, y: fountainSpot.y + 1 });
+    village = await waitForVillage(page, (v) => v.preview === 'place:cost', 'rote Vorschau „zu teuer“');
+    check(/fehl/.test(village.hint), `Zu teuer: Hinweis „${village.hint}“`);
+    check(village.ui.confirm?.enabled === false, 'Zu teuer: ✓ ist nicht gesperrt');
+    await sleep(500);
+    await shot(`${name}-zu-teuer`);
+    const count = village.buildings.length;
+    const coins = village.stock.coins;
+    await tapUi('confirm');
+    await sleep(900);
+    village = await readVillage(page);
+    check(village.buildings.length === count, 'Zu teuer: ✓ hat trotzdem gebaut');
+    check(village.stock.coins >= coins, 'Zu teuer: es wurde Geld abgebucht');
+    await tapUi('cancel');
+  }
+  await exitTool();
+
+  // --- Abreißen erstattet die vollen Kosten ---
+  step('Abreißen erstattet');
+  await selectTool('demolish');
+  village = await readVillage(page);
+  await tapTile({ x: lumberjack.x, y: lumberjack.y + 1 });
+  village = await waitForVillage(page, (v) => v.preview === 'demolish:4', 'die rote Markierung am Holzfäller');
+  check(/zurück/.test(village.hint) && /15 Taler/.test(village.hint), `Abreißen: Hinweis „${village.hint}“ nennt die Erstattung nicht`);
+  const beforeDemolish = village.stock;
+  await tapUi('confirm');
+  village = await waitForVillage(page, (v) => typeCount(v, 'lumberjack') === 0, 'den abgerissenen Holzfäller');
+  village = await waitStock((stock) => stock.coins >= beforeDemolish.coins + 15, 'die Erstattung im Lager', 8000);
+  await sleep(300);
+  await shot(`${name}-erstattung`);
+  await exitTool();
+
+  // --- Infokarte: öffnen, schließen per ✕, schließen per Tipp daneben ---
+  step('Infokarte');
+  village = await readVillage(page);
+  check(village.card === '', 'Infokarte ist ohne Tipp offen');
+  await cameraAtRest();
+  const gardenTile = { x: garden.x + 1, y: garden.y + 1 };
+  await tapTile(gardenTile);
+  village = await waitForVillage(page, (v) => v.card === String(garden.id) && 'card-close' in v.ui, 'die Infokarte des Beerengartens');
+  check(village.ui['card-close'].w >= 64, `Infokarte: ✕ nur ${village.ui['card-close'].w} px groß`);
+  const card = village.ui.card;
+  check(card.x - card.w / 2 >= 0 && card.x + card.w / 2 <= size.width && card.y - card.h / 2 >= 0 && card.y + card.h / 2 <= size.height, 'Infokarte ragt über den Rand');
+  check(!rectHitsCircle(card, zoomIn, zoomRadius), 'Infokarte überdeckt einen Zoom-Knopf');
+  check(card.y - card.h / 2 >= village.ui.stock.y + village.ui.stock.h / 2 - 0.5, 'Infokarte überdeckt die Lagerleiste');
+  await sleep(900);
+  await shot(`${name}-info-karte`);
+  await tapUi('card-close');
+  village = await waitForVillage(page, (v) => v.card === '', 'die geschlossene Karte (✕)');
+  await sleep(500);
+  await tapTile(gardenTile);
+  await waitForVillage(page, (v) => v.card === String(garden.id), 'die wieder geöffnete Karte');
+  const lastTap = (await readVillage(page)).lastTap;
+  await input.tap({ x: size.width * 0.06, y: size.height * 0.5 });
+  village = await waitForVillage(page, (v) => v.card === '', 'die geschlossene Karte (Tipp daneben)');
+  check(village.lastTap === lastTap, 'Tipp daneben wurde auch als Tipp auf die Welt gewertet');
+  // Ein Haus öffnet keine Karte.
+  const house = village.buildings.find((b) => b.type.startsWith('house'));
+  await sleep(500);
+  await tapTile({ x: house.x, y: house.y + 1 });
+  await sleep(500);
+  check((await readVillage(page)).card === '', 'Ein Haus hat eine Infokarte geöffnet');
+
+  // --- Der Markt macht Geld: Bäckerei → Kuchen → Taler ---
+  step('Marktplatz macht Geld');
+  const coinsNow = (await readVillage(page)).stock.coins;
+  village = await waitStock((stock) => stock.coins > coinsNow, 'steigende Taler (der Markt verkauft Kuchen)', 90_000);
+  check(village.producers.find((p) => p.id === market.id)?.delivered >= 1, 'Markt: delivered ist 0, obwohl die Taler stiegen');
+  check(village.producers.find((p) => p.id === bakery.id)?.delivered >= 1, 'Bäckerei: delivered ist 0');
+
+  // --- Dorf mit Produktion ---
+  step('Dorf mit Produktion');
+  await selectTool('building');
+  await waitForVillage(page, (v) => 'variant-lumberjack' in v.ui, 'die Auswahl');
+  await tapUi('variant-lumberjack');
+  village = await readVillage(page);
+  await cameraAtRest();
+  await sleep(500);
+  await tapTile(wood.tap);
+  await waitForVillage(page, (v) => v.preview === 'place:ok', 'grüne Vorschau (zweiter Holzfäller)');
+  await confirm((v) => typeCount(v, 'lumberjack') === 1, 'der zweite Holzfäller');
+  await exitTool();
+  // Heranzoomen (die Kacheln werden größer), ein paar Sekunden arbeiten lassen, dann das Bild.
+  const zoomButtons = (await readVillage(page)).ui;
+  for (let i = 0; i < 2; i += 1) {
+    await input.tap(zoomButtons['zoom-in']);
+    await sleep(250);
+  }
+  await cameraAtRest();
+  await sleep(6500);
+  await shot(`${name}-dorf-produktion`);
+  for (let i = 0; i < 2; i += 1) {
+    await input.tap(zoomButtons['zoom-out']);
+    await sleep(250);
+  }
+  await cameraAtRest();
+
+  // --- Kleine Bildschirme: nichts überlappt (Lagerleiste, Werkzeugleiste, Zoom-Knöpfe, Infokarte, Auswahl) ---
+  for (const [w, h] of [[320, 568], [568, 320], [640, 360]]) {
+    step(`Kleiner Bildschirm ${w}×${h}: Lagerleiste, Auswahl, Karte`);
+    await page.setViewportSize({ width: w, height: h });
+    await sleep(1500);
+    const small = { width: w, height: h };
+    const zr = h < 400 ? 28 : 34;
+    let v = await readVillage(page);
+    const stock = v.ui.stock;
+    const inside = (rect, what) => check(rect.x - rect.w / 2 >= -0.5 && rect.x + rect.w / 2 <= w + 0.5 && rect.y - rect.h / 2 >= -0.5 && rect.y + rect.h / 2 <= h + 0.5, `${w}×${h}: ${what} ragt über den Rand`);
+    inside(stock, 'Lagerleiste');
+    check(!rectHitsCircle(stock, v.ui['zoom-in'], zr) && !rectHitsCircle(stock, v.ui['zoom-out'], zr), `${w}×${h}: Lagerleiste überdeckt einen Zoom-Knopf`);
+    const toolTops = ['path', 'house', 'building', 'deco', 'move', 'demolish'].map((tool) => v.ui[`tool-${tool}`].y);
+    const toolbarTop = Math.min(...toolTops) - 28;
+    check(stock.y + stock.h / 2 <= toolbarTop, `${w}×${h}: Lagerleiste reicht bis zur Werkzeugleiste`);
+    for (const tool of ['path', 'house', 'building', 'deco', 'move', 'demolish']) {
+      const spot = v.ui[`tool-${tool}`];
+      check(spot.x - 28 >= 0 && spot.x + 28 <= w && spot.y + 28 <= h && !(Math.abs(spot.x - stock.x) < stock.w / 2 + 28 && Math.abs(spot.y - stock.y) < stock.h / 2 + 28), `${w}×${h}: Werkzeug ${tool} ragt hinaus oder liegt unter der Lagerleiste`);
+    }
+
+    // Die Auswahl „Gebäude“: Karten im Bild, unter der Lagerleiste, nicht über Zoom-Knöpfen.
+    await selectTool('building');
+    v = await waitForVillage(page, (state) => Object.keys(state.ui).some((spot) => spot.startsWith('variant-')), `die Auswahl bei ${w}×${h}`);
+    for (const [spot, p] of Object.entries(v.ui).filter(([spot]) => spot.startsWith('variant-') || spot.startsWith('page-'))) {
+      check(p.x - 24 >= 0 && p.x + 24 <= w && p.y - 24 >= stock.y + stock.h / 2 && p.y + 24 <= toolbarTop, `${w}×${h}: „${spot}“ liegt außerhalb der Fläche zwischen Lagerleiste und Werkzeugleiste (${p.x.toFixed(0)}, ${p.y.toFixed(0)})`);
+      for (const z of [v.ui['zoom-in'], v.ui['zoom-out']]) check(Math.hypot(p.x - z.x, p.y - z.y) >= 28 + zr, `${w}×${h}: „${spot}“ überdeckt einen Zoom-Knopf`);
+    }
+    check(/./.test(v.hint) && v.ui.exit !== undefined, `${w}×${h}: Hinweisleiste fehlt`);
+    if (w === 568) {
+      await sleep(400);
+      await shot(`${name}-handy-quer`);
+    }
+    await exitTool();
+
+    // Die Infokarte des Beerengartens.
+    await sleep(400);
+    const cam2 = await cameraAtRest();
+    const gardenAt = screenOfTile(cam2, small, gardenTile);
+    check(gardenAt.x > 20 && gardenAt.x < w - 20 && gardenAt.y > stock.y + stock.h / 2 && gardenAt.y < toolbarTop, `${w}×${h}: Beerengarten liegt nicht antippbar im Bild (${gardenAt.x.toFixed(0)}, ${gardenAt.y.toFixed(0)})`);
+    await input.tap(gardenAt);
+    v = await waitForVillage(page, (state) => state.card === String(garden.id) && 'card-close' in state.ui, `die Infokarte bei ${w}×${h}`, 6000);
+    const c = v.ui.card;
+    inside(c, 'Infokarte');
+    check(!rectHitsCircle(c, v.ui['zoom-in'], zr) && !rectHitsCircle(c, v.ui['zoom-out'], zr), `${w}×${h}: Infokarte überdeckt einen Zoom-Knopf`);
+    check(c.y - c.h / 2 >= stock.y + stock.h / 2 - 0.5, `${w}×${h}: Infokarte überdeckt die Lagerleiste`);
+    check(c.y + c.h / 2 <= toolbarTop + 0.5, `${w}×${h}: Infokarte überdeckt die Werkzeugleiste`);
+    check(v.ui['card-close'].w >= 64, `${w}×${h}: ✕ der Karte kleiner als 64 px`);
+    if (w === 320) {
+      await sleep(500);
+      await shot(`${name}-handy-hochkant`);
+    }
+    await tapUi('card-close');
+    await waitForVillage(page, (state) => state.card === '', `die geschlossene Karte bei ${w}×${h}`);
+  }
+  await page.setViewportSize(size);
+  await sleep(1000);
 }
 
 /** Startet das Spiel (Tippen zum Spielen) und wartet auf die Insel. */
@@ -1128,7 +1520,7 @@ async function testProfile(browser, profile) {
     await waitForCameraRest(page);
   }
 
-  if (!M2_ONLY) {
+  if (!M2_ONLY && !M3_ONLY) {
     if (profile.context.hasTouch) {
       await testTouchCamera({ page, context, problems, check, shot, size: { width, height } });
     } else {
@@ -1142,11 +1534,23 @@ async function testProfile(browser, profile) {
   const cdp = profile.context.hasTouch ? await context.newCDPSession(page) : undefined;
   const input = cdp ? { tap: (p) => page.touchscreen.tap(p.x, p.y) } : { tap: (p) => page.mouse.click(p.x, p.y) };
   const drag = cdp ? (from, to) => touchDevice(cdp).drag(from, to, { steps: 8, pauseMs: 30, holdMs: 200 }) : undefined;
-  try {
-    await testBuilding({ page, check, shot, size, input, drag, name: profile.name });
-  } catch (error) {
-    problems.push(`Bauen: ${error.message}`);
-    await shot(`${profile.name}-bauen-fehler`).catch(() => {});
+  if (!M3_ONLY) {
+    try {
+      await testBuilding({ page, check, shot, size, input, drag, name: profile.name });
+    } catch (error) {
+      problems.push(`Bauen: ${error.message}`);
+      await shot(`${profile.name}-bauen-fehler`).catch(() => {});
+    }
+  }
+  if (!M2_ONLY) {
+    try {
+      // Frische Insel mit frischem Startlager für die Wirtschafts-Prüfungen (das Bauen oben hat Geld ausgegeben).
+      if (!M3_ONLY) await enterIsland(page, profile, waitForScene);
+      await testEconomy({ page, check, shot, size, input, name: profile.name });
+    } catch (error) {
+      problems.push(`Wirtschaft: ${error.message}`);
+      await shot(`${profile.name}-wirtschaft-fehler`).catch(() => {});
+    }
   }
   await cdp?.detach();
 

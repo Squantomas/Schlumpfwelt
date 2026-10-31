@@ -15,6 +15,9 @@ export function drawToolIcon(g: Phaser.GameObjects.Graphics, tool: Exclude<ToolI
     case 'house':
       drawHouse(g, s);
       break;
+    case 'building':
+      drawWorkshop(g, s);
+      break;
     case 'deco':
       drawFlower(g, s);
       break;
@@ -53,6 +56,16 @@ function drawHouse(g: Phaser.GameObjects.Graphics, s: number): void {
   for (const [x, y, r] of [[-0.24, -0.2, 0.08], [0.06, -0.32, 0.09], [0.27, -0.14, 0.065], [-0.04, -0.14, 0.05]] as const) {
     g.fillCircle(x * s, y * s, r * s);
   }
+}
+
+function drawWorkshop(g: Phaser.GameObjects.Graphics, s: number): void {
+  // Chimney, wooden walls, a big door and a roof with an overhang.
+  g.fillStyle(COLORS.stoneDark).fillRoundedRect(s * 0.14, -s * 0.46, s * 0.14, s * 0.3, s * 0.03);
+  g.fillStyle(COLORS.woodLight).fillRoundedRect(-s * 0.36, -s * 0.06, s * 0.72, s * 0.5, s * 0.05);
+  g.fillStyle(COLORS.wood).fillRect(-s * 0.36, s * 0.08, s * 0.72, s * 0.04);
+  g.fillStyle(COLORS.woodDark).fillRoundedRect(-s * 0.1, s * 0.16, s * 0.2, s * 0.28, s * 0.04);
+  g.fillStyle(COLORS.roof).fillTriangle(-s * 0.48, -s * 0.04, 0, -s * 0.46, s * 0.48, -s * 0.04);
+  g.fillStyle(COLORS.roofShade).fillTriangle(0, -s * 0.46, s * 0.48, -s * 0.04, s * 0.08, -s * 0.04);
 }
 
 function drawFlower(g: Phaser.GameObjects.Graphics, s: number): void {

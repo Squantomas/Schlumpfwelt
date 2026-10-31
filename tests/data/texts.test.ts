@@ -1,13 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import texts from '../../src/data/texts.de.json';
+import { missingParams } from '../../src/ui/costText';
 import theme from '../../src/data/theme.json';
-import { format, placeholdersOf, t, themeValues, type TextKey } from '../../src/data/texts';
+
+import { format, formatNumber, placeholdersOf, t, themeValues, type TextKey } from '../../src/data/texts';
 
 /**
  * Placeholders that are filled at runtime via `t(key, params)` instead of the
  * theme. Add new names here when a text needs one (e.g. `count`).
  */
-const RUNTIME_PLACEHOLDERS = new Set<string>([]);
+const RUNTIME_PLACEHOLDERS = new Set<string>(['count', 'name', 'list', 'way']);
 
 const keys = Object.keys(texts) as TextKey[];
 
@@ -50,6 +52,19 @@ describe('format()', () => {
   });
 });
 
+describe('formatNumber()', () => {
+  it('schreibt Zahlen deutsch mit Tausenderpunkt', () => {
+    expect(formatNumber(7)).toBe('7');
+    expect(formatNumber(1234)).toBe('1.234');
+    expect(formatNumber(99999)).toBe('99.999');
+  });
+
+  it('macht aus „+{count}“ das „+1“ über den Gebäuden', () => {
+    expect(t('effect.plus', { count: 1 })).toBe('+1');
+    expect(t('effect.plus', { count: 1500 })).toBe('+1.500');
+  });
+});
+
 describe('placeholdersOf()', () => {
   it('findet alle Platzhalter ohne Doppelte', () => {
     expect(placeholdersOf('{a} und {b} und {a}')).toEqual(['a', 'b']);
@@ -80,5 +95,26 @@ describe('theme.json', () => {
     for (const [name, value] of Object.entries(theme.terms)) {
       expect(value.trim(), name).not.toBe('');
     }
+  });
+});
+
+describe('Hinweis mit Ausweg', () => {
+  const longest = (missing: Record<string, number>, key: 'hint.missing' | 'hint.missingOne'): string => t(key, missingParams(missing));
+
+  it('nennt den Ausweg zur ersten fehlenden Sache: Taler → Markt, Holz → Holzfäller, Stein → Steinbruch', () => {
+    expect(longest({ coins: 5 }, 'hint.missing')).toBe('Dir fehlen 5 Taler. Taler bringt der Markt – oder reiß etwas ab.');
+    expect(longest({ wood: 3 }, 'hint.missing')).toBe('Dir fehlen 3 Holz. Holz bringt der Holzfäller – oder reiß etwas ab.');
+    expect(longest({ stone: 2 }, 'hint.missing')).toBe('Dir fehlen 2 Steine. Steine bringt der Steinbruch – oder reiß etwas ab.');
+    expect(longest({ stone: 1 }, 'hint.missingOne')).toBe('Dir fehlt 1 Stein. Steine bringt der Steinbruch – oder reiß etwas ab.');
+  });
+
+  it('nennt bei mehreren fehlenden Dingen den Ausweg zum ersten (Taler vor Holz vor Stein)', () => {
+    expect(longest({ coins: 30, wood: 8, stone: 2 }, 'hint.missing')).toContain('Taler bringt der Markt');
+    expect(longest({ wood: 8, stone: 2 }, 'hint.missing')).toContain('Holz bringt der Holzfäller');
+  });
+
+  it('bleibt kurz genug für die Hinweisleiste eines Handys quer (höchstens drei Zeilen, etwa 100 Zeichen)', () => {
+    const worst = longest({ coins: 40, wood: 14, stone: 5 }, 'hint.missing');
+    expect(worst.length).toBeLessThanOrEqual(100);
   });
 });
