@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Tile } from '../../src/sim/buildings';
 import { MAX_ROUTE_LENGTH, findRoute } from '../../src/sim/route';
+import { lineTiles } from '../../src/sim/buildings';
 import { grassState, run, setTerrainAt } from './helpers';
 
 const key = (tile: Tile): string => `${String(tile.x)},${String(tile.y)}`;
@@ -144,5 +145,37 @@ describe('findRoute', () => {
       expectConnected(result.tiles);
       expect(new Set(result.tiles.map(key)).size).toBe(result.tiles.length);
     }
+  });
+
+  it('nimmt die gerade Linie, auch wenn ein langer Umweg über alte Wege „billiger“ wäre (U-Fall)', () => {
+    const state = grassState(30);
+    const u = [...lineTiles({ x: 5, y: 10 }, { x: 25, y: 10 }), ...lineTiles({ x: 25, y: 10 }, { x: 25, y: 20 }, false), ...lineTiles({ x: 25, y: 20 }, { x: 5, y: 20 })];
+    run(state, { type: 'placePaths', tiles: u });
+    const result = findRoute(state, { x: 5, y: 11 }, { x: 5, y: 19 });
+    expect(result.ok && result.tiles.map(key)).toEqual(['5,11', '5,12', '5,13', '5,14', '5,15', '5,16', '5,17', '5,18', '5,19']);
+  });
+
+  it('meldet „zu lang“ nur, wenn es einen Weg gibt, und „keine Route“, wenn nicht', () => {
+    const state = grassState(60);
+    for (let y = 0; y < 60; y += 1) {
+      setTerrainAt(state, 30, y, 'water');
+    }
+    expect(findRoute(state, { x: 2, y: 2 }, { x: 55, y: 2 })).toEqual({ ok: false, reason: 'noRoute' });
+    expect(findRoute(state, { x: 2, y: 2 }, { x: 25, y: 40 })).toEqual({ ok: false, reason: 'tooLong' });
+  });
+
+  it('findet einen Weg mit genau der Höchstlänge und keinen mit einer Kachel mehr, auch mit Umweg', () => {
+    const state = run(grassState(60), { type: 'placeBuilding', buildingType: 'house-red', x: 10, y: 5 });
+    // Das Haus liegt im Weg: der Umweg kostet 2 Kacheln.
+    const around = findRoute(state, { x: 8, y: 5 }, { x: 12, y: 5 }, 9);
+    expect(around.ok && around.tiles.length).toBeLessThanOrEqual(9);
+    expect(findRoute(state, { x: 8, y: 5 }, { x: 12, y: 5 }, 6)).toEqual({ ok: false, reason: 'tooLong' });
+  });
+
+  it('bleibt auch auf einer großen freien Fläche schnell', () => {
+    const state = grassState(48);
+    const started = Date.now();
+    findRoute(state, { x: 2, y: 2 }, { x: 30, y: 30 });
+    expect(Date.now() - started).toBeLessThan(1500);
   });
 });

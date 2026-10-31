@@ -101,6 +101,8 @@ export const COLORS = {
   toolActiveRim: 0xffffff,
   confirm: 0x4fc65a,
   confirmShade: 0x2f9a3c,
+  done: 0x4a9de8,
+  doneShade: 0x2f78c0,
   cancel: 0xff7a6b,
   cancelShade: 0xd9503f,
   textFill: 0xffffff,

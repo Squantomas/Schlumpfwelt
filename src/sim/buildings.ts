@@ -63,6 +63,16 @@ export function footprintTiles(type: Pick<BuildingType, 'footprint'>, x: number,
   return tiles;
 }
 
+/**
+ * Brings a list of path tile indices into the form the state needs (ascending,
+ * no duplicates, whole non-negative numbers only). For loading saved games:
+ * `isPath` searches the list by bisection and relies on this order.
+ */
+export function normalizePaths(indices: readonly number[]): number[] {
+  const valid = indices.filter((index) => Number.isInteger(index) && index >= 0);
+  return [...new Set(valid)].sort((a, b) => a - b);
+}
+
 /** Position of `value` in the ascending list `sorted`, or the position where it would have to go (as `-1 - position`). */
 function search(sorted: readonly number[], value: number): number {
   let low = 0;

@@ -36,5 +36,7 @@
   "hint.occupied": "Hier steht schon etwas.",
   "hint.edge": "Das ist zu nah am Rand.",
   "hint.noRoute": "Dahin kommt der Weg nicht.",
-  "hint.routeTooLong": "Der Weg ist zu lang."
+  "hint.routeTooLong": "Der Weg ist zu lang.",
+  "hint.forestPath": "Im Wald kann man keinen Weg bauen.",
+  "hint.rockPath": "Auf Felsen kann man keinen Weg bauen."
 }

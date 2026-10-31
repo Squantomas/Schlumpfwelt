@@ -7,6 +7,8 @@ import {
   checkPlacement,
   footprintTiles,
   isConnected,
+  isPath,
+  normalizePaths,
   lineTiles,
   unconnectedBuildings,
 } from '../../src/sim/buildings';
@@ -154,6 +156,25 @@ describe('buildingAtPoint (Tipp auf die Grafik)', () => {
     expect(buildingAtPoint(state, 3.5 * T, 3 * T - 30, T)?.id).toBe(1);
     expect(buildingAtPoint(state, 3.5 * T, 3 * T - 50, T)).toBeUndefined();
     expect(buildingAtPoint(state, 9 * T, 9 * T, T)).toBeUndefined();
+  });
+});
+
+describe('normalizePaths (Laden in M5)', () => {
+  it('sortiert, entfernt Doppelte und wirft ungültige Werte weg', () => {
+    expect(normalizePaths([9, 3, 9, 1, 3, 20])).toEqual([1, 3, 9, 20]);
+    expect(normalizePaths([5, -1, 2.5, Number.NaN, 7, Number.POSITIVE_INFINITY, 0])).toEqual([0, 5, 7]);
+    expect(normalizePaths([])).toEqual([]);
+  });
+
+  it('macht eine unsortierte Liste für isPath brauchbar und ändert die Eingabe nicht', () => {
+    const state = grassState();
+    const input = [3 * 16 + 5, 1, 3 * 16 + 5, 40];
+    state.paths = normalizePaths(input);
+    expect(input).toEqual([53, 1, 53, 40]);
+    expect(isPath(state, 5, 3)).toBe(true);
+    expect(isPath(state, 1, 0)).toBe(true);
+    expect(isPath(state, 8, 2)).toBe(true);
+    expect(isPath(state, 4, 3)).toBe(false);
   });
 });
 

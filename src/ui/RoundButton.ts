@@ -1,15 +1,16 @@
 import Phaser from 'phaser';
 import { COLORS, MIN_TAP_SIZE } from './style';
 
-export type ButtonIcon = 'play' | 'plus' | 'minus' | 'check' | 'cross';
+export type ButtonIcon = 'play' | 'plus' | 'minus' | 'check' | 'cross' | 'back' | 'left' | 'right';
 
-/** `confirm` is green (✓), `cancel` red (✕), `normal` yellow. */
-export type ButtonVariant = 'normal' | 'confirm' | 'cancel';
+/** `confirm` is green (✓), `cancel` red (✕), `done` blue (leave the tool), `normal` yellow. */
+export type ButtonVariant = 'normal' | 'confirm' | 'cancel' | 'done';
 
 const VARIANT_COLORS: Readonly<Record<ButtonVariant, { readonly face: number; readonly shade: number; readonly icon: number }>> = {
   normal: { face: COLORS.button, shade: COLORS.buttonShade, icon: COLORS.buttonIcon },
   confirm: { face: COLORS.confirm, shade: COLORS.confirmShade, icon: COLORS.white },
   cancel: { face: COLORS.cancel, shade: COLORS.cancelShade, icon: COLORS.white },
+  done: { face: COLORS.done, shade: COLORS.doneShade, icon: COLORS.white },
 };
 
 export interface RoundButtonOptions {
@@ -110,6 +111,18 @@ export class RoundButton extends Phaser.GameObjects.Container {
           [-r * 0.12, r * 0.32],
           [r * 0.44, -r * 0.3],
         ]);
+        break;
+      }
+      case 'back': {
+        // An arrow pointing back (to the left): "done, back to looking".
+        strokeLine(g, colors.icon, r * 0.18, [[r * 0.4, 0], [-r * 0.4, 0]]);
+        strokeLine(g, colors.icon, r * 0.18, [[-r * 0.05, -r * 0.38], [-r * 0.42, 0], [-r * 0.05, r * 0.38]]);
+        break;
+      }
+      case 'left':
+      case 'right': {
+        const dir = this.icon === 'left' ? -1 : 1;
+        strokeLine(g, colors.icon, r * 0.2, [[-dir * r * 0.16, -r * 0.38], [dir * r * 0.2, 0], [-dir * r * 0.16, r * 0.38]]);
         break;
       }
       case 'cross': {

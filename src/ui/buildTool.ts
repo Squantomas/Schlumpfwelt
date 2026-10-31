@@ -88,7 +88,7 @@ export function anchorFor(typeId: string, tile: Tile): Tile {
 }
 
 /** The sentence that explains why something can not be built there. */
-export function problemHint(problem: PlacementProblem): TextKey | undefined {
+export function problemHint(problem: PlacementProblem, forPath = false): TextKey | undefined {
   switch (problem.result) {
     case 'ok':
       return undefined;
@@ -101,9 +101,9 @@ export function problemHint(problem: PlacementProblem): TextKey | undefined {
         case 'water':
           return 'hint.water';
         case 'forest':
-          return 'hint.forest';
+          return forPath ? 'hint.forestPath' : 'hint.forest';
         case 'rock':
-          return 'hint.rock';
+          return forPath ? 'hint.rockPath' : 'hint.rock';
         case 'sand':
           return 'hint.sand';
         case 'grass':
@@ -218,7 +218,7 @@ export class BuildTool {
           return 'hint.routeTooLong';
         }
         const blocked = preview.tiles.find((tile) => tile.problem !== undefined);
-        return blocked?.problem ? problemHint(blocked.problem) : undefined;
+        return blocked?.problem ? problemHint(blocked.problem, true) : undefined;
       }
       case 'none':
       case 'demolish':
@@ -234,7 +234,12 @@ export class BuildTool {
    */
   tap(tile: Tile, world?: Point): TextKey | undefined {
     const state = this.getState();
-    const building = world ? buildingAtPoint(state, world.x, world.y, TILE_SIZE) : buildingAt(state, tile.x, tile.y);
+    // What is under the finger: first the tile (a building's footprint, then a path), and only if the tile is
+    // empty the picture of a house reaching over it (its roof).
+    const footprint = buildingAt(state, tile.x, tile.y);
+    const onPath = isPath(state, tile.x, tile.y);
+    const roof = world && !footprint && !onPath ? buildingAtPoint(state, world.x, world.y, TILE_SIZE) : undefined;
+    const building = footprint ?? roof;
     const category = this.variantCategory;
     if (category) {
       this.pending = { kind: 'place', tile, typeId: this.variants.get(this.current) ?? '' };
@@ -247,7 +252,7 @@ export class BuildTool {
       case 'path':
         return this.tapPath(tile);
       case 'move':
-        return this.tapMove(tile, building?.id);
+        return this.tapMove(tile, building?.id, footprint?.id);
       case 'demolish': {
         if (building) {
           this.pending = { kind: 'demolish', x: building.x, y: building.y };
@@ -280,11 +285,22 @@ export class BuildTool {
     return undefined;
   }
 
-  private tapMove(tile: Tile, buildingId: number | undefined): TextKey | undefined {
+  /**
+   * `buildingId` is the building under the finger (footprint or, on an empty
+   * tile, roof), `footprintId` only the one whose footprint is on the tile.
+   * With a building already chosen, the tile is the target – unless it is on
+   * the footprint of another building, which is then chosen instead.
+   */
+  private tapMove(tile: Tile, buildingId: number | undefined, footprintId: number | undefined): TextKey | undefined {
     const state = this.getState();
     const pending = this.pending;
-    // Another building than the chosen one: choose that one instead.
-    if (buildingId !== undefined && !(pending.kind === 'move' && pending.id === buildingId)) {
+    if (pending.kind === 'move') {
+      if (footprintId !== undefined && footprintId !== pending.id) {
+        this.pending = { kind: 'move', id: footprintId };
+        this.changes += 1;
+        return undefined;
+      }
+    } else if (buildingId !== undefined) {
       this.pending = { kind: 'move', id: buildingId };
       this.changes += 1;
       return undefined;

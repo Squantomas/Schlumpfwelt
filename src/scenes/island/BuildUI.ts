@@ -10,20 +10,19 @@ import { SquareButton } from '../../ui/SquareButton';
 import { worldTapIgnored } from '../../ui/tapPause';
 import { COLORS, clamp } from '../../ui/style';
 import { drawToolIcon } from '../../ui/toolIcons';
+import { PICKER_ARROW, PICKER_CELL_W, PICKER_GAP, PICKER_PAD, pickerLayout } from '../../ui/pickerLayout';
 import { TOOLBAR_EDGE, TOOLBAR_GAP, TOOLBAR_PAD, toolbarLayout } from '../../ui/toolbarLayout';
 import type { ViewSize } from '../../ui/viewport';
 import { buildingTextureKey } from './buildingTextures';
 
 const GAP = 8;
-/** Picker cells and the small chip that the picker folds into. */
-const CELL_W = 84;
-const CELL_H = 104;
+/** The small chip that the picker folds into. */
 const CHIP_W = 76;
 const CHIP_H = 90;
 /** The ✕ in the hint bar (64 px). */
 const EXIT_RADIUS = 32;
 /** Width kept free at the right for the zoom buttons (CSS px). */
-const ZOOM_COLUMN = 108;
+const ZOOM_COLUMN = 92;
 /** How long a short explanation ("Hier geht das nicht.") stays. */
 const NOTICE_MS = 2800;
 
@@ -50,6 +49,8 @@ export class BuildUI {
   private readonly hintPanel: Phaser.GameObjects.Graphics;
   private readonly hintLabel: Phaser.GameObjects.Text;
   private readonly exitButton: RoundButton;
+  private readonly prevButton: RoundButton;
+  private readonly nextButton: RoundButton;
   private readonly confirmButton: RoundButton;
   private readonly cancelButton: RoundButton;
   private readonly toolButtons = new Map<Exclude<ToolId, 'view'>, SquareButton>();
@@ -63,6 +64,8 @@ export class BuildUI {
   private pickerRect: Rect = EMPTY;
   private chipRect: Rect = EMPTY;
   private pickerOpen = true;
+  private pickerPage = 0;
+  private hintAtBottom = false;
   private lastTool: ToolId = 'view';
   private hadPreview = false;
   private lastUiTap = Number.NEGATIVE_INFINITY;
@@ -84,14 +87,27 @@ export class BuildUI {
     this.hintLabel = createLabel(scene, '', 24);
     this.exitButton = new RoundButton(scene, 0, 0, {
       radius: EXIT_RADIUS,
-      icon: 'cross',
-      variant: 'cancel',
+      // Blue arrow back: "done" – not the red ✕ of the preview (that one throws the preview away).
+      icon: 'back',
+      variant: 'done',
       onTap: (time) => {
         this.touched(time);
         this.tool.exitTool();
         this.refresh();
       },
     });
+    const pager = (icon: 'left' | 'right', step: number): RoundButton =>
+      new RoundButton(scene, 0, 0, {
+        radius: PICKER_ARROW / 2,
+        icon,
+        onTap: (time) => {
+          this.touched(time);
+          this.pickerPage += step;
+          this.refresh();
+        },
+      });
+    this.prevButton = pager('left', -1);
+    this.nextButton = pager('right', 1);
 
     for (const id of TOOLS) {
       const button = new SquareButton(scene, {
@@ -144,7 +160,7 @@ export class BuildUI {
         this.refresh();
       },
     });
-    for (const object of [this.confirmButton, this.cancelButton, this.exitButton, this.hintLabel]) {
+    for (const object of [this.confirmButton, this.cancelButton, this.exitButton, this.hintLabel, this.prevButton, this.nextButton]) {
       object.setVisible(false);
     }
 
@@ -154,6 +170,8 @@ export class BuildUI {
       ...this.chipButtons.values(),
       this.hintLabel,
       this.exitButton,
+      this.prevButton,
+      this.nextButton,
       this.confirmButton,
       this.cancelButton,
     ]);
@@ -174,8 +192,8 @@ export class BuildUI {
           this.pickerOpen = true;
         } else {
           this.tool.selectVariant(type.id);
-          // Choosing while a place is already tapped folds the picker away again.
-          this.pickerOpen = !this.tool.hasPreview;
+          // Once a variant is chosen the picker folds into the chip and leaves the island free.
+          this.pickerOpen = false;
         }
         this.refresh();
       },
@@ -204,6 +222,11 @@ export class BuildUI {
     this.seenVersion = -1;
   }
 
+  /** Where the hint bar ends at the top (0 if there is none up there): things in the world should not hide below it. */
+  get topInset(): number {
+    return this.hintRect.height > 0 && !this.hintAtBottom ? this.hintRect.y + this.hintRect.height + 6 : 0;
+  }
+
   /** Is this screen point (CSS px) on a panel? Then a press there is not for the camera. */
   coversPoint(x: number, y: number): boolean {
     return [this.toolbarRect, this.pickerRect, this.hintRect, this.chipRect].some(
@@ -218,7 +241,7 @@ export class BuildUI {
     const { width, height } = size;
 
     // Toolbar: big buttons, in several rows when the screen is too narrow.
-    const { size: button, cols, rows } = toolbarLayout(width, TOOLS.length);
+    const { size: button, cols, rows } = toolbarLayout(width, TOOLS.length, height);
     const panelW = cols * button + (cols - 1) * TOOLBAR_GAP + 2 * TOOLBAR_PAD;
     const panelH = rows * button + (rows - 1) * TOOLBAR_GAP + 2 * TOOLBAR_PAD;
     const panelX = (width - panelW) / 2;
@@ -238,40 +261,62 @@ export class BuildUI {
     this.refresh();
   }
 
+  /** Bottom of the hint bar (or of the space it would use), the picker must stay below it. */
+  private get belowHint(): number {
+    return (this.hintRect.height > 0 && !this.hintAtBottom ? this.hintRect.y + this.hintRect.height : 12 + 2 * EXIT_RADIUS + 8) + 8;
+  }
+
+  /** Bottom edge of the space above the toolbar that the picker, chip and ✓ / ✕ may use. */
+  private get aboveToolbar(): number {
+    return this.toolbarRect.y - GAP - (this.tool.hasPreview ? CONFIRM_DIAMETER + GAP : 0);
+  }
+
   private layoutPicker(): void {
     const { width } = this.view;
     const category = this.tool.variantCategory;
     const types = category ? typesOf(category) : [];
     const open = types.length > 0 && this.pickerOpen;
-    // Above the toolbar – and above the ✓ / ✕ row, while there is a preview.
-    const bottom = this.toolbarRect.y - GAP - (this.tool.hasPreview ? CONFIRM_DIAMETER + GAP : 0);
+    const bottom = this.aboveToolbar;
 
-    for (const [id, button] of this.variantButtons) {
-      button.setVisible(open && types.some((type) => type.id === id));
-    }
     this.pickerPanel.clear();
     this.pickerRect = EMPTY;
+    for (const button of this.variantButtons.values()) {
+      button.setVisible(false);
+    }
+    this.prevButton.setVisible(false);
+    this.nextButton.setVisible(false);
     if (open) {
-      const maxCols = Math.max(1, Math.floor((width - 2 * TOOLBAR_EDGE - 2 * TOOLBAR_PAD + GAP) / (CELL_W + GAP)));
-      const cols = Math.min(types.length, maxCols);
-      const rows = Math.ceil(types.length / cols);
-      const panelW = cols * CELL_W + (cols - 1) * GAP + 2 * TOOLBAR_PAD;
-      const panelH = rows * CELL_H + (rows - 1) * GAP + 2 * TOOLBAR_PAD;
-      const panelY = bottom - panelH;
-      this.pickerRect = { x: (width - panelW) / 2, y: panelY, width: panelW, height: panelH };
-      drawPanel(this.pickerPanel, this.pickerRect);
-      types.forEach((type, index) => {
+      const layout = pickerLayout(width, types.length, this.belowHint, bottom);
+      this.pickerPage = clamp(this.pickerPage, 0, layout.pages - 1);
+      this.pickerRect = layout.rect;
+      drawPanel(this.pickerPanel, layout.rect);
+      const shown = types.slice(this.pickerPage * layout.perPage, (this.pickerPage + 1) * layout.perPage);
+      const rowsShown = layout.paged ? 1 : layout.rows;
+      const cols = layout.paged ? layout.perPage : layout.cols;
+      shown.forEach((type, index) => {
         const row = Math.floor(index / cols);
         // The last row is centred when it is not full.
-        const inRow = row === rows - 1 ? types.length - row * cols : cols;
+        const inRow = row === rowsShown - 1 ? shown.length - row * cols : cols;
         const col = index - row * cols;
-        const rowW = inRow * CELL_W + (inRow - 1) * GAP;
+        const rowW = inRow * PICKER_CELL_W + (inRow - 1) * PICKER_GAP;
         this.variantButtons
           .get(type.id)
-          ?.layoutTo(CELL_W, CELL_H)
-          .setPosition((width - rowW) / 2 + CELL_W / 2 + col * (CELL_W + GAP), panelY + TOOLBAR_PAD + CELL_H / 2 + row * (CELL_H + GAP))
+          ?.setVisible(true)
+          .layoutTo(PICKER_CELL_W, layout.cellH)
+          .setPosition(
+            (width - rowW) / 2 + PICKER_CELL_W / 2 + col * (PICKER_CELL_W + PICKER_GAP),
+            layout.rect.y + PICKER_PAD + layout.cellH / 2 + row * (layout.cellH + PICKER_GAP),
+          )
           .setHighlighted(this.tool.variant === type.id);
       });
+      if (layout.paged) {
+        const y = layout.rect.y + layout.rect.height / 2;
+        this.prevButton.setVisible(true).setPosition(layout.rect.x + PICKER_PAD + PICKER_ARROW / 2, y).setDimmed(this.pickerPage === 0);
+        this.nextButton
+          .setVisible(true)
+          .setPosition(layout.rect.x + layout.rect.width - PICKER_PAD - PICKER_ARROW / 2, y)
+          .setDimmed(this.pickerPage >= layout.pages - 1);
+      }
     }
 
     // The folded picker: a small chip with the chosen variant, bottom left.
@@ -311,18 +356,22 @@ export class BuildUI {
     }
     const exitSpace = this.tool.tool !== 'view' ? 2 * EXIT_RADIUS + 10 : 0;
     // The zoom buttons sit at the top right: keep the bar clear of them. On narrow screens the text wraps.
-    const fontSize = clamp(Math.min(width, height) * 0.04, 18, 26);
+    const fontSize = clamp(Math.min(width, height) * 0.04, 16, 26);
     const maxBar = Math.max(width - 2 * ZOOM_COLUMN, Math.min(width - ZOOM_COLUMN - 12, 420));
     // The bar always has the same width, so the ✕ never moves under the finger when the text changes.
     const barW = Math.min(maxBar, 720);
-    const textMax = Math.max(120, barW - exitSpace - 32);
-    setLabelSize(this.hintLabel.setWordWrapWidth(textMax).setText(text), fontSize);
-    const barH = Math.max(this.hintLabel.height + 20, 2 * EXIT_RADIUS + 8);
+    // The text never runs under the ✕ button: wrap narrower than the free space and shrink if it is still too wide.
+    const textMax = Math.max(100, barW - exitSpace - 40);
+    setLabelSize(this.hintLabel.setWordWrapWidth(textMax - 12).setText(text), fontSize, textMax);
+    const inTool = this.tool.tool !== 'view';
+    const barH = Math.max(this.hintLabel.height + 20, inTool ? 2 * EXIT_RADIUS + 8 : 0);
     const barX = clamp((width - barW) / 2, 12, Math.max(12, width - ZOOM_COLUMN - barW));
-    const barY = 12;
+    // While looking, a short note ("needs a path") sits above the toolbar, so it never covers a house sign at the top.
+    this.hintAtBottom = !inTool;
+    const barY = inTool ? 12 : this.toolbarRect.y - 12 - barH;
     this.hintRect = { x: barX, y: barY, width: barW, height: barH };
     drawPanel(this.hintPanel, this.hintRect);
-    this.hintLabel.setPosition(barX + 16 + textMax / 2, barY + barH / 2);
+    this.hintLabel.setPosition(barX + 20 + textMax / 2, barY + barH / 2);
     this.exitButton.setPosition(barX + barW - 8 - EXIT_RADIUS, barY + 4 + EXIT_RADIUS);
   }
 
@@ -350,8 +399,8 @@ export class BuildUI {
     for (const [id, button] of this.toolButtons) {
       button.setHighlighted(this.tool.tool === id);
     }
-    this.layoutPicker();
     this.layoutHint();
+    this.layoutPicker();
     this.layoutConfirm();
     this.seenVersion = this.tool.version;
     this.spotsDirty = true;
@@ -386,6 +435,10 @@ export class BuildUI {
         if (button.visible) {
           spots['chip'] = { x: button.x, y: button.y, enabled: true };
         }
+      }
+      if (this.prevButton.visible) {
+        spots['page-prev'] = { x: this.prevButton.x, y: this.prevButton.y, enabled: this.pickerPage > 0 };
+        spots['page-next'] = { x: this.nextButton.x, y: this.nextButton.y, enabled: true };
       }
       if (this.exitButton.visible) {
         spots['exit'] = { x: this.exitButton.x, y: this.exitButton.y, enabled: true };

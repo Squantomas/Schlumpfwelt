@@ -314,7 +314,7 @@ describe('Wege', () => {
     expect(tool.hint).toBe('hint.water');
     expect(tool.canConfirm).toBe(false);
     tool.tap({ x: 9, y: 4 });
-    expect(tool.hint).toBe('hint.forest');
+    expect(tool.hint).toBe('hint.forestPath');
   });
 
   it('lässt das ✓ ins Leere laufen, wenn kein Feld erlaubt ist', () => {
@@ -489,33 +489,67 @@ describe('Version', () => {
 
 describe('Tipp aufs Dach (Regression)', () => {
   const T = 64;
-  /** Haus bei (5,5), davor nichts; auf der Kachel (5,4) hinter dem Haus liegt ein Weg. */
+  /** Haus bei (5,5) (Dach reicht bis y = 236 px); auf der Kachel (5,4) hinter dem Haus liegt ein Weg, (6,4) ist leer. */
   const withRoofPath = (): ReturnType<typeof setup> => {
     const ctx = setup();
-    run(ctx.state, { type: 'placePaths', tiles: [{ x: 5, y: 4 }, { x: 6, y: 4 }] }, { type: 'placeBuilding', buildingType: 'house-red', x: 5, y: 5 });
+    run(ctx.state, { type: 'placePaths', tiles: [{ x: 5, y: 4 }] }, { type: 'placeBuilding', buildingType: 'house-red', x: 5, y: 5 });
     return ctx;
   };
-  /** Ein Tipp auf das Dach: die Kachel unter dem Finger ist (5,4), der Punkt liegt aber auf der Grafik des Hauses. */
-  const roof = { tile: { x: 5, y: 4 }, world: { x: 5.5 * T, y: 4.5 * T } };
+  /** Tipp aufs Dach über der Wegkachel (5,4) und über der leeren Kachel (6,4). */
+  const roofOverPath = { tile: { x: 5, y: 4 }, world: { x: 5.5 * T, y: 4.5 * T } };
+  const roofOverEmpty = { tile: { x: 6, y: 4 }, world: { x: 6.5 * T, y: 4.5 * T } };
 
-  it('reißt beim Abreißen das Haus ab und nicht den Weg dahinter', () => {
+  it('reißt den Weg ab, wenn die Kachel unter dem Finger ein Weg ist (auch unter dem Dach)', () => {
     const { state, tool } = withRoofPath();
     tool.selectTool('demolish');
-    tool.tap(roof.tile, roof.world);
+    tool.tap(roofOverPath.tile, roofOverPath.world);
+    expect(tool.preview()).toEqual({ kind: 'demolish', tiles: [{ x: 5, y: 4 }] });
+    tool.confirm();
+    expect(pathAt(state, 5, 4)).toBe(false);
+    expect(state.buildings).toHaveLength(1);
+  });
+
+  it('reißt das Haus ab, wenn die Kachel unter dem Finger leer ist und das Dach getroffen wird', () => {
+    const { state, tool } = withRoofPath();
+    tool.selectTool('demolish');
+    tool.tap(roofOverEmpty.tile, roofOverEmpty.world);
     expect(tool.preview()).toMatchObject({ kind: 'demolish', tiles: [{ x: 5, y: 5 }, { x: 6, y: 5 }, { x: 5, y: 6 }, { x: 6, y: 6 }] });
     tool.confirm();
     expect(state.buildings).toEqual([]);
     expect(pathAt(state, 5, 4)).toBe(true);
   });
 
-  it('wählt beim Verschieben das Haus und meldet nicht „Wege kann man nicht verschieben“', () => {
+  it('nimmt den Grundriss vor dem Dach: Tipp auf den Stiel reißt das Haus ab', () => {
+    const { state, tool } = withRoofPath();
+    tool.selectTool('demolish');
+    tool.tap({ x: 5, y: 5 }, { x: 5.5 * T, y: 5.5 * T });
+    tool.confirm();
+    expect(state.buildings).toEqual([]);
+  });
+
+  it('wählt beim Verschieben über das Dach das Haus, über eine Wegkachel aber meldet es „Wege nicht verschiebbar“', () => {
     const { tool } = withRoofPath();
     tool.selectTool('move');
-    expect(tool.tap(roof.tile, roof.world)).toBeUndefined();
+    expect(tool.tap(roofOverPath.tile, roofOverPath.world)).toBe('hint.pathNoMove');
+    expect(tool.tap(roofOverEmpty.tile, roofOverEmpty.world)).toBeUndefined();
     expect(tool.preview()).toMatchObject({ kind: 'move', id: 1 });
   });
 
-  it('sagt beim Anschauen auf dem Dach, dass das Haus einen Weg braucht', () => {
+  it('nimmt beim Verschieben eines gewählten Hauses die Kachel hinter einem anderen Dach als Ziel', () => {
+    const { state, tool } = setup();
+    run(state, { type: 'placeBuilding', buildingType: 'house-red', x: 5, y: 5 }, { type: 'placeBuilding', buildingType: 'flower', x: 12, y: 12 });
+    tool.selectTool('move');
+    tool.tap({ x: 12, y: 12 });
+    expect(tool.preview()).toMatchObject({ kind: 'move', id: 2 });
+    // Die Kachel (6,4) ist leer, aber das Dach des Hauses ragt darüber: sie ist das Ziel der Blume.
+    tool.tap(roofOverEmpty.tile, roofOverEmpty.world);
+    expect(tool.preview()).toMatchObject({ kind: 'move', id: 2, target: { x: 6, y: 4, result: 'ok' } });
+    // Auf dem Grundriss des anderen Hauses wird dieses gewählt.
+    tool.tap({ x: 6, y: 6 }, { x: 6.5 * T, y: 6.5 * T });
+    expect(tool.preview()).toMatchObject({ kind: 'move', id: 1 });
+  });
+
+  it('sagt beim Anschauen auf dem Dach (leere Kachel dahinter), dass das Haus einen Weg braucht', () => {
     const { state, tool } = setup();
     run(state, { type: 'placeBuilding', buildingType: 'house-red', x: 5, y: 5 });
     expect(tool.tap({ x: 5, y: 4 }, { x: 5.5 * T, y: 4.5 * T })).toBe('hint.needsPath');
@@ -532,8 +566,28 @@ describe('Tipp aufs Dach (Regression)', () => {
   it('baut beim Platzieren weiter nach der Kachel, nicht nach der Grafik eines Hauses', () => {
     const { tool } = withRoofPath();
     tool.selectTool('deco');
-    tool.tap(roof.tile, roof.world);
+    tool.tap(roofOverPath.tile, roofOverPath.world);
     expect(tool.preview()).toMatchObject({ kind: 'place', x: 5, y: 4, result: 'blocked' });
+  });
+});
+
+describe('Weg mit Ziel im Wald oder auf Fels', () => {
+  it('ist rot, ✓ gesperrt, und der Hinweis nennt den Grund für Wege', () => {
+    const state = grassState();
+    setTerrainAt(state, 9, 2, 'forest');
+    setTerrainAt(state, 9, 5, 'rock');
+    const { tool, sent } = setup(state);
+    tool.selectTool('path');
+    tool.tap({ x: 2, y: 2 });
+    tool.tap({ x: 9, y: 2 });
+    const preview = tool.preview();
+    expect(preview.kind === 'path' && preview.error).toBe('endBlocked');
+    expect(tool.canConfirm).toBe(false);
+    expect(tool.hint).toBe('hint.forestPath');
+    expect(tool.confirm()).toBe('hint.forestPath');
+    tool.tap({ x: 9, y: 5 });
+    expect(tool.hint).toBe('hint.rockPath');
+    expect(sent).toEqual([]);
   });
 });
 

@@ -18,9 +18,18 @@ export const TOOLBAR_PAD = 8;
 const PREFERRED_MIN = 64;
 const ABSOLUTE_MIN = 56;
 const MAX_SIZE = 96;
-const MAX_SIZE_WRAPPED = 72;
+const MAX_SIZE_WRAPPED = 64;
 
-export function toolbarLayout(viewWidth: number, count: number): ToolbarLayout {
+/** Share of the screen height the buttons may use at most (so a landscape phone keeps room for the island). */
+const MAX_HEIGHT_SHARE = 0.2;
+
+export function toolbarLayout(viewWidth: number, count: number, viewHeight = Number.POSITIVE_INFINITY): ToolbarLayout {
+  const base = toolbarLayoutForWidth(viewWidth, count);
+  const cap = Math.max(ABSOLUTE_MIN, viewHeight * MAX_HEIGHT_SHARE);
+  return base.size > cap ? { ...base, size: cap } : base;
+}
+
+function toolbarLayoutForWidth(viewWidth: number, count: number): ToolbarLayout {
   const available = viewWidth - 2 * TOOLBAR_EDGE - 2 * TOOLBAR_PAD;
   const fit = (cols: number): number => (available - (cols - 1) * TOOLBAR_GAP) / cols;
 

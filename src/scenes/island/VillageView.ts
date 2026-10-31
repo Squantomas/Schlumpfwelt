@@ -7,6 +7,7 @@ import { COLORS, TILE_SIZE } from '../../ui/style';
 import {
   MARKER_BUBBLE,
   MARKER_KEY,
+  MARKER_SIZE,
   PUFF_KEY,
   buildingOrigin,
   buildingTextureKey,
@@ -235,8 +236,8 @@ export class VillageView {
     }
   }
 
-  /** Moves the signs (bobbing, size for the current zoom) and wobbles the lifted building. `seconds` is simulation time. */
-  update(seconds: number, deltaMs: number, zoom: number): void {
+  /** Moves the signs (bobbing, size for the current zoom) and wobbles the lifted building. `seconds` is simulation time, `minWorldY` the top edge (world px) they must stay below. */
+  update(seconds: number, deltaMs: number, zoom: number, minWorldY = Number.NEGATIVE_INFINITY): void {
     const step = Math.min(deltaMs, 100) / 1000;
     for (const [id, marker] of this.markers) {
       marker.appear = marker.leaving ? marker.appear - step * 5 : Math.min(1, marker.appear + step * 4);
@@ -248,7 +249,9 @@ export class VillageView {
       const fit = Phaser.Math.Clamp(MARKER_MIN_CSS_PX / (MARKER_BUBBLE * zoom), 1, MARKER_MAX_SCALE);
       const pop = Phaser.Math.Easing.Back.Out(Math.max(0, marker.appear));
       const bob = Math.sin(seconds * 3 + marker.phase) * 4 * fit;
-      marker.image.setPosition(marker.baseX, marker.baseY + bob - 4).setScale((fit * pop) / TEXTURE_SCALE);
+      // A house at the top of the screen: the sign slides down so it stays below the hint bar (`minWorldY`).
+      const lowest = minWorldY + MARKER_SIZE.height * fit * pop;
+      marker.image.setPosition(marker.baseX, Math.max(marker.baseY + bob - 4, lowest)).setScale((fit * pop) / TEXTURE_SCALE);
     }
     const lifted = this.liftedId === undefined ? undefined : this.sprites.get(this.liftedId);
     if (lifted) {
@@ -291,11 +294,12 @@ export class VillageView {
         for (const tile of preview.tiles) {
           fillTiles(g, tile.x, tile.y, 1, 1, COLORS.ghostBad, 0.5);
         }
-        const last = preview.tiles[preview.tiles.length - 1];
-        if (last) {
-          const left = Math.min(...preview.tiles.map((tile) => tile.x));
-          const right = Math.max(...preview.tiles.map((tile) => tile.x)) + 1;
-          drawBadge(this.badges, ((left + right) / 2) * TILE_SIZE, (last.y + 0.5) * TILE_SIZE, false);
+        if (preview.tiles.length > 0) {
+          const xs = preview.tiles.map((tile) => tile.x);
+          const ys = preview.tiles.map((tile) => tile.y);
+          const left = Math.min(...xs);
+          const top = Math.min(...ys);
+          drawCornerBadge(this.badges, left, top, Math.max(...xs) - left + 1, Math.max(...ys) - top + 1, false);
         }
         const first = preview.tiles[0];
         const building = first ? buildingAt(this.simulation.state, first.x, first.y) : undefined;
@@ -329,7 +333,7 @@ export class VillageView {
     const color = fits ? COLORS.ghostOk : COLORS.ghostBad;
     // The ground under the ghost is green or red, with a ✓ or ✕ sign on top: no colour guessing needed.
     fillTiles(this.overlay, x, y, type.footprint.w, type.footprint.h, color, 0.55);
-    drawBadge(this.badges, (x + type.footprint.w / 2) * TILE_SIZE, (y + type.footprint.h - 0.5) * TILE_SIZE, fits);
+    drawCornerBadge(this.badges, x, y, type.footprint.w, type.footprint.h, fits);
     const origin = buildingOrigin(type);
     // The picture keeps its own colours (a tint would turn yellow-on-red orange).
     this.ghost
@@ -337,7 +341,7 @@ export class VillageView {
       .setOrigin(origin.x, origin.y)
       .setScale(1 / TEXTURE_SCALE)
       .setPosition((x + type.footprint.w / 2) * TILE_SIZE, (y + type.footprint.h) * TILE_SIZE)
-      .setAlpha(0.66)
+      .setAlpha(0.82)
       .clearTint()
       .setVisible(true);
   }
@@ -411,4 +415,11 @@ function drawBadge(g: Phaser.GameObjects.Graphics, x: number, y: number, fits: b
     g.moveTo(x - r * 0.32, y + r * 0.32).lineTo(x + r * 0.32, y - r * 0.32);
   }
   g.strokePath();
+}
+
+/** The ✓ / ✕ sign on the ground at the front right corner of a footprint – not on the door in the middle. */
+function drawCornerBadge(g: Phaser.GameObjects.Graphics, x: number, y: number, w: number, h: number, fits: boolean): void {
+  const scale = w === 1 && h === 1 ? 0.8 : 1;
+  const r = 20 * scale;
+  drawBadge(g, (x + w) * TILE_SIZE - r - 5, (y + h) * TILE_SIZE - r - 5, fits, scale);
 }

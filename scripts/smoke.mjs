@@ -940,16 +940,45 @@ async function testBuilding({ page, check, shot, size, input, drag, name }) {
     check(village.buildings.length === countBefore, 'Ziehen mit Werkzeug hat gebaut');
     await exitTool();
 
-    // --- Schmaler Bildschirm (320 px): alle Werkzeuge bleiben im Bild und antippbar ---
-    step('Schmaler Bildschirm: Werkzeugleiste passt');
-    await page.setViewportSize({ width: 320, height: 568 });
-    await sleep(1500);
-    const narrow = await readVillage(page);
-    for (const tool of ['path', 'house', 'deco', 'move', 'demolish']) {
-      const p = narrow.ui[`tool-${tool}`];
-      check(p && p.x - 28 >= 0 && p.x + 28 <= 320 && p.y - 28 >= 0 && p.y + 28 <= 568, `320 px: Werkzeug ${tool} liegt nicht im Bild (${p?.x}, ${p?.y})`);
+    // --- Kleine Bildschirme (Handy hochkant und quer): nichts ragt über den Rand, Land bleibt antippbar ---
+    for (const [w, h] of [[320, 568], [568, 320]]) {
+      step(`Kleiner Bildschirm ${w}×${h}: Leisten im Bild, Land antippbar`);
+      await page.setViewportSize({ width: w, height: h });
+      await sleep(1500);
+      const small = { width: w, height: h };
+      await cameraAtRest();
+      await selectTool('deco');
+      let v = await waitForVillage(page, (state) => 'variant-flower' in state.ui, 'die Auswahl');
+      for (const [spot, p] of Object.entries(v.ui)) {
+        check(p.x - 24 >= 0 && p.x + 24 <= w && p.y - 24 >= 0 && p.y + 24 <= h, `${w}×${h}: „${spot}“ ragt über den Bildrand (${p.x.toFixed(0)}, ${p.y.toFixed(0)})`);
+      }
+      for (const [spot, p] of Object.entries(v.ui).filter(([spot]) => spot.startsWith('variant-'))) {
+        check(p.y - 32 >= 84, `${w}×${h}: „${spot}“ liegt unter/auf der Hinweisleiste (y ${p.y.toFixed(0)})`);
+      }
+      const toolbarTop = v.ui['tool-path'].y - 40;
+      check(toolbarTop > h * 0.4, `${w}×${h}: Werkzeugleiste nimmt mehr als die halbe Höhe`);
+      await shot(`${name}-klein-${w}x${h}`);
+      await tapUi('exit');
+      await waitForVillage(page, (state) => state.tool === 'view', 'zurück auf „Anschauen“');
+      // Land antippen: das Grasstück, das dem Punkt links oben von der Mitte am nächsten liegt und frei vom Bedienfeld ist.
+      const cam = await cameraAtRest();
+      v = await readVillage(page);
+      let best;
+      for (let y = 0; y < MAP_TILES; y += 1) {
+        for (let x = 0; x < MAP_TILES; x += 1) {
+          if (v.terrain[y * MAP_TILES + x] !== 'g') continue;
+          const p = screenOfTile(cam, small, { x, y });
+          if (p.x < 12 || p.x > w - 12 || p.y < 100 || p.y > toolbarTop - 40) continue;
+          const distance = Math.hypot(p.x - w * 0.3, p.y - h * 0.4);
+          if (!best || distance < best.distance) best = { x, y, p, distance };
+        }
+      }
+      check(best !== undefined, `${w}×${h}: kein antippbares Land im Bild`);
+      if (best) {
+        await input.tap(best.p);
+        await waitForVillage(page, (state) => state.lastTap === tileKey(best.x, best.y), `den Tipp auf Land bei ${w}×${h}`, 4000);
+      }
     }
-    await shot(`${name}-schmal`);
     await page.setViewportSize(size);
     await sleep(1000);
   }

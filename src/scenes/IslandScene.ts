@@ -362,7 +362,10 @@ export class IslandScene extends Phaser.Scene {
       this.previewText = describePreview(this.preview);
       this.village.setPreview(this.preview);
     }
-    this.village.update(seconds, deltaMs, this.controller.view.zoom);
+    const view = this.controller.view;
+    // The top of the visible world below the hint bar: house signs do not slide under the bar.
+    const topEdge = view.centerY - this.controller.viewSize.height / (2 * view.zoom) + this.buildUI.topInset / view.zoom;
+    this.village.update(seconds, deltaMs, view.zoom, topEdge);
     this.publishVillage(revision);
   }
 

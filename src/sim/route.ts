@@ -13,7 +13,8 @@ import { inBounds } from './world';
 export const MAX_ROUTE_LENGTH = 40;
 
 const NEW_TILE_COST = 1;
-const EXISTING_TILE_COST = 0.01;
+/** Existing path tiles are cheaper, but not free: a long detour over old paths must not beat the straight line. */
+const EXISTING_TILE_COST = 0.4;
 const TURN_COST = 0.4;
 
 export type RouteFailure = 'startBlocked' | 'endBlocked' | 'noRoute' | 'tooLong';
@@ -104,10 +105,13 @@ function less(a: Entry, b: Entry): boolean {
 }
 
 /**
- * Finds the cheapest route from `from` to `to` (both included). Fails with
- * `startBlocked` / `endBlocked` if an end tile can not carry a path,
- * `noRoute` if there is no way, `tooLong` if the best route has more than
- * `maxLength` tiles.
+ * Finds the cheapest route from `from` to `to` (both included) that has at
+ * most `maxLength` tiles. The length is part of the search (a state is tile,
+ * direction and tiles used so far), so a long route over old paths can not
+ * hide a short direct one, and states that can no longer reach the goal in
+ * time are dropped early. Fails with `startBlocked` / `endBlocked` if an end
+ * tile can not carry a path, `noRoute` if there is no way at all, `tooLong`
+ * if there is one, but none within `maxLength` tiles.
  */
 export function findRoute(state: PlacementView, from: Tile, to: Tile, maxLength: number = MAX_ROUTE_LENGTH): RouteResult {
   const { world } = state;
@@ -119,15 +123,19 @@ export function findRoute(state: PlacementView, from: Tile, to: Tile, maxLength:
     return { ok: false, reason: 'endBlocked' };
   }
 
-  // A search state is a tile plus the direction we came in with (4 = start, no direction yet).
-  const stateCount = world.width * world.height * 5;
+  // A search state is a tile, the direction we came in with (4 = start, no direction yet) and the tiles used so far.
+  const layers = maxLength + 1;
+  const stateCount = world.width * world.height * 5 * layers;
+  const encode = (tile: number, direction: number, used: number): number => (tile * 5 + direction) * layers + used;
   const best = new Float64Array(stateCount).fill(Number.POSITIVE_INFINITY);
   const previous = new Int32Array(stateCount).fill(-1);
   const heap = new Heap();
   let order = 0;
-  const startState = tileIndex(world, from.x, from.y) * 5 + 4;
+  const startState = encode(tileIndex(world, from.x, from.y), 4, 1);
   best[startState] = 0;
-  heap.push({ cost: 0, order: order++, state: startState });
+  if (maxLength >= 1) {
+    heap.push({ cost: 0, order: order++, state: startState });
+  }
 
   let goal = -1;
   while (heap.size > 0) {
@@ -138,8 +146,10 @@ export function findRoute(state: PlacementView, from: Tile, to: Tile, maxLength:
     if (entry.cost > (best[entry.state] ?? Number.POSITIVE_INFINITY)) {
       continue;
     }
-    const tile = Math.floor(entry.state / 5);
-    const direction = entry.state % 5;
+    const used = entry.state % layers;
+    const rest = Math.floor(entry.state / layers);
+    const direction = rest % 5;
+    const tile = Math.floor(rest / 5);
     const x = tile % world.width;
     const y = Math.floor(tile / world.width);
     if (x === to.x && y === to.y) {
@@ -149,13 +159,14 @@ export function findRoute(state: PlacementView, from: Tile, to: Tile, maxLength:
     DIRECTIONS.forEach(([dx, dy], next) => {
       const nx = x + dx;
       const ny = y + dy;
-      if (!passable(nx, ny)) {
+      // Even the straight rest of the way would be too long: drop this state.
+      if (used + 1 + Math.abs(to.x - nx) + Math.abs(to.y - ny) > maxLength || !passable(nx, ny)) {
         return;
       }
       const step = isPath(state, nx, ny) ? EXISTING_TILE_COST : NEW_TILE_COST;
       const turn = direction !== 4 && direction !== next ? TURN_COST : 0;
       const cost = entry.cost + step + turn;
-      const nextState = tileIndex(world, nx, ny) * 5 + next;
+      const nextState = encode(tileIndex(world, nx, ny), next, used + 1);
       if (cost < (best[nextState] ?? Number.POSITIVE_INFINITY)) {
         best[nextState] = cost;
         previous[nextState] = entry.state;
@@ -165,13 +176,42 @@ export function findRoute(state: PlacementView, from: Tile, to: Tile, maxLength:
   }
 
   if (goal < 0) {
-    return { ok: false, reason: 'noRoute' };
+    return { ok: false, reason: reachable(world, passable, from, to) ? 'tooLong' : 'noRoute' };
   }
   const tiles: Tile[] = [];
   for (let current = goal; current >= 0; current = previous[current] ?? -1) {
-    const tile = Math.floor(current / 5);
+    const tile = Math.floor(current / layers / 5);
     tiles.push({ x: tile % world.width, y: Math.floor(tile / world.width) });
   }
   tiles.reverse();
-  return tiles.length > maxLength ? { ok: false, reason: 'tooLong' } : { ok: true, tiles };
+  return { ok: true, tiles };
+}
+
+/** Is there any way at all (ignoring the length limit)? Plain flood fill, only run when the limited search failed. */
+function reachable(
+  world: { readonly width: number; readonly height: number },
+  passable: (x: number, y: number) => boolean,
+  from: Tile,
+  to: Tile,
+): boolean {
+  const seen = new Uint8Array(world.width * world.height);
+  const queue: number[] = [tileIndex(world, from.x, from.y)];
+  seen[queue[0] ?? 0] = 1;
+  for (let head = 0; head < queue.length; head += 1) {
+    const tile = queue[head] ?? 0;
+    const x = tile % world.width;
+    const y = Math.floor(tile / world.width);
+    if (x === to.x && y === to.y) {
+      return true;
+    }
+    for (const [dx, dy] of DIRECTIONS) {
+      const nx = x + dx;
+      const ny = y + dy;
+      if (passable(nx, ny) && seen[tileIndex(world, nx, ny)] === 0) {
+        seen[tileIndex(world, nx, ny)] = 1;
+        queue.push(tileIndex(world, nx, ny));
+      }
+    }
+  }
+  return false;
 }
