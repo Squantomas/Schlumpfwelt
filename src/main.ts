@@ -9,6 +9,7 @@ import { openSaveStore } from './save/indexedDbStore';
 import { saveWhenLeaving } from './save/lifecycle';
 import { GameSession } from './save/session';
 import { MemoryStore } from './save/saveStore';
+import { acquireSaveLock } from './save/tabLock';
 import { parseStartParams, prepareStart } from './save/startup';
 import { Simulation } from './sim/simulation';
 import { COLORS } from './ui/style';
@@ -39,8 +40,10 @@ function randomSeed(): number {
 async function start(root: HTMLElement): Promise<void> {
   // `?seed=N` (tests) neither loads nor saves unless `&save=1` is added (see `src/save/startup.ts`).
   const params = parseStartParams(window.location.search);
-  const store = params.persist ? await openSaveStore() : new MemoryStore();
-  const begin = await prepareStart(params, store, randomSeed);
+  // One window saves: a second one (web app and browser tab) plays on without saving, so it can not overwrite the first.
+  const lock = params.persist ? await acquireSaveLock() : 'granted';
+  const store = params.persist ? await openSaveStore(lock === 'unsupported') : new MemoryStore();
+  const begin = await prepareStart(params, store, randomSeed, lock !== 'taken');
 
   const simulation = new Simulation(begin.state);
   const autosave = begin.autosave ? new Autosave(store, () => simulation.state) : undefined;

@@ -28,7 +28,7 @@ export function parseStartParams(search: string): StartParams {
 }
 
 /** What happened when the saved village was looked for. */
-export type StartKind = 'new' | 'loaded' | 'unreadable' | 'tooNew' | 'storageFailed';
+export type StartKind = 'new' | 'loaded' | 'unreadable' | 'tooNew' | 'storageFailed' | 'otherWindow';
 
 export interface StartResult {
   readonly state: SimState;
@@ -43,10 +43,21 @@ export interface StartResult {
  * Looks for a saved village and returns the state to start with. Never
  * throws: whatever is stored, the game starts (with a new island if the save is unusable).
  */
-export async function prepareStart(params: StartParams, store: SaveStore, randomSeed: () => number): Promise<StartResult> {
+export async function prepareStart(params: StartParams, store: SaveStore, randomSeed: () => number, ownsSaving = true): Promise<StartResult> {
   const fresh = (): SimState => createInitialState(params.seed ?? randomSeed());
   if (!params.persist) {
     return { state: fresh(), kind: 'new', autosave: false, notice: undefined };
+  }
+  if (!ownsSaving) {
+    // Another window saves: this one only reads (the village as it is now) and writes nothing, not even a copy.
+    let other: unknown;
+    try {
+      other = await store.load();
+    } catch {
+      other = undefined;
+    }
+    const read = other === undefined ? undefined : fromSaveData(other);
+    return { state: read?.ok ? read.state : fresh(), kind: 'otherWindow', autosave: false, notice: 'save.otherWindow' };
   }
   const memoryNotice = store.kind === 'memory' ? 'save.noStorage' : undefined;
   let stored: unknown;

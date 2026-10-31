@@ -1,11 +1,17 @@
 import { BACKUP_KEYS, MemoryStore, type SaveStore } from './saveStore';
 
-const DB_NAME = 'village-game';
+/**
+ * One database per address of the game: every copy on the same origin (`/Schlumpfwelt/`, a test copy next to it)
+ * keeps its own village. `BASE_URL` is the path the game is served under.
+ */
+const DB_NAME = `village-game${import.meta.env.BASE_URL}`;
 const DB_VERSION = 1;
 const STORE_NAME = 'saves';
 const KEY = 'main';
-/** Some browsers never answer when storing is blocked: after this long the memory store takes over. */
-const OPEN_TIMEOUT_MS = 4000;
+/** Which window may write (only without Web Locks, see `tabLock.ts`). */
+const OWNER_KEY = 'owner';
+/** Some browsers never answer when storing is blocked: after this long the memory store takes over (the start screen waits for it, so it is short). */
+const OPEN_TIMEOUT_MS = 2000;
 
 /** Turns the callbacks of an IndexedDB request into a promise. */
 function requestPromise<T>(request: IDBRequest<T>): Promise<T> {
@@ -37,7 +43,21 @@ function transactionDone(transaction: IDBTransaction): Promise<void> {
 class IndexedDbStore implements SaveStore {
   readonly kind = 'indexedDb';
 
-  constructor(private readonly db: IDBDatabase) {}
+  constructor(
+    private readonly db: IDBDatabase,
+    /** Without Web Locks: the window that opened last owns the saving; an older window does not overwrite its village. */
+    private readonly session: string | undefined,
+  ) {}
+
+  /** Takes over the saving for this window (the newest window wins). */
+  async claim(): Promise<void> {
+    if (this.session === undefined) {
+      return;
+    }
+    const transaction = this.db.transaction(STORE_NAME, 'readwrite');
+    transaction.objectStore(STORE_NAME).put(this.session, OWNER_KEY);
+    await transactionDone(transaction);
+  }
 
   async load(): Promise<unknown> {
     const transaction = this.db.transaction(STORE_NAME, 'readonly');
@@ -47,7 +67,20 @@ class IndexedDbStore implements SaveStore {
 
   async save(data: unknown): Promise<void> {
     const transaction = this.db.transaction(STORE_NAME, 'readwrite');
-    transaction.objectStore(STORE_NAME).put(data, KEY);
+    const objects = transaction.objectStore(STORE_NAME);
+    if (this.session === undefined) {
+      objects.put(data, KEY);
+    } else {
+      // Check and write in one transaction: nothing can slip in between.
+      const owner = objects.get(OWNER_KEY);
+      owner.onsuccess = () => {
+        if (owner.result === this.session) {
+          objects.put(data, KEY);
+        } else {
+          transaction.abort();
+        }
+      };
+    }
     await transactionDone(transaction);
   }
 
@@ -96,34 +129,52 @@ function openDatabase(): Promise<IDBDatabase> {
   });
 }
 
+/** A random name for this window (no wall clock needed: only "the same or not" matters). */
+function newSessionId(): string {
+  return Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2);
+}
+
 /**
- * The store of the browser: IndexedDB if it works, otherwise a memory store
- * (quietly – the game runs on, saving to a file still works). Also asks the
- * browser not to clear the data on its own (best effort, no question is shown
- * for it in most browsers).
+ * The store of the browser: IndexedDB if it works (within a short time), otherwise a memory store (quietly – the game
+ * runs on, saving to a file still works). `ownerCheck` is for browsers without Web Locks: then the window that opened
+ * last owns the saving. Also asks the installed web app for lasting storage (see {@link requestPersistentStorage}).
  */
-export async function openSaveStore(): Promise<SaveStore> {
+export async function openSaveStore(ownerCheck = false): Promise<SaveStore> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
   try {
-    const opened = await Promise.race([
-      openDatabase(),
+    const open = async (): Promise<SaveStore> => {
+      const store = new IndexedDbStore(await openDatabase(), ownerCheck ? newSessionId() : undefined);
+      // A real read proves that this browser lets us use it (some only fail at the first transaction).
+      await store.load();
+      await store.claim();
+      return store;
+    };
+    const store = await Promise.race([
+      open(),
       new Promise<never>((_resolve, reject) => {
-        setTimeout(() => {
+        timer = setTimeout(() => {
           reject(new Error('IndexedDB did not answer'));
         }, OPEN_TIMEOUT_MS);
       }),
     ]);
-    const store = new IndexedDbStore(opened);
-    // A real read proves that this browser lets us use it (some only fail at the first transaction).
-    await store.load();
     void requestPersistentStorage();
     return store;
   } catch {
     return new MemoryStore();
+  } finally {
+    clearTimeout(timer);
   }
 }
 
+/**
+ * Asks the browser not to clear the village on its own – but only where that does not pop up a question: the installed
+ * web app (Chrome grants it quietly there; Firefox asks in a dialog for a normal tab, so a tab is never asked).
+ */
 async function requestPersistentStorage(): Promise<void> {
   try {
+    if (!window.matchMedia('(display-mode: standalone)').matches || (await navigator.storage.persisted())) {
+      return;
+    }
     await navigator.storage.persist();
   } catch {
     // Not supported or not allowed: nothing to do.

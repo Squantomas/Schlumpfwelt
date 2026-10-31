@@ -123,5 +123,6 @@
   "menu.errorTooNew": "Diese Datei ist von einer neueren Version des Spiels.",
   "menu.errorBroken": "Diese Datei ist kaputt. Dein Dorf bleibt, wie es ist.",
   "menu.errorTooBig": "Die Datei ist viel zu groß. Dein Dorf bleibt, wie es ist.",
-  "menu.errorRead": "Die Datei ließ sich nicht lesen. Dein Dorf bleibt, wie es ist."
+  "menu.errorRead": "Die Datei ließ sich nicht lesen. Dein Dorf bleibt, wie es ist.",
+  "save.otherWindow": "Das Spiel ist schon in einem anderen Fenster offen. Hier wird nicht gespeichert."
 }
