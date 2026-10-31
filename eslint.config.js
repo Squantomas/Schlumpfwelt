@@ -85,6 +85,14 @@ export default defineConfig(
     },
   },
 
+  // The service worker template runs in a worker, not in the page; the build fills in the list of files.
+  {
+    files: ['scripts/swTemplate.js'],
+    languageOptions: {
+      globals: { ...globals.serviceworker, __FILES__: 'readonly' },
+    },
+  },
+
   // Playwright scripts: callbacks of page.evaluate() run in the browser.
   {
     files: ['scripts/**/*.mjs'],

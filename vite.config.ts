@@ -1,5 +1,7 @@
 import { defineConfig, type Plugin } from 'vitest/config';
+import texts from './src/data/texts.de.json' with { type: 'json' };
 import theme from './src/data/theme.json' with { type: 'json' };
+import { pwaPlugin } from './scripts/pwaPlugin.mjs';
 
 /** Fills `%GAME_NAME%` in index.html from the theme, so the title is right before any JS runs. */
 function themeHtml(): Plugin {
@@ -23,7 +25,11 @@ function escapeHtml(value: string): string {
 export default defineConfig({
   // GitHub Pages serves the game at https://squantomas.github.io/Schlumpfwelt/
   base: '/Schlumpfwelt/',
-  plugins: [themeHtml()],
+  plugins: [
+    themeHtml(),
+    // Installable and offline: manifest (name from the theme) and service worker (see scripts/pwaPlugin.mjs).
+    pwaPlugin({ name: theme.gameName, description: texts['app.description'], color: '#8ed8f8', lang: 'de' }),
+  ],
   build: {
     // Phaser alone is about 1.2 MB minified; that is expected for this game.
     chunkSizeWarningLimit: 1600,
