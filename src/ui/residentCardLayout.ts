@@ -33,9 +33,9 @@ export function residentCardLayout(card: InfoCardLayout): ResidentCardLayout {
   const picture: Rect = { x: rect.x + PAD, y: top + (middleH - size) / 2, width: size, height: size };
   const textX = picture.x + size + GAP + 4;
   const textW = Math.max(0, rect.x + rect.width - PAD - textX);
-  const lineH = Math.min(MAX_LINE, middleH / 4.4);
+  const lineH = Math.min(MAX_LINE, middleH / 4.2);
   const line = (index: number): Rect => ({ x: textX, y: top + index * lineH, width: textW, height: lineH });
   const activityY = top + 3 * lineH;
   const activity: Rect = { x: textX, y: activityY, width: textW, height: Math.max(0, bottom - activityY) };
-  return { picture, lines: [line(0), line(1), line(2), activity], lineFont: Math.max(12, Math.min(20, Math.floor(lineH * 0.62))) };
+  return { picture, lines: [line(0), line(1), line(2), activity], lineFont: Math.max(12, Math.min(20, Math.floor(lineH * 0.7))) };
 }
