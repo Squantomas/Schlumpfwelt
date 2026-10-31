@@ -6,14 +6,14 @@ import type { Rect } from './cameraMath';
  * becomes one row with big arrows to turn the pages. Pure maths in CSS pixels.
  */
 
-export const PICKER_CELL_W = 84;
+export const PICKER_CELL_W = 96;
 export const PICKER_GAP = 8;
 export const PICKER_PAD = 8;
 export const PICKER_EDGE = 10;
 /** Diameter of the page arrows (over 48 px tap minimum). */
 export const PICKER_ARROW = 56;
-const CELL_HEIGHTS = [104, 88] as const;
-const MIN_CELL_H = 64;
+const CELL_HEIGHTS = [112, 96, 72] as const;
+const MIN_CELL_H = 72;
 
 export interface PickerLayout {
   readonly rect: Rect;

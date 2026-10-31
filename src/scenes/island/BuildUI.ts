@@ -1,5 +1,6 @@
 import type Phaser from 'phaser';
 import { typesOf, type BuildingType } from '../../data/buildings';
+import { ITEM_IDS } from '../../data/goods';
 import { t, type TextKey } from '../../data/texts';
 import type { Rect } from '../../ui/cameraMath';
 import { TOOLS, TOOL_CATEGORIES, type BuildTool, type ToolId } from '../../ui/buildTool';
@@ -388,6 +389,8 @@ export class BuildUI {
         width: this.view.width,
         height: this.view.height,
         toolCount: TOOLS.length,
+        stockCount: ITEM_IDS.length,
+        infoOpen: false,
         variantCount: category ? typesOf(category).length : 0,
         pickerOpen: this.pickerOpen,
         hasPreview,

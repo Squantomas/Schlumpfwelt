@@ -1,6 +1,8 @@
 import type { Rect } from './cameraMath';
 import { CANCEL_DIAMETER, CONFIRM_DIAMETER, placeConfirmButtons } from './confirmLayout';
+import { infoCardLayout, type InfoCardLayout } from './infoCardLayout';
 import { PICKER_EDGE, pickerLayout, type PickerLayout } from './pickerLayout';
+import { STOCK_GAP, stockLayout, type StockLayout } from './stockLayout';
 import { TOOLBAR_EDGE, TOOLBAR_GAP, TOOLBAR_PAD, toolbarLayout, type ToolbarLayout } from './toolbarLayout';
 
 /**
@@ -17,7 +19,6 @@ export const EXIT_RADIUS = 32;
 export const CHIP_W = 76;
 export const CHIP_H = 90;
 const GAP = 8;
-const HINT_TOP = 12;
 /** Height the hint bar has at least while a tool is on (the big back button). */
 export const HINT_MIN_HEIGHT = 2 * EXIT_RADIUS + 8;
 
@@ -57,11 +58,19 @@ export interface BuildLayoutInput {
   readonly hasPreview: boolean;
   /** Height of the hint bar (0: none). */
   readonly hintHeight: number;
-  /** While a tool is on the hint bar is at the top, while looking it sits above the toolbar. */
+  /** While a tool is on the hint bar is at the top (below the store bar), while looking it sits above the toolbar. */
   readonly hintAtTop: boolean;
+  /** Number of items in the store bar (coins and goods). */
+  readonly stockCount: number;
+  /** Is the info card of a production building open? (Only while looking.) */
+  readonly infoOpen: boolean;
 }
 
 export interface BuildLayout {
+  /** The store bar at the top left. */
+  readonly stock: StockLayout;
+  /** The info card, if open. */
+  readonly card: InfoCardLayout | undefined;
   readonly toolbar: ToolbarLayout & { readonly rect: Rect };
   readonly hint: Rect | undefined;
   readonly zoom: ZoomLayout;
@@ -82,15 +91,19 @@ export function layoutBuildUi(input: BuildLayoutInput): BuildLayout {
   const panelH = tools.rows * tools.size + (tools.rows - 1) * TOOLBAR_GAP + 2 * TOOLBAR_PAD;
   const toolbar = { ...tools, rect: { x: (width - panelW) / 2, y: height - TOOLBAR_EDGE - panelH, width: panelW, height: panelH } };
 
+  // The store bar sits at the top left, left of the zoom column; the hint bar goes below it while a tool is on.
+  const stock = stockLayout(width, height, input.stockCount, zoom.rect.x - GAP);
+  const hintTop = stock.rect.y + stock.rect.height + STOCK_GAP;
+
   const bar = hintBarGeometry(width);
   let hint: Rect | undefined;
   if (input.hintHeight > 0) {
-    const y = input.hintAtTop ? HINT_TOP : toolbar.rect.y - 12 - input.hintHeight;
+    const y = input.hintAtTop ? hintTop : toolbar.rect.y - 12 - input.hintHeight;
     hint = { x: bar.x, y, width: bar.width, height: input.hintHeight };
   }
 
   const hasPicker = input.variantCount > 0;
-  const top = (input.hintAtTop && hint ? hint.y + hint.height : HINT_TOP + HINT_MIN_HEIGHT) + GAP;
+  const top = (input.hintAtTop && hint ? hint.y + hint.height : hintTop + HINT_MIN_HEIGHT) + GAP;
   const rowAbove = toolbar.rect.y - GAP;
   const confirmRowTop = rowAbove - CONFIRM_DIAMETER - GAP;
 
@@ -118,5 +131,9 @@ export function layoutBuildUi(input: BuildLayoutInput): BuildLayout {
     cancel = { x: placement.cancel.x - CANCEL_DIAMETER / 2, y: placement.cancel.y - CANCEL_DIAMETER / 2, width: CANCEL_DIAMETER, height: CANCEL_DIAMETER };
   }
 
-  return { toolbar, hint, zoom, picker, chip, confirm, cancel, pickerFitsWithPreview };
+  const card = input.infoOpen
+    ? infoCardLayout({ top: stock.rect.y + stock.rect.height + GAP, bottom: toolbar.rect.y - GAP, width, zoom: zoom.rect })
+    : undefined;
+
+  return { stock, card, toolbar, hint, zoom, picker, chip, confirm, cancel, pickerFitsWithPreview };
 }
