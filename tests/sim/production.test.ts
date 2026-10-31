@@ -96,7 +96,7 @@ describe('Erzeugung in festen Ticks', () => {
     const perCycle = productionOf('market')?.sell?.perCycle ?? 1;
     expect(perCycle).toBe(1);
     tickN(state, interval('market'));
-    // Ein Stück pro Runde; verkauft wird das, wovon mehr da ist – bei Gleichstand das erste der Datei (Möbel).
+    // Ein Stück pro Runde; verkauft wird das Wertvollste, das da ist (Möbel vor Kuchen).
     expect(state.inventory['coins']).toBe(goodDef('furniture')?.price);
     expect(state.inventory['furniture']).toBe(0);
     expect(producerOf(state, id).lastSale).toBe(goodDef('furniture')?.price);
@@ -105,24 +105,55 @@ describe('Erzeugung in festen Ticks', () => {
     expect(state.inventory['cake']).toBe(0);
   });
 
-  it('verkauft nur Endprodukte, keine Rohstoffe und kein Baumaterial', () => {
+  it('verkauft kein Baumaterial: Holz und Stein bleiben im Lager, der Markt ist im Leerlauf', () => {
     const state = island();
     setStore(state, { coins: 100, wood: 20 });
     const id = buildConnected(state, 'market', 4, 3, 3, 3);
-    setStore(state, { wood: 9, stone: 9, berries: 9 });
+    setStore(state, { wood: 9, stone: 9 });
     tickN(state, 3 * interval('market'));
-    expect(state.inventory).toEqual({ coins: 0, wood: 9, stone: 9, berries: 9, furniture: 0, cake: 0 });
+    expect(state.inventory).toEqual({ coins: 0, wood: 9, stone: 9, berries: 0, furniture: 0, cake: 0 });
     expect(producerOf(state, id).status).toBe('idle');
   });
 
-  it('verkauft die Ware mit dem größten Vorrat zuerst', () => {
+  it('kauft Beeren für wenig Geld, aber nur über der Reserve für die Bäckerei', () => {
+    const keep = goodDef('berries')?.keep ?? 0;
+    const price = goodDef('berries')?.price ?? 0;
+    expect(price).toBeGreaterThan(0);
+    const state = island();
+    setStore(state, { coins: 100, wood: 20 });
+    const id = buildConnected(state, 'market', 4, 3, 3, 3);
+    setStore(state, { berries: keep });
+    tickN(state, 3 * interval('market'));
+    expect(state.inventory['berries']).toBe(keep);
+    expect(producerOf(state, id).status).toBe('idle');
+    state.inventory['berries'] = keep + 2;
+    tickN(state, 2 * interval('market'));
+    expect(state.inventory['berries']).toBe(keep);
+    expect(state.inventory['coins']).toBe(2 * price);
+  });
+
+  it('verkauft Endprodukte vor Beeren, auch wenn mehr Beeren da sind', () => {
+    const state = island();
+    setStore(state, { coins: 100, wood: 20 });
+    buildConnected(state, 'market', 4, 3, 3, 3);
+    setStore(state, { furniture: 1, cake: 1, berries: 50 });
+    tickN(state, interval('market'));
+    expect(state.inventory['furniture']).toBe(0);
+    tickN(state, interval('market'));
+    expect(state.inventory['cake']).toBe(0);
+    expect(state.inventory['berries']).toBe(50);
+    tickN(state, interval('market'));
+    expect(state.inventory['berries']).toBe(49);
+  });
+
+  it('verkauft die wertvollere Ware zuerst (Möbel vor Kuchen), unabhängig von der Menge', () => {
     const state = island();
     setStore(state, { coins: 100, wood: 20 });
     buildConnected(state, 'market', 4, 3, 3, 3);
     setStore(state, { furniture: 1, cake: 3 });
     tickN(state, interval('market'));
-    expect(state.inventory['cake']).toBe(2);
-    expect(state.inventory['furniture']).toBe(1);
+    expect(state.inventory['cake']).toBe(3);
+    expect(state.inventory['furniture']).toBe(0);
   });
 
   it('behält mit keepForFood Kuchen im Lager zurück (in M3 ist der Wert 0)', () => {
@@ -147,6 +178,7 @@ describe('Erzeugung in festen Ticks', () => {
     }
     expect(sellableAmount(state.inventory, 'cake')).toBe(3);
     expect(sellableAmount(state.inventory, 'wood')).toBe(0);
+    expect(sellableAmount({ berries: 7 }, 'berries')).toBe(7 - (goodDef('berries')?.keep ?? 0));
   });
 });
 

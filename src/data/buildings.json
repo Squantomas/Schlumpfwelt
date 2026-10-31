@@ -107,7 +107,7 @@
       "footprint": { "w": 2, "h": 2 },
       "terrains": ["grass"],
       "needsPath": true,
-      "cost": { "coins": 15, "wood": 3 },
+      "cost": { "coins": 20 },
       "production": { "intervalTicks": 50, "outputs": { "wood": 1 }, "needsNearby": { "terrain": "forest", "radius": 4 } },
       "look": { "shape": "lumberjackHut", "rise": 64 }
     },

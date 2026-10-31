@@ -9,6 +9,11 @@ import type { TextKey } from './texts';
  * - `product` (furniture, cake): the market buys these for coins (`price`).
  *   `keepForFood` is the number of units the market leaves in the store for
  *   food (from M7 on; 0 in M3, so everything is sold).
+ * - The market also buys berries, but cheaply (1 coin) and only what is
+ *   above `keep` (the reserve the bakery needs). That is the way out of a
+ *   dead end: with a berry garden and a market a village always earns a
+ *   little money, even if everything else was spent. Wood and stone are
+ *   never sold.
  *
  * Coins ("Taler") are not a good but their own amount; in the inventory they
  * are stored under {@link COINS} like the goods.
@@ -23,8 +28,10 @@ export interface GoodDef {
   readonly nameKey: TextKey;
   /** Text key of the name for several units ("Steine"). */
   readonly pluralKey: TextKey;
-  /** What the market pays for one unit (products only). */
+  /** What the market pays for one unit (products and, cheaply, berries). */
   readonly price?: number;
+  /** Units the market never sells, they stay for the buildings that need them (berries for the bakery). */
+  readonly keep?: number;
   /** Units the market keeps back for food. */
   readonly keepForFood?: number;
 }
@@ -65,7 +72,7 @@ export function itemNames(id: string): { readonly one: TextKey; readonly many: T
   return good ? { one: good.nameKey, many: good.pluralKey } : undefined;
 }
 
-/** The products the market buys, in the order of the file. */
+/** What the market buys, in the order of the file. */
 export function sellableGoods(): readonly GoodDef[] {
   return GOODS.filter((good) => good.price !== undefined);
 }

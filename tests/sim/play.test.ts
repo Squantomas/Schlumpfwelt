@@ -149,6 +149,75 @@ describe('Der Bot kann nie festsitzen', () => {
   });
 });
 
+describe('Nie festsitzen, auch ohne Abreißen', () => {
+  /** Reihenfolge nach dem Verbauen: erst das, was nur Taler kostet (Holzfäller), dann der Rest. */
+  const RECOVERY = ['lumberjack', 'bakery', 'quarry', 'carpenter', 'house-blue', 'house-yellow', 'house-red', 'fence', 'bench', 'flower', 'bush', 'lantern', 'fountain', 'market', 'berry-garden'];
+
+  /** Verbaut Geld, Holz und Stein in Häuser und Deko, bis nichts davon mehr bezahlbar ist. Reißt nichts ab. */
+  function spendEverything(sim: Simulation, bot: Bot): number {
+    const types = [...typesOf('house'), ...typesOf('deco')].map((type) => type.id);
+    let built = 0;
+    for (let round = 0; round < 200; round += 1) {
+      const affordable = types.filter((id) => canAfford(sim.state, id));
+      if (affordable.length === 0) {
+        break;
+      }
+      for (const id of affordable) {
+        const spot = bot.findSpot(id);
+        if (spot && canAfford(sim.state, id)) {
+          sim.send({ type: 'placeBuilding', buildingType: id, x: spot.x, y: spot.y });
+          sim.update(sim.tickMs);
+          built += 1;
+        }
+      }
+      bot.connectAll();
+      sim.update(sim.tickMs);
+    }
+    return built;
+  }
+
+  // Seed 2 fehlt mit Absicht: Der Verbau-Bot baut dort die Mitte mit Zäunen zu und findet danach keinen erreichbaren Platz mehr –
+  // ein Platzproblem des Bots (ein Kind würde einfach abreißen), kein Problem der Wirtschaft.
+  for (const seed of [1, 3, 4, 5, 6, 7, 8]) {
+    it(`kommt nach dem Verbauen von allem Geld und Holz ohne Abriss wieder dazu, jeden Typ zu bauen (Seed ${String(seed)})`, () => {
+      const sim = new Simulation(createInitialState(seed));
+      const spender = new Bot(sim);
+      const startBuildings = sim.state.buildings.length;
+      const built = spendEverything(sim, spender);
+      expect(built).toBeGreaterThan(3);
+      // Festgespielt: Haus und Zäune haben alles aufgebraucht, nichts davon ist mehr bezahlbar.
+      expect(sim.state.buildings.length).toBeGreaterThan(startBuildings);
+      for (const id of [...typesOf('house'), ...typesOf('deco')].map((type) => type.id)) {
+        expect(canAfford(sim.state, id), `${id} ist nach dem Verbauen noch bezahlbar`).toBe(false);
+      }
+      // Das Startdorf steht noch: Beerengarten und Markt.
+      expect(sim.state.buildings.some((b) => b.type === 'berry-garden')).toBe(true);
+      expect(sim.state.buildings.some((b) => b.type === 'market')).toBe(true);
+      const before = sim.state.buildings.length;
+
+      const bot = new Bot(sim);
+      play(sim, bot, RECOVERY, 25 * MINUTE);
+      sim.update(sim.tickMs);
+      for (const id of RECOVERY) {
+        expect(bot.builtAt.get(id), `${id} wurde bestellt`).toBeDefined();
+      }
+      // Es wurde nichts abgerissen: alles Neue steht zusätzlich.
+      expect(sim.state.buildings.length).toBeGreaterThanOrEqual(before + RECOVERY.length - 1);
+    });
+  }
+
+  it('zeigt auch in dieser Lage (nur Beeren und Markt) nach kurzer Zeit die ersten Taler und dann den Holzfäller', () => {
+    const sim = new Simulation(createInitialState(1));
+    const spender = new Bot(sim);
+    spendEverything(sim, spender);
+    const coins = sim.state.inventory['coins'] ?? 0;
+    expect(canAfford(sim.state, 'lumberjack')).toBe(false);
+    play(sim, new Bot(sim), ['lumberjack'], 5 * MINUTE);
+    expect(sim.state.buildings.some((b) => b.type === 'lumberjack')).toBe(true);
+    expect(coins).toBeLessThan(20);
+  });
+});
+
 describe('Invarianten bei beliebigen Befehlen', () => {
   function check(state: DeepReadonly<SimState>, label: string): void {
     for (const [id, amount] of Object.entries(state.inventory)) {

@@ -109,4 +109,19 @@ describe('Simulation', () => {
     };
     expect(run()).toEqual(run());
   });
+
+  it('zeigt ein Gebäude, das pausiert gesetzt wird, gleich mit seinem echten Status (ohne Weg: noPath), ohne dass Zeit vergeht', () => {
+    const sim = new Simulation(createInitialState(1));
+    sim.send({ type: 'setPaused', paused: true });
+    sim.update(100);
+    const garden = sim.state.buildings.find((b) => b.type === 'berry-garden');
+    expect(garden).toBeDefined();
+    // Ein zweiter Beerengarten irgendwo auf der Wiese, ohne Weg.
+    sim.send({ type: 'placeBuilding', buildingType: 'berry-garden', x: (garden?.x ?? 0) + 6, y: (garden?.y ?? 0) - 6 });
+    sim.update(100);
+    const placed = sim.state.production.at(-1);
+    expect(sim.state.production).toHaveLength(3);
+    expect(placed?.status).toBe('noPath');
+    expect(sim.state.tick).toBe(0);
+  });
 });

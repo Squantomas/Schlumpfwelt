@@ -23,15 +23,24 @@ describe('goods.json', () => {
     expect(goodDef('cake')?.category).toBe('product');
   });
 
-  it('hat nur für Endprodukte einen ganzzahligen Verkaufspreis über 0', () => {
+  it('hat für Endprodukte und Beeren einen ganzzahligen Verkaufspreis über 0, für Holz und Stein keinen', () => {
     for (const good of GOODS) {
-      if (good.category === 'product') {
+      if (good.category === 'product' || good.id === 'berries') {
         expect(isWhole(good.price) && (good.price ?? 0) > 0, good.id).toBe(true);
       } else {
-        expect(good.price, good.id).toBeUndefined();
+        expect(good.price, `${good.id} wird nicht verkauft`).toBeUndefined();
       }
     }
-    expect(sellableGoods().map((good) => good.id)).toEqual(['furniture', 'cake']);
+    expect(sellableGoods().map((good) => good.id)).toEqual(['berries', 'furniture', 'cake']);
+  });
+
+  it('bewertet Endprodukte höher als Beeren, und die Beeren-Reserve reicht für eine Runde der Bäckerei', () => {
+    const berries = goodDef('berries');
+    for (const id of ['furniture', 'cake']) {
+      expect(goodDef(id)?.price ?? 0, id).toBeGreaterThan(berries?.price ?? 0);
+    }
+    const bakery = BUILDING_TYPES.find((type) => type.id === 'bakery');
+    expect(berries?.keep ?? 0).toBeGreaterThanOrEqual(bakery?.production?.inputs?.['berries'] ?? 0);
   });
 
   it('hat die Stellschraube keepForFood für Kuchen, in M3 mit 0', () => {
@@ -131,10 +140,16 @@ describe('buildings.json: Kosten und Produktion', () => {
     for (const good of sellableGoods()) {
       expect(madeBy(good.id).length, good.id).toBeGreaterThan(0);
     }
+    // Berries: made by the garden, sold by the market.
   });
 
-  it('lässt den Markt nur Endprodukte verkaufen (nur sie haben einen Preis)', () => {
-    expect(sellableGoods().every((good) => good.category === 'product')).toBe(true);
+  it('lässt den Markt nie Baumaterial verkaufen (Holz und Stein bleiben zum Bauen)', () => {
+    expect(sellableGoods().some((good) => good.category === 'material')).toBe(false);
+  });
+
+  it('lässt den Holzfäller nur Taler kosten, damit man mit Beeren → Taler immer wieder an Holz kommt', () => {
+    const lumberjack = BUILDING_TYPES.find((type) => type.id === 'lumberjack');
+    expect(Object.keys(lumberjack?.cost ?? {})).toEqual(['coins']);
   });
 
   it('hat ein Startlager, das für die Bäckerei reicht, und kostet kein Gebäude mehr als eine Handvoll Minuten Arbeit', () => {

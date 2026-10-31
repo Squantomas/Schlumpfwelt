@@ -118,6 +118,44 @@ describe('Abreißen erstattet die vollen Baukosten', () => {
   });
 });
 
+describe('Startdorf abreißen: einmaliger Startbonus', () => {
+  const startBuildings = (state: ReturnType<typeof createInitialState>): { x: number; y: number }[] => state.buildings.map((b) => ({ x: b.x, y: b.y }));
+  const total = (inventory: Readonly<Record<string, number>>, id: string): number => inventory[id] ?? 0;
+
+  it('erstattet die Baukosten der Startgebäude einmal, obwohl sie nichts gekostet haben', () => {
+    const state = createInitialState(1);
+    const start = { ...state.inventory };
+    const expected: Record<string, number> = { ...start };
+    for (const building of state.buildings) {
+      for (const [id, amount] of Object.entries(costOf(building.type))) {
+        expected[id] = (expected[id] ?? 0) + amount;
+      }
+    }
+    for (const spot of startBuildings(state)) {
+      run(state, { type: 'demolish', x: spot.x, y: spot.y });
+    }
+    expect(state.buildings).toHaveLength(0);
+    expect(state.inventory).toEqual(expected);
+    // Haus + Beerengarten + Markt + Deko des Startdorfs: ein spürbarer, aber einmaliger Bonus.
+    expect(total(state.inventory, 'coins')).toBeGreaterThan(total(start, 'coins'));
+  });
+
+  it('lässt sich nicht wiederholen: Neu bauen und wieder abreißen ändert nichts mehr', () => {
+    const state = createInitialState(1);
+    for (const spot of startBuildings(state)) {
+      run(state, { type: 'demolish', x: spot.x, y: spot.y });
+    }
+    const afterBonus = { ...state.inventory };
+    const garden = createInitialState(1).buildings.find((b) => b.type === 'berry-garden');
+    for (let i = 0; i < 5; i += 1) {
+      run(state, { type: 'placeBuilding', buildingType: 'berry-garden', x: garden?.x ?? 0, y: garden?.y ?? 0 });
+      expect(state.buildings).toHaveLength(1);
+      run(state, { type: 'demolish', x: garden?.x ?? 0, y: garden?.y ?? 0 });
+    }
+    expect(state.inventory).toEqual(afterBonus);
+  });
+});
+
 describe('Produktionsgebäude beim Setzen', () => {
   it('legt für jedes Produktionsgebäude einen Arbeitszustand an, für Häuser und Deko nicht', () => {
     const state = grassState(24);

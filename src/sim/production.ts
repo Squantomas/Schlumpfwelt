@@ -15,10 +15,12 @@
  *    that carry them come in M6 and change this.)
  *
  * The market has no inputs: at the end of each round it sells up to
- * `perCycle` products from the store for their price in coins, always the one
- * of which most units are there (so cakes and furniture are sold evenly), and
- * leaves `keepForFood` units of food in the store. With nothing to sell it
- * is `idle`.
+ * `perCycle` units from the store for their price in coins, always the most
+ * valuable one that is there (furniture, then cake, then berries: finished
+ * products come first, so berries are only sold when there is nothing better
+ * and never eat into the bakery's supply), and leaves `keep` units (the
+ * bakery's reserve of berries) and `keepForFood` units (food) in the store.
+ * With nothing to sell it is `idle`.
  *
  * Buildings are processed in the order of `state.production` (the order they
  * were built), so the result is the same every time.
@@ -32,24 +34,24 @@ import type { SimState } from './state';
 /** What the production rules read and change. */
 export type ProductionState = Pick<SimState, 'world' | 'buildings' | 'paths' | 'revision' | 'inventory' | 'production'>;
 
-/** Units of a product the market may sell now (what is there beyond `keepForFood`). */
+/** Units of a good the market may sell now (what is there beyond `keep` and `keepForFood`). */
 export function sellableAmount(inventory: Readonly<Record<string, number>>, goodId: string): number {
   const good = goodDef(goodId);
   if (!good || good.price === undefined) {
     return 0;
   }
-  return Math.max(0, amountOf(inventory, goodId) - (good.keepForFood ?? 0));
+  return Math.max(0, amountOf(inventory, goodId) - (good.keep ?? 0) - (good.keepForFood ?? 0));
 }
 
-/** The product the market sells next (the one with most units), or `undefined` if nothing can be sold. */
+/** The good the market sells next (the highest price that can be sold, ties by the order of the file), or `undefined` if nothing can be sold. */
 function nextProductToSell(inventory: Readonly<Record<string, number>>): string | undefined {
   let best: string | undefined;
-  let bestAmount = 0;
+  let bestPrice = 0;
   for (const good of sellableGoods()) {
-    const amount = sellableAmount(inventory, good.id);
-    if (amount > bestAmount) {
+    const price = good.price ?? 0;
+    if (price > bestPrice && sellableAmount(inventory, good.id) > 0) {
       best = good.id;
-      bestAmount = amount;
+      bestPrice = price;
     }
   }
   return best;

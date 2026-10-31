@@ -1,7 +1,7 @@
 import { FixedStepClock } from './clock';
 import { applyCommand, type Command } from './commands';
 import type { DeepReadonly } from './readonly';
-import { tickProduction } from './production';
+import { refreshStatuses, tickProduction } from './production';
 import { createInitialState, type SimState } from './state';
 
 /**
@@ -70,6 +70,8 @@ export class Simulation {
     }
 
     if (this.current.paused) {
+      // Time stands still, but a building placed meanwhile shows its real state (no path, no trees …) at once.
+      refreshStatuses(this.current);
       return;
     }
     this.current.tick += 1;

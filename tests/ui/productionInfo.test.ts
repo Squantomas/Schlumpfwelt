@@ -22,9 +22,9 @@ describe('productionInfo: Bilder „braucht → macht“', () => {
     expect(productionInfo('bakery')?.needs).toEqual([{ kind: 'item', id: 'berries', amount: 2 }]);
   });
 
-  it('Marktplatz nimmt Möbel und Kuchen und macht Taler', () => {
+  it('Marktplatz nimmt Beeren, Möbel und Kuchen und macht Taler', () => {
     expect(productionInfo('market')).toEqual({
-      needs: [{ kind: 'item', id: 'furniture' }, { kind: 'item', id: 'cake' }],
+      needs: [{ kind: 'item', id: 'berries' }, { kind: 'item', id: 'furniture' }, { kind: 'item', id: 'cake' }],
       makes: [{ kind: 'item', id: 'coins' }],
     });
   });
