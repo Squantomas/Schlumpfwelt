@@ -1,5 +1,5 @@
 import type Phaser from 'phaser';
-import { format, t } from '../../data/texts';
+import { formatNumber, t } from '../../data/texts';
 import type { Rect } from '../../ui/cameraMath';
 import { flowSlots, type InfoCardLayout } from '../../ui/infoCardLayout';
 import { createLabel, setLabelSize } from '../../ui/label';
@@ -158,7 +158,7 @@ export class InfoCard {
       }
       slot.icon.setTexture(item.kind === 'item' ? goodTextureKey(item.id) : nearbyTextureKey(item.id)).setDisplaySize(iconSize, iconSize).setPosition(spot.x, spot.y);
       if ((item.amount ?? 1) > 1) {
-        slot.amount.setText(format('{count}', { count: item.amount ?? 1 }));
+        slot.amount.setText(formatNumber(item.amount ?? 1));
         setLabelSize(slot.amount, Math.max(14, iconSize * 0.42), iconSize * 0.7);
         slot.amount.setPosition(spot.x + iconSize * 0.34, spot.y + iconSize * 0.34);
       }

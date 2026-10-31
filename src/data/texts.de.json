@@ -72,5 +72,6 @@
   "status.noForest": "Hier sind keine Bäume in der Nähe.",
   "status.noRock": "Hier sind keine Felsen in der Nähe.",
   "status.waitingInput": "Wartet auf {list}.",
-  "status.idle": "Noch nichts zu verkaufen."
+  "status.idle": "Noch nichts zu verkaufen.",
+  "effect.plus": "+{count}"
 }

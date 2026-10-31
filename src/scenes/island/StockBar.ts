@@ -1,6 +1,6 @@
 import type Phaser from 'phaser';
 import { ITEM_IDS } from '../../data/goods';
-import { format } from '../../data/texts';
+import { formatNumber } from '../../data/texts';
 import type { Rect } from '../../ui/cameraMath';
 import { createLabel, setLabelSize } from '../../ui/label';
 import { COLORS } from '../../ui/style';
@@ -90,7 +90,7 @@ export class StockBar {
     }
     const left = spot.x + layout.chipPad + layout.iconSize + 4;
     const field = spot.x + layout.chipW - layout.chipPad - left;
-    chip.number.setText(format('{count}', { count: chip.shown }));
+    chip.number.setText(formatNumber(chip.shown));
     setLabelSize(chip.number, layout.fontSize, field);
     chip.number.setPosition(left + field / 2, spot.y + layout.chipH / 2 + 1);
   }

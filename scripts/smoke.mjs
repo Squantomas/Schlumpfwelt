@@ -973,13 +973,15 @@ async function testBuilding({ page, check, shot, size, input, drag, name }) {
       const inBounds = (spot, p) => check(p.x - 24 >= 0 && p.x + 24 <= w && p.y - 24 >= 0 && p.y + 24 <= h, `${w}×${h}: „${spot}“ ragt über den Bildrand (${p.x.toFixed(0)}, ${p.y.toFixed(0)})`);
       // Ein antippbares Grasstück: links oben von der Mitte, frei vom Bedienfeld (Hinweisleiste oben, Werkzeugleiste unten).
       const toolbarTop = v.ui['tool-path'].y - 40;
+      // Oben liegen die Lagerleiste (M3) und darunter die Hinweisleiste (72 px), wenn ein Werkzeug an ist.
+      const topFree = v.ui.stock ? v.ui.stock.y + v.ui.stock.h / 2 + 90 : 100;
       let best;
       for (let y = 0; y < MAP_TILES; y += 1) {
         for (let x = 0; x < MAP_TILES; x += 1) {
           if (v.terrain[y * MAP_TILES + x] !== 'g') continue;
           const p = screenOfTile(cam, small, { x, y });
           // Frei von Chip (links unten), ✓/✕ (rechts unten), Zoom-Knöpfen (rechts oben), Hinweis- und Werkzeugleiste.
-          if (p.x < 92 || p.x > Math.max(150, w - 170) || p.y < 100 || p.y > toolbarTop - 24) continue;
+          if (p.x < 92 || p.x > Math.max(150, w - 170) || p.y < topFree || p.y > toolbarTop - 24) continue;
           const distance = Math.hypot(p.x - w * 0.3, p.y - h * 0.4);
           if (!best || distance < best.distance) best = { x, y, p, distance };
         }

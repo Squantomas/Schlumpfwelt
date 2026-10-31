@@ -5,7 +5,7 @@ import { t, type TextKey, type TextParams } from '../../data/texts';
 import { costOf, missingFor } from '../../sim/economy';
 import type { Rect } from '../../ui/cameraMath';
 import { TOOLS, TOOL_CATEGORIES, type BuildTool, type BuildToolState, type ToolId } from '../../ui/buildTool';
-import { CHIP_H, CHIP_W, EXIT_RADIUS, HINT_MIN_HEIGHT, hintBarGeometry, layoutBuildUi, type BuildLayout } from '../../ui/buildLayout';
+import { CHIP_H, CHIP_W, EXIT_RADIUS, HINT_MAX_HEIGHT_NARROW, HINT_MIN_HEIGHT, hintBarGeometry, layoutBuildUi, type BuildLayout } from '../../ui/buildLayout';
 import { CANCEL_DIAMETER, CONFIRM_DIAMETER } from '../../ui/confirmLayout';
 import { createLabel, setLabelSize } from '../../ui/label';
 import { cardStatus, productionInfo } from '../../ui/productionInfo';
@@ -299,9 +299,11 @@ export class BuildUI {
     // The text never runs under the ✕ button: wrap narrower than the free space and shrink if it is still too wide.
     const textMax = Math.max(100, hintBarGeometry(width).width - exitSpace - 40);
     setLabelSize(this.hintLabel.setWordWrapWidth(textMax - 12).setText(text), fontSize, textMax);
-    // On a low screen (a phone held sideways) the bar is never taller than its minimum: long sentences get smaller letters.
-    if (height < 400) {
-      while (this.hintLabel.height + 20 > HINT_MIN_HEIGHT && fontSize > 11) {
+    // On a low screen (a phone held sideways) the bar is never taller than its minimum, on a narrow one (a phone held
+    // upright) not much taller: long sentences get smaller letters, so the picker below keeps its room.
+    const maxHeight = height < 400 ? HINT_MIN_HEIGHT : width < 420 ? HINT_MAX_HEIGHT_NARROW : Number.POSITIVE_INFINITY;
+    if (maxHeight < Number.POSITIVE_INFINITY) {
+      while (this.hintLabel.height + 20 > maxHeight && fontSize > 11) {
         fontSize -= 1;
         setLabelSize(this.hintLabel, fontSize, textMax);
       }

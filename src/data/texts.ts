@@ -22,6 +22,11 @@ export const themeValues: ReadonlyMap<string, string> = new Map([
   ...Object.entries(theme.terms),
 ]);
 
+/** A number the way it is written in German texts (1.234). */
+export function formatNumber(value: number): string {
+  return numberFormat.format(value);
+}
+
 /** Returns the text for `key` with all placeholders filled. */
 export function t(key: TextKey, params?: TextParams): string {
   return format(texts[key], params);

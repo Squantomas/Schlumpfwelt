@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Rect } from '../../src/ui/cameraMath';
-import { HINT_MIN_HEIGHT, hintBarGeometry, layoutBuildUi, zoomLayout, type BuildLayout } from '../../src/ui/buildLayout';
+import { HINT_MAX_HEIGHT_NARROW, HINT_MIN_HEIGHT, hintBarGeometry, layoutBuildUi, zoomLayout, type BuildLayout } from '../../src/ui/buildLayout';
 import { MIN_TAP_SIZE } from '../../src/ui/style';
 
 const SCREENS: readonly (readonly [number, number])[] = [
@@ -40,7 +40,8 @@ describe('layoutBuildUi: nichts überlappt, nichts ragt über den Rand', () => {
         for (const hasPreview of [true, false]) {
           // Zweizeiliger und fünfzeiliger Hinweis (schmale Schirme brechen um).
           // Auf niedrigen Schirmen schrumpft die Schrift, bis der Hinweis höchstens HINT_MIN_HEIGHT hoch ist (BuildUI.measureHint).
-          for (const hintHeight of height < 400 ? [HINT_MIN_HEIGHT] : [HINT_MIN_HEIGHT, 120]) {
+          // Auf schmalen (hochkant gehaltenes Handy) höchstens HINT_MAX_HEIGHT_NARROW.
+          for (const hintHeight of height < 400 ? [HINT_MIN_HEIGHT] : width < 420 ? [HINT_MIN_HEIGHT, HINT_MAX_HEIGHT_NARROW] : [HINT_MIN_HEIGHT, 120]) {
             const label = `${String(width)}×${String(height)}, ${String(variants)} Varianten, Auswahl ${pickerOpen ? 'offen' : 'als Chip'}, ${hasPreview ? 'mit' : 'ohne'} Vorschau, Hinweis ${String(hintHeight)} px`;
             it(label, () => {
               const layout = layoutBuildUi({ width, height, toolCount: 6, stockCount: 6, infoOpen: false, variantCount: variants, pickerOpen, hasPreview, hintHeight, hintAtTop: true });
@@ -91,7 +92,7 @@ describe('Auswahl auf niedrigen Schirmen', () => {
   });
 
   it('zeigt sechs Gebäude auf einem hochkant gehaltenen Handy (320×568) in zwei Reihen schmaler Karten, ohne zu blättern', () => {
-    const layout = layoutBuildUi({ width: 320, height: 568, toolCount: 6, stockCount: 6, infoOpen: false, variantCount: 6, pickerOpen: true, hasPreview: false, hintHeight: HINT_MIN_HEIGHT, hintAtTop: true });
+    const layout = layoutBuildUi({ width: 320, height: 568, toolCount: 6, stockCount: 6, infoOpen: false, variantCount: 6, pickerOpen: true, hasPreview: false, hintHeight: HINT_MAX_HEIGHT_NARROW, hintAtTop: true });
     expect(layout.picker?.paged).toBe(false);
     expect(layout.picker?.rows).toBe(2);
     expect(layout.picker?.cols).toBe(3);

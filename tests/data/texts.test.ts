@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import texts from '../../src/data/texts.de.json';
 import theme from '../../src/data/theme.json';
-import { format, placeholdersOf, t, themeValues, type TextKey } from '../../src/data/texts';
+import { format, formatNumber, placeholdersOf, t, themeValues, type TextKey } from '../../src/data/texts';
 
 /**
  * Placeholders that are filled at runtime via `t(key, params)` instead of the
@@ -47,6 +47,19 @@ describe('format()', () => {
 
   it('ersetzt mehrfach vorkommende Platzhalter', () => {
     expect(format('{a}-{a}', { a: 1 })).toBe('1-1');
+  });
+});
+
+describe('formatNumber()', () => {
+  it('schreibt Zahlen deutsch mit Tausenderpunkt', () => {
+    expect(formatNumber(7)).toBe('7');
+    expect(formatNumber(1234)).toBe('1.234');
+    expect(formatNumber(99999)).toBe('99.999');
+  });
+
+  it('macht aus „+{count}“ das „+1“ über den Gebäuden', () => {
+    expect(t('effect.plus', { count: 1 })).toBe('+1');
+    expect(t('effect.plus', { count: 1500 })).toBe('+1.500');
   });
 });
 

@@ -21,6 +21,8 @@ export const CHIP_H = 90;
 const GAP = 8;
 /** Height the hint bar has at least while a tool is on (the big back button). */
 export const HINT_MIN_HEIGHT = 2 * EXIT_RADIUS + 8;
+/** On narrow screens (under 420 px) the hint bar is at most this tall: long sentences get smaller letters (see `BuildUI.measureHint`). */
+export const HINT_MAX_HEIGHT_NARROW = 96;
 
 export interface ZoomLayout {
   readonly radius: number;

@@ -1,7 +1,7 @@
 import Phaser from 'phaser';
 import type { CostMap } from '../../data/buildings';
 import { ITEM_IDS, isItem } from '../../data/goods';
-import { format } from '../../data/texts';
+import { formatNumber } from '../../data/texts';
 import { createLabel, setLabelSize } from '../../ui/label';
 import { COLORS, cssColor } from '../../ui/style';
 import { goodTextureKey } from './goodTextures';
@@ -77,7 +77,7 @@ export class CostRow extends Phaser.GameObjects.Container {
         .setDisplaySize(iconSize, iconSize)
         .setPosition(left + iconSize / 2 + 1, 0);
       const short = (this.missing[id] ?? 0) > 0;
-      entry.amount.setText(format('{count}', { count: this.cost[id] ?? 0 })).setColor(short ? cssColor(COLORS.costMissing) : cssColor(COLORS.textFill));
+      entry.amount.setText(formatNumber(this.cost[id] ?? 0)).setColor(short ? cssColor(COLORS.costMissing) : cssColor(COLORS.textFill));
       const field = Math.max(8, slot - iconSize - 3);
       setLabelSize(entry.amount, fontSize, field);
       entry.amount.setPosition(left + iconSize + 3 + field / 2, 0);

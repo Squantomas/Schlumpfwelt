@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import { buildingType } from '../../data/buildings';
-import { format } from '../../data/texts';
+import { t } from '../../data/texts';
 import { buildingAt, isConnected, tileIndex } from '../../sim/buildings';
 import { nearbyArea, nearbyTiles, productionOf } from '../../sim/economy';
 import type { Simulation } from '../../sim/simulation';
@@ -385,7 +385,7 @@ export class VillageView {
     shown.forEach(([id, amount], index) => {
       const offset = (index - (shown.length - 1) / 2) * gap;
       const picture = this.scene.add.image(-18 * fit, 0, goodTextureKey(id)).setDisplaySize(36 * fit, 36 * fit);
-      const label = createLabel(this.scene, format('+{count}', { count: amount }), 26).setPosition(16 * fit, 0).setScale(fit);
+      const label = createLabel(this.scene, t('effect.plus', { count: amount }), 26).setPosition(16 * fit, 0).setScale(fit);
       const group = this.scene.add.container(x + offset, y, [picture, label]).setDepth(POPUP_DEPTH);
       this.layer.add(group);
       group.setAlpha(0);
