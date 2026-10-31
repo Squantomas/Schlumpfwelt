@@ -38,4 +38,14 @@ describe('MessageBoard: Erklärung und Neuigkeit (N3)', () => {
     expect(board.current(10)).toBe('Neu!');
     expect(board.current(5001)).toBe('Hier geht das nicht.');
   });
+
+  it('hält die Neuigkeit zurück, solange eine Vorschau mit eigenem Hinweis da ist (ihre Zeit läuft weiter)', () => {
+    const board = new MessageBoard();
+    board.announce('Neu!', 0, 5000);
+    expect(board.current(100, false)).toBeUndefined();
+    board.explain('Alt.');
+    expect(board.current(100, false)).toBe('Alt.');
+    expect(board.current(100, true)).toBe('Neu!');
+    expect(board.current(6000, true)).toBe('Alt.');
+  });
 });

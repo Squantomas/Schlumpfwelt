@@ -454,7 +454,7 @@ export class BuildUI {
     if (this.tool.inspectedId !== undefined) {
       return this.cardFallback;
     }
-    const message = this.board.current(this.scene.time.now);
+    const message = this.board.current(this.scene.time.now, !this.tool.hasPreview);
     if (message !== undefined) {
       return message;
     }
@@ -506,7 +506,7 @@ export class BuildUI {
     this.tool.sync();
     const state = this.getState();
     // News runs out by itself: redraw the hint bar when what it shows changes (then a standing explanation is back).
-    const message = this.board.current(this.scene.time.now);
+    const message = this.board.current(this.scene.time.now, !this.tool.hasPreview);
     const expired = message !== this.lastMessage;
     this.lastMessage = message;
     // Something was unlocked: a friendly message (and the star on the shop button, which `refresh` redraws).

@@ -24,9 +24,12 @@ export class MessageBoard {
     this.news = { text, until: now + durationMs };
   }
 
-  /** What the hint bar shows at time `now`: news while it lasts, else the explanation, else nothing. */
-  current(now: number): string | undefined {
-    if (this.news && now < this.news.until) {
+  /**
+   * What the hint bar shows at time `now`: news while it lasts, else the explanation, else nothing. `withNews = false`
+   * keeps the news back (its time still runs): while a preview is on, its own hint ("Du bekommst 5 Taler zurück. Dann ✓.") matters more.
+   */
+  current(now: number, withNews = true): string | undefined {
+    if (withNews && this.news && now < this.news.until) {
       return this.news.text;
     }
     return this.explanation;
