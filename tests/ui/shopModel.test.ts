@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { SHOP_CATEGORIES, shopItems, unlockOf } from '../../src/data/buildings';
+import { BUILDING_TYPES, SHOP_CATEGORIES, buildingType, shopItems, unlockOf } from '../../src/data/buildings';
 import { t } from '../../src/data/texts';
 import { createInitialState } from '../../src/sim/state';
 import { nameList, newItemsText, progressText, shopCard, shopCards, unlockIcon, unlockSentenceText } from '../../src/ui/shopModel';
@@ -104,5 +104,10 @@ describe('Meldung „Neu im Shop“', () => {
     expect(newItemsText(['bench', 'lantern', 'pond', 'fountain'])).toBe('Neu im Shop: Bank, Laterne und Teich!');
     expect(newItemsText(['bench']).length).toBeLessThanOrEqual(100);
     expect(t('shop.newItem', { list: 'X' })).toBe('Neu im Shop: X!');
+  });
+
+  it('bleibt auch mit den drei längsten Namen in der Hinweisleiste eines Handys (höchstens 100 Zeichen)', () => {
+    const longest = BUILDING_TYPES.map((type) => type.id).sort((a, b) => t(buildingType(b)?.nameKey ?? 'build.path').length - t(buildingType(a)?.nameKey ?? 'build.path').length);
+    expect(newItemsText(longest.slice(0, 3)).length).toBeLessThanOrEqual(100);
   });
 });

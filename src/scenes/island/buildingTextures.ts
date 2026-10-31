@@ -70,6 +70,9 @@ const DRAWERS: Readonly<Record<string, (type: BuildingType) => Draw>> = {
   islandMeadow: () => drawIslandMeadow,
 };
 
+/** The shapes (`look.shape`) that have a placeholder picture; every shape of `buildings.json` except the path needs one. */
+export const DRAWN_SHAPES: readonly string[] = Object.keys(DRAWERS);
+
 /** Creates all textures (once; later scenes reuse them). */
 export function registerBuildingTextures(scene: Phaser.Scene): void {
   for (const type of BUILDING_TYPES) {

@@ -311,3 +311,29 @@ describe('Kamera auf kleinen und hochkant Bildschirmen', () => {
     expect(seen.x + seen.width).toBeGreaterThanOrEqual(FOCUS.x + FOCUS.width);
   });
 });
+
+describe('Neues Land (Strand aufgeschüttet): die Kamera liest ihre Mittelpunktsbereiche bei jedem Zug neu', () => {
+  it('lässt den Mittelpunkt auch in einen Bereich, der erst später dazukommt (IslandScene ersetzt `centerRegions` im selben Objekt)', () => {
+    const island: Rect = { x: 20 * TILE, y: 20 * TILE, width: 4 * TILE, height: 4 * TILE };
+    const bounds: { -readonly [K in keyof typeof BOUNDS]: (typeof BOUNDS)[K] } & { centerRegions?: Rect[] } = { ...BOUNDS, centerRegions: [island] };
+    const mutable = new CameraRig({ bounds, focus: FOCUS, focusPadding: 24, tileSize: TILE, maxTileCssPx: 128 });
+    mutable.resize(TABLET);
+    // Ganz nah heranzoomen, damit die Bereiche die Mitte tatsächlich begrenzen.
+    mutable.zoomBy(8, { x: 512, y: 384 });
+    for (let t = 0; t < 2000; t += 16) {
+      mutable.update(16);
+    }
+    // Weit nach rechts ziehen: die Mitte bleibt im einzigen Bereich.
+    for (let i = 0; i < 40; i += 1) {
+      mutable.pan(-200, 0);
+    }
+    expect(mutable.view.centerX).toBeLessThanOrEqual(island.x + island.width + 0.01);
+    // Land kommt rechts dazu: der Bereich wird größer.
+    bounds.centerRegions = [island, { x: island.x + island.width, y: island.y, width: 6 * TILE, height: 4 * TILE }];
+    for (let i = 0; i < 40; i += 1) {
+      mutable.pan(-200, 0);
+    }
+    expect(mutable.view.centerX).toBeGreaterThan(island.x + island.width + 2 * TILE);
+    expect(mutable.view.centerX).toBeLessThanOrEqual(island.x + island.width + 6 * TILE + 0.01);
+  });
+});

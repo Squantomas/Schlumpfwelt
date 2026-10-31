@@ -1257,6 +1257,7 @@ async function testEconomy({ page, check, shot, size, input, name }) {
   // --- Bäckerei am Weg: Geld wird abgebucht ---
   step('Bäckerei bauen');
   await pickItem('bakery');
+  village = await readVillage(page); // mit Werkzeugleiste (der Shop war offen)
   let cam = await cameraAtRest();
   const bakerySpot = findWorkSpot(village, cam, size, { fp: 2, atPath: true });
   check(bakerySpot !== undefined, 'Kein Platz für die Bäckerei am Weg');
@@ -1344,20 +1345,30 @@ async function testEconomy({ page, check, shot, size, input, name }) {
   await exitTool();
   village = await openShop();
   village = await openTab('houses');
-  // Reicht das Geld noch für ein Haus (40 Taler, 8 Holz), wird eins gebaut: danach ist das nächste zu teuer.
-  for (let guard = 0; guard < 3 && village.ui['item-house-red']?.state === 'ok'; guard += 1) {
-    await tapUi('item-house-red');
-    await waitForVillage(page, (v) => v.variant === 'house-red' && v.shop === 'closed', 'das rote Pilzhaus');
+  // Reicht das Geld noch für ein Haus (40 Taler, 8 Holz), wird eins gebaut; liegt es knapp darunter (ab 33 Taler), ein paar Blumen
+  // (3 Taler): der Markt verdient weiter, das Haus soll aber auch ein paar Sekunden später noch zu teuer sein.
+  const used = [{ x: lonely?.x ?? -9, y: lonely?.y ?? -9 }];
+  for (let guard = 0; guard < 6; guard += 1) {
+    const state = village.ui['item-house-red']?.state;
+    const coins = village.stock.coins;
+    if (state !== 'ok' && coins < 33) break;
+    const item = state === 'ok' ? 'house-red' : 'flower';
+    const fp = item === 'house-red' ? 2 : 1;
+    await tapUi('tab-' + SHOP_TAB[item]);
+    await waitForVillage(page, (v) => v.shop.startsWith(`${SHOP_TAB[item]}:`) && `item-${item}` in v.ui, `der Reiter für ${item}`);
+    await tapUi(`item-${item}`);
+    await waitForVillage(page, (v) => v.variant === item && v.shop === 'closed', `der Artikel ${item}`);
     village = await readVillage(page);
     cam = await cameraAtRest();
-    const spot = findFreeArea(village, cam, size, 2, 2, { near: { x: size.width * 0.3, y: size.height * 0.4 }, skip: [{ x: lonely?.x ?? -9, y: lonely?.y ?? -9 }] });
-    check(spot !== undefined, 'Kein Platz für das Haus');
+    const spot = findFreeArea(village, cam, size, fp, fp, { near: { x: size.width * 0.3, y: size.height * 0.4 }, skip: used });
+    check(spot !== undefined, `Kein Platz für ${item}`);
     if (!spot) break;
+    used.push({ x: spot.x, y: spot.y });
     await sleep(500);
-    await tapTile({ x: spot.x, y: spot.y + 1 });
-    await waitForVillage(page, (v) => v.preview === 'place:ok', 'grüne Vorschau für das Haus');
-    const houses = village.buildings.length;
-    await confirm((v) => v.buildings.length === houses + 1, 'das Haus');
+    await tapTile({ x: spot.x, y: spot.y + fp - 1 });
+    await waitForVillage(page, (v) => v.preview === 'place:ok', `grüne Vorschau für ${item}`);
+    const before = village.buildings.length;
+    await confirm((v) => v.buildings.length === before + 1, item);
     village = await openShop();
     village = await openTab('houses');
   }
@@ -1830,17 +1841,33 @@ async function testShop({ page, check, shot, size, input, name, waitLong }) {
     await tapUi('cancel');
   }
   await sleep(900);
-  // Für das Bild herangezoomt, danach wieder heraus (die Wiese kommt gleich auf dieselbe Kachel).
-  village = await readVillage(page);
+  // Zwei weitere Kacheln machen aus dem Fleck eine kleine Landzunge (im Bild besser zu sehen).
+  let spit = coast;
   for (let i = 0; i < 2; i += 1) {
-    await input.tap(village.ui['zoom-in']);
+    village = await readVillage(page);
+    const next = [[-1, 0], [1, 0], [0, -1], [0, 1]]
+      .map(([dx, dy]) => ({ x: spit.x + dx, y: spit.y + dy }))
+      .find((tile) => tile.x >= 3 && tile.y >= 3 && tile.x < MAP_TILES - 3 && tile.y < MAP_TILES - 3 && terrainAt(village, tile) === 'w');
+    if (!next) break;
+    await sleep(500);
+    await tapTile(next);
+    await waitForVillage(page, (v) => v.preview === 'place:ok', 'grüne Vorschau für den nächsten Strand');
+    await confirm((v) => terrainAt(v, next) === 's', 'der nächste aufgeschüttete Strand');
+    spit = next;
+  }
+  // Für das Bild mit dem Mausrad an der neuen Küste herangezoomt (der Zoom bleibt dort, wo der Zeiger steht), danach wieder heraus
+  // (die Wiese kommt gleich auf dieselbe Kachel).
+  const coastAt = screenOfTile(await cameraAtRest(), size, spit);
+  await page.mouse.move(coastAt.x, coastAt.y);
+  for (let i = 0; i < 3; i += 1) {
+    await page.mouse.wheel(0, -240);
     await sleep(250);
   }
   await cameraAtRest();
   await sleep(500);
   await shot(`${name}-land-aufgeschuettet`);
-  for (let i = 0; i < 2; i += 1) {
-    await input.tap(village.ui['zoom-out']);
+  for (let i = 0; i < 3; i += 1) {
+    await page.mouse.wheel(0, 240);
     await sleep(250);
   }
   await cameraAtRest();
