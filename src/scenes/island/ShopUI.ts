@@ -4,7 +4,7 @@ import { t } from '../../data/texts';
 import type { Rect } from '../../ui/cameraMath';
 import { createLabel, setLabelSize } from '../../ui/label';
 import { RoundButton } from '../../ui/RoundButton';
-import { progressText, shopCards, unlockIcons, unlockSentenceText, type ShopCard, type ShopView } from '../../ui/shopModel';
+import { noRoomSentence, progressText, roomText, shopCards, unlockIcons, unlockSentenceText, type ShopCard, type ShopView } from '../../ui/shopModel';
 import { SHOP_ARROW, shopCellRects, shopPages, type ShopLayout } from '../../ui/shopLayout';
 import { SquareButton } from '../../ui/SquareButton';
 import { COLORS, clamp } from '../../ui/style';
@@ -12,8 +12,12 @@ import { drawCategoryIcon, drawPadlock, drawStar } from '../../ui/toolIcons';
 import { buildingTextureKey } from './buildingTextures';
 import { CostRow } from './CostRow';
 import { goodTextureKey } from './goodTextures';
+import { addGraphics } from '../../ui/FastGraphics';
 
-/** The foot of a card: what it costs, or – on a locked card – what the village still has to build or earn. */
+/**
+ * The foot of a card: what it costs, or – on a locked card – what the village still has to build or earn, or – on the
+ * card "invite" when every house is full (M6) – a house and how many residents live in how much room ("2/2").
+ */
 class CardFooter extends Phaser.GameObjects.Container {
   private readonly cost: CostRow;
   /** The pictures of the condition (a building; for money the market and a coin: "earn it at the market"). */
@@ -56,9 +60,19 @@ class CardFooter extends Phaser.GameObjects.Container {
     if (!lock) {
       return;
     }
+    this.showCondition(unlockIcons(lock.unlock), progressText(lock.progress));
+  }
+
+  /** No room for another resident: a house and "residents/room". */
+  showRoom(card: ShopCard): void {
+    if (card.room) {
+      this.showCondition([{ kind: 'building', id: 'house-red' }], roomText(card.room));
+    }
+  }
+
+  private showCondition(pictures: readonly { readonly kind: 'building' | 'coins'; readonly id: string }[], text: string): void {
     this.locked = true;
     this.cost.setVisible(false);
-    const pictures = unlockIcons(lock.unlock);
     this.shownIcons = pictures.length;
     this.icons.forEach((icon, index) => {
       const what = pictures[index];
@@ -67,7 +81,7 @@ class CardFooter extends Phaser.GameObjects.Container {
         icon.setTexture(what.kind === 'coins' ? goodTextureKey('coins') : buildingTextureKey(what.id));
       }
     });
-    this.progress.setText(progressText(lock.progress)).setVisible(true);
+    this.progress.setText(text).setVisible(true);
     this.placeLock();
   }
 
@@ -122,7 +136,7 @@ export interface ShopSpot {
   readonly y: number;
   readonly w: number;
   readonly h: number;
-  /** For cards: the state ('ok', 'dear', 'locked'), the star ("new"), and whether the card is on the page now. */
+  /** For cards: the state ('ok', 'dear', 'locked', 'noRoom'), the star ("new"), and whether the card is on the page now. */
   readonly state?: string;
   readonly fresh?: boolean;
   readonly active?: boolean;
@@ -162,14 +176,14 @@ export class ShopUI {
     uiLayer: Phaser.GameObjects.Layer,
     private readonly handlers: ShopUiHandlers,
   ) {
-    this.panel = scene.add.graphics().setVisible(false);
+    this.panel = addGraphics(scene).setVisible(false);
     uiLayer.add(this.panel);
 
     for (const category of SHOP_CATEGORIES) {
       const tab = new SquareButton(scene, {
         label: t(`shop.${category}`),
         minCaptionFont: 12,
-        content: scene.add.graphics(),
+        content: addGraphics(scene),
         fitContent: (content, width, height) => {
           drawCategoryIcon(content as Phaser.GameObjects.Graphics, category, Math.min(width, height));
         },
@@ -178,7 +192,7 @@ export class ShopUI {
           handlers.onTab(category);
         },
       });
-      const star = scene.add.graphics().setVisible(false);
+      const star = addGraphics(scene).setVisible(false);
       drawStar(star, 11);
       tab.add(star);
       tab.setVisible(false);
@@ -203,8 +217,8 @@ export class ShopUI {
             this.onCardTap(type.id);
           },
         });
-        const padlock = scene.add.graphics();
-        const star = scene.add.graphics();
+        const padlock = addGraphics(scene);
+        const star = addGraphics(scene);
         drawStar(star, 12);
         button.add([padlock, star]);
         button.setVisible(false);
@@ -233,7 +247,7 @@ export class ShopUI {
       });
     this.prevButton = pager('left', -1);
     this.nextButton = pager('right', 1);
-    this.tipPanel = scene.add.graphics().setVisible(false);
+    this.tipPanel = addGraphics(scene).setVisible(false);
     this.tipLabel = createLabel(scene, '', 18).setVisible(false);
     for (const object of [this.closeButton, this.prevButton, this.nextButton]) {
       object.setVisible(false);
@@ -345,6 +359,8 @@ export class ShopUI {
       .setDimmed(card.state !== 'ok');
     if (locked) {
       entry.footer.showLock(card);
+    } else if (card.state === 'noRoom') {
+      entry.footer.showRoom(card);
     } else {
       entry.footer.showCost(card);
     }
@@ -363,6 +379,12 @@ export class ShopUI {
     if (card?.card.state === 'locked' && card.card.lock) {
       // A locked card: say what to do, in the fixed line at the bottom of the panel (it does not choose anything).
       this.tip = unlockSentenceText(card.card.lock.unlock);
+      this.drawLine();
+      return;
+    }
+    if (card?.card.state === 'noRoom') {
+      // No room in the houses (M6): say why, choose nothing.
+      this.tip = noRoomSentence(card.card);
       this.drawLine();
       return;
     }

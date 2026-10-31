@@ -10,6 +10,7 @@ import { createLabel, setLabelSize } from '../../ui/label';
 import { cardStatus, productionInfo } from '../../ui/productionInfo';
 import { RoundButton } from '../../ui/RoundButton';
 import { MessageBoard, newsVisible } from '../../ui/messageBoard';
+import { residentInfo, residentSentence } from '../../ui/residentInfo';
 import { newItemsText } from '../../ui/shopModel';
 import { SquareButton } from '../../ui/SquareButton';
 import { worldTapIgnored } from '../../ui/tapPause';
@@ -20,8 +21,10 @@ import type { ViewSize } from '../../ui/viewport';
 import { buildingTextureKey } from './buildingTextures';
 import { registerGoodTextures } from './goodTextures';
 import { InfoCard } from './InfoCard';
+import { ResidentCard } from './ResidentCard';
 import { ShopUI } from './ShopUI';
 import { StockBar } from './StockBar';
+import { addGraphics } from '../../ui/FastGraphics';
 
 /** The message "Neu im Shop: …" stays a good while (a child has to read it): at least 6 seconds. */
 const NEWS_MS = 7000;
@@ -71,6 +74,9 @@ const SHOP_MOST = Math.max(...SHOP_CATEGORIES.map((category) => shopItems(catego
  *   store bar; a tap on a card starts placing that item. While an item is being
  *   placed a small chip (its picture) leads back to the shop. A star on the shop
  *   button, and the message "Neu im Shop: …", tell about new unlocks.
+ * - M6: the card of a resident ({@link ResidentCard}) at the place of the info
+ *   card, the card "invite" in the shop (no room: greyed, with the reason) and
+ *   the message "Lumo kommt mit dem Boot!" when an invited resident is on the way.
  */
 export class BuildUI {
   private readonly toolbarPanel: Phaser.GameObjects.Graphics;
@@ -87,6 +93,9 @@ export class BuildUI {
   private menuRect: Rect = EMPTY;
   private readonly stock: StockBar;
   private readonly card: InfoCard;
+  private readonly residentCard: ResidentCard;
+  /** Residents with a lower id were there already (an invited resident with a new id gets the message "… kommt mit dem Boot!"). */
+  private knownResidents: number;
   private readonly shop: ShopUI;
   private view: ViewSize = { width: 1, height: 1 };
   private seenVersion = -1;
@@ -127,9 +136,15 @@ export class BuildUI {
       this.tool.closeInfo();
       this.refresh();
     });
+    this.residentCard = new ResidentCard(scene, uiLayer, (time) => {
+      this.touched(time);
+      this.tool.closeInfo();
+      this.refresh();
+    });
+    this.knownResidents = this.getState().nextResidentId;
     this.stock.update(this.getState().inventory, false);
-    this.toolbarPanel = scene.add.graphics();
-    this.hintPanel = scene.add.graphics();
+    this.toolbarPanel = addGraphics(scene);
+    this.hintPanel = addGraphics(scene);
     uiLayer.add([this.toolbarPanel, this.hintPanel]);
 
     this.hintLabel = createLabel(scene, '', 24);
@@ -145,13 +160,13 @@ export class BuildUI {
       },
     });
 
-    this.shopStar = scene.add.graphics().setVisible(false);
+    this.shopStar = addGraphics(scene).setVisible(false);
     drawStar(this.shopStar, 13);
     for (const id of TOOLS) {
       const button = new SquareButton(scene, {
         label: t(`tool.${id}`),
         minCaptionFont: MIN_LABEL_FONT,
-        content: scene.add.graphics(),
+        content: addGraphics(scene),
         fitContent: (content, width, height) => {
           drawToolIcon(content as Phaser.GameObjects.Graphics, id, Math.min(width, height));
         },
@@ -300,9 +315,9 @@ export class BuildUI {
     }
   }
 
-  /** Is the info card of a production building open? */
+  /** Is the info card of a production building or the card of a resident open? */
   get cardOpen(): boolean {
-    return this.card.isOpen;
+    return this.card.isOpen || this.residentCard.isOpen;
   }
 
   /** Is the shop open? It covers the screen below the store bar; the zoom buttons are hidden then. */
@@ -317,7 +332,7 @@ export class BuildUI {
 
   /** Is this screen point (CSS px) on a panel? Then a press there is not for the camera. */
   coversPoint(x: number, y: number): boolean {
-    return [this.toolbarRect, this.shop.rect, this.hintRect, this.chipRect, this.stock.rect, this.card.rect].some(
+    return [this.toolbarRect, this.shop.rect, this.hintRect, this.chipRect, this.stock.rect, this.card.rect, this.residentCard.rect].some(
       (rect) => rect.width > 0 && x >= rect.x && x <= rect.x + rect.width && y >= rect.y && y <= rect.y + rect.height,
     );
   }
@@ -432,14 +447,28 @@ export class BuildUI {
     }
   }
 
-  /** What the building is doing, in one sentence (for the card and for the hint if the card does not fit). */
-  private cardSentence(buildingId: number): string | undefined {
-    const status = cardStatus(this.getState(), buildingId);
+  /** What the building (or resident) is doing, in one sentence (for the card and for the hint if the card does not fit). */
+  private cardSentence(buildingId: number | undefined): string | undefined {
+    const resident = this.tool.inspectedResidentId;
+    if (resident !== undefined) {
+      const info = residentInfo(this.getState(), resident);
+      return info ? residentSentence(info) : undefined;
+    }
+    const status = buildingId === undefined ? undefined : cardStatus(this.getState(), buildingId);
     return status ? t(status.text, status.params) : undefined;
   }
 
-  /** Opens, moves or closes the info card of the building the child tapped. */
+  /** Opens, moves or closes the info card of the building – or the card of the resident – the child tapped. */
   private applyCard(layout: BuildLayout): void {
+    const resident = this.tool.inspectedResidentId;
+    const about = resident === undefined ? undefined : residentInfo(this.getState(), resident);
+    if (layout.card?.fits && about) {
+      this.card.hide();
+      this.residentCard.show(layout.card, about);
+      this.cardTick = this.getState().tick;
+      return;
+    }
+    this.residentCard.hide();
     const id = this.tool.inspectedId;
     const building = id === undefined ? undefined : this.getState().buildings.find((b) => b.id === id);
     const type = building ? buildingType(building.type) : undefined;
@@ -481,7 +510,7 @@ export class BuildUI {
       return undefined;
     }
     // The info card says everything itself: no extra note beside it (and if it does not fit, its sentence is the hint).
-    if (this.tool.inspectedId !== undefined) {
+    if (this.tool.cardOpen) {
       return this.cardFallback;
     }
     const message = this.board.current(this.scene.time.now, this.newsAllowed());
@@ -494,7 +523,7 @@ export class BuildUI {
 
   /** May news ("Neu im Shop") be shown now? Only where the hint bar really shows it – otherwise its 7 seconds would run out unseen. */
   private newsAllowed(): boolean {
-    return newsVisible({ hasPreview: this.tool.hasPreview, shopOpen: this.tool.shopOpen, inspectedId: this.tool.inspectedId, menuOpen: this.menuOpen() });
+    return newsVisible({ hasPreview: this.tool.hasPreview, shopOpen: this.tool.shopOpen, inspectedId: this.tool.inspectedId ?? this.tool.inspectedResidentId, menuOpen: this.menuOpen() });
   }
 
   /** Brings the buttons in line with the tool state (highlight, shop, hint, ✓ / ✕). */
@@ -523,9 +552,10 @@ export class BuildUI {
       hasMenu: this.tool.tool === 'view',
     };
     const inspected = this.tool.inspectedId;
+    const cardOpen = this.tool.cardOpen;
     this.cardFallback = undefined;
-    let layout = layoutBuildUi({ ...input, infoOpen: inspected !== undefined, hintHeight: this.measureHint() });
-    if (inspected !== undefined && layout.card && !layout.card.fits) {
+    let layout = layoutBuildUi({ ...input, infoOpen: cardOpen, hintHeight: this.measureHint() });
+    if (cardOpen && layout.card && !layout.card.fits) {
       // No room for the card (a very low screen): its sentence goes into the hint bar instead.
       this.cardFallback = this.cardSentence(inspected);
       layout = layoutBuildUi({ ...input, infoOpen: false, hintHeight: this.measureHint() });
@@ -556,16 +586,33 @@ export class BuildUI {
     if (expired || news.length > 0 || this.seenVersion !== this.tool.version || (stockChanged && this.tool.shopOpen)) {
       this.refresh();
     }
+    // An invited resident is on the way: say who comes (an explanation: it stays until the next tap).
+    if (state.nextResidentId !== this.knownResidents) {
+      const arriving = state.residents.filter((r) => r.id >= this.knownResidents && r.doing === 'boat' && r.job === null);
+      this.knownResidents = state.nextResidentId;
+      const last = arriving[arriving.length - 1];
+      if (last) {
+        this.showNotice('invite.arriving', { name: last.name });
+      }
+    }
     // The card follows the simulation, which changes once per tick.
     const inspected = this.tool.inspectedId;
-    if (inspected !== undefined && this.cardTick !== state.tick) {
+    const resident = this.tool.inspectedResidentId;
+    if ((inspected !== undefined || resident !== undefined) && this.cardTick !== state.tick) {
       this.cardTick = state.tick;
       if (this.cardFallback !== undefined) {
         // The sentence is the hint now: follow it when it changes.
         if (this.cardSentence(inspected) !== this.cardFallback) {
           this.refresh();
         }
-      } else {
+      } else if (resident !== undefined) {
+        const info = residentInfo(state, resident);
+        if (info) {
+          this.residentCard.update(info);
+        } else {
+          this.tool.dropMissingResident();
+        }
+      } else if (inspected !== undefined) {
         this.card.setStatus(cardStatus(state, inspected));
       }
     }
@@ -592,10 +639,12 @@ export class BuildUI {
       }
       const stockRect = this.stock.rect;
       spots['stock'] = { x: stockRect.x + stockRect.width / 2, y: stockRect.y + stockRect.height / 2, enabled: true, w: stockRect.width, h: stockRect.height };
-      if (this.card.isOpen) {
-        const cardRect = this.card.rect;
+      // Only one card is open at a time: the info card of a building or the card of a resident.
+      const openCard = this.card.isOpen ? this.card : this.residentCard.isOpen ? this.residentCard : undefined;
+      if (openCard) {
+        const cardRect = openCard.rect;
         spots['card'] = { x: cardRect.x + cardRect.width / 2, y: cardRect.y + cardRect.height / 2, enabled: true, w: cardRect.width, h: cardRect.height };
-        spots['card-close'] = { ...this.card.closeSpot, enabled: true, w: 64, h: 64 };
+        spots['card-close'] = { ...openCard.closeSpot, enabled: true, w: 64, h: 64 };
       }
       for (const button of this.chipButtons.values()) {
         if (button.visible) {

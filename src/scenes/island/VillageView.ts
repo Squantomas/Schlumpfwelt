@@ -20,6 +20,7 @@ import {
 } from './buildingTextures';
 import { goodTextureKey, registerGoodTextures, signTextureKey } from './goodTextures';
 import { TEXTURE_SCALE } from './objectTextures';
+import { addGraphics } from '../../ui/FastGraphics';
 
 const PATH_DEPTH = 2;
 const OVERLAY_DEPTH = 800_000;
@@ -98,10 +99,10 @@ export class VillageView {
   ) {
     registerBuildingTextures(scene);
     registerGoodTextures(scene);
-    this.inspectOverlay = scene.add.graphics().setDepth(INSPECT_DEPTH);
-    this.overlay = scene.add.graphics().setDepth(OVERLAY_DEPTH);
+    this.inspectOverlay = addGraphics(scene).setDepth(INSPECT_DEPTH);
+    this.overlay = addGraphics(scene).setDepth(OVERLAY_DEPTH);
     this.ghost = scene.add.image(0, 0, PUFF_KEY).setDepth(GHOST_DEPTH).setVisible(false);
-    this.badges = scene.add.graphics().setDepth(GHOST_DEPTH + 1);
+    this.badges = addGraphics(scene).setDepth(GHOST_DEPTH + 1);
     this.previewSign = scene.add.image(0, 0, signTextureKey('path')).setOrigin(0.5, 1).setDepth(MARKER_DEPTH).setVisible(false);
     layer.add([this.inspectOverlay, this.overlay, this.ghost, this.badges, this.previewSign]);
   }
@@ -491,6 +492,19 @@ export class VillageView {
         if (building && sprite) {
           sprite.image.setTint(COLORS.demolishTint);
           this.tintedId = building.id;
+        }
+        break;
+      }
+      case 'invite': {
+        // The house the new resident will move into (with a ✓ when ✓ can send the boat).
+        const home = preview.home === undefined ? undefined : this.simulation.state.buildings.find((b) => b.id === preview.home);
+        const type = home ? buildingType(home.type) : undefined;
+        if (home && type) {
+          const fits = preview.result === 'ok';
+          fillTiles(g, home.x, home.y, type.footprint.w, type.footprint.h, fits ? COLORS.ghostOk : COLORS.selected, 0.45);
+          if (fits) {
+            drawCornerBadge(this.badges, home.x, home.y, type.footprint.w, type.footprint.h, true);
+          }
         }
         break;
       }

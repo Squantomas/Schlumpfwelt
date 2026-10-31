@@ -12,14 +12,15 @@ import { circle, ellipse, make, roundedBox } from './objectTextures';
  * between the feet.
  */
 
-/** Logical size of a resident texture (world px). */
-export const RESIDENT_SIZE = { width: 40, height: 62 } as const;
+/** Logical size of a resident texture (world px); the figure is drawn 6 px down, so the tip of the hat has room. */
+export const RESIDENT_SIZE = { width: 40, height: 68 } as const;
+const RESIDENT_TOP = 6;
 /** Where the feet touch the ground, as fraction of the texture (for `setOrigin`). */
-export const RESIDENT_ORIGIN = { x: 0.5, y: 57 / 62 } as const;
-/** How far above the feet the middle of the body is (world px): the centre of the hit area and of the ring. */
+export const RESIDENT_ORIGIN = { x: 0.5, y: (57 + RESIDENT_TOP) / 68 } as const;
+/** How far above the feet the middle of the body is (world px). */
 export const RESIDENT_BODY_Y = 22;
-/** Above the head: where the carried good is drawn (world px above the feet). */
-export const RESIDENT_CARRY_Y = 60;
+/** Above the hat: the lower edge of the good a resident carries (world px above the feet). */
+export const RESIDENT_CARRY_Y = 64;
 
 export const BOAT_SIZE = { width: 84, height: 56 } as const;
 /** The water line of the boat (fraction of the texture height): the origin of the boat sprite. */
@@ -42,7 +43,7 @@ const css = cssColor;
 export function registerResidentTextures(scene: Phaser.Scene): void {
   HAT_IDS.forEach((id, index) => {
     make(scene, residentTextureKey(index), RESIDENT_SIZE.width, RESIDENT_SIZE.height, (ctx) => {
-      drawResident(ctx, HAT_COLORS[id] ?? { hat: COLORS.cancel, shade: COLORS.cancelShade }, true);
+      drawResident(ctx, HAT_COLORS[id] ?? { hat: COLORS.cancel, shade: COLORS.cancelShade }, true, 0, RESIDENT_TOP);
     });
   });
   make(scene, BOAT_BACK_KEY, BOAT_SIZE.width, BOAT_SIZE.height, (ctx) => {
@@ -66,8 +67,9 @@ export function registerResidentTextures(scene: Phaser.Scene): void {
 }
 
 /**
- * One resident, feet at (20, 57) of a 40 × 62 picture. `shadow`: with the
- * soft shadow on the ground (not in the boat).
+ * One resident, feet at (20, 57) of a 40 × 62 area moved by (ox, oy) (the
+ * tip of the hat reaches a little above it). `shadow`: with the soft shadow
+ * on the ground (not in the boat).
  */
 export function drawResident(ctx: CanvasRenderingContext2D, hat: { readonly hat: number; readonly shade: number }, shadow: boolean, ox = 0, oy = 0): void {
   ctx.save();
