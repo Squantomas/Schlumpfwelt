@@ -281,16 +281,29 @@ export class ShopUI {
     this.panel.fillStyle(COLORS.panel, 0.96).fillRoundedRect(layout.rect.x, layout.rect.y, layout.rect.width, layout.rect.height, 22);
     this.panel.lineStyle(3, COLORS.toolActiveRim, 0.75).strokeRoundedRect(layout.rect.x, layout.rect.y, layout.rect.width, layout.rect.height, 22);
 
-    SHOP_CATEGORIES.forEach((category, index) => {
-      const rect = layout.tabs[index];
-      const button = this.tabs.get(category);
-      if (rect && button) {
-        button.layoutTo(rect.width, rect.height).setPosition(rect.x + rect.width / 2, rect.y + rect.height / 2).setHighlighted(category === tab);
-        const star = this.tabStars.get(category);
-        const news = shopItems(category).some((type) => fresh(type.id));
-        star?.setVisible(news).setPosition(rect.width / 2 - 8, -rect.height / 2 + 8);
+    const placeTabs = (): void => {
+      SHOP_CATEGORIES.forEach((category, index) => {
+        const rect = layout.tabs[index];
+        const button = this.tabs.get(category);
+        if (rect && button) {
+          button.layoutTo(rect.width, rect.height).setPosition(rect.x + rect.width / 2, rect.y + rect.height / 2).setHighlighted(category === tab);
+          const star = this.tabStars.get(category);
+          const news = shopItems(category).some((type) => fresh(type.id));
+          star?.setVisible(news).setPosition(rect.width / 2 - 8, -rect.height / 2 + 8);
+        }
+      });
+    };
+    for (const button of this.tabs.values()) {
+      button.setCaptionOff(false);
+    }
+    placeTabs();
+    // Where one tab has no room for its word (at 12 px or more), none shows it: the row looks alike, only pictures.
+    if ([...this.tabs.values()].some((button) => button.captionFont === 0)) {
+      for (const button of this.tabs.values()) {
+        button.setCaptionOff(true);
       }
-    });
+      placeTabs();
+    }
     this.closeButton.setRadius(layout.close.width / 2).setPosition(layout.close.x + layout.close.width / 2, layout.close.y + layout.close.height / 2);
 
     const cards = shopCards(view, tab);

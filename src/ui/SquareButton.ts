@@ -42,6 +42,7 @@ export class SquareButton extends Phaser.GameObjects.Container {
   private pressed = false;
   private readonly footer: SquareButtonOptions['footer'];
   private readonly minCaptionFont: number | undefined;
+  private captionOff = false;
 
   constructor(scene: Phaser.Scene, options: SquareButtonOptions) {
     super(scene, 0, 0);
@@ -102,7 +103,7 @@ export class SquareButton extends Phaser.GameObjects.Container {
       setLabelSize(this.caption, Math.max(minFont, Math.min(17, height * (lines > 1 ? 0.15 : 0.19))), width - 6);
       this.caption.setPosition(0, height / 2 - (height * (1 - PICTURE_SHARE)) / 2 - height * 0.02);
       // Too narrow for the word at the minimum size: the picture alone (centred and a bit bigger).
-      const tooNarrow = this.minCaptionFont !== undefined && Number.parseFloat(String(this.caption.style.fontSize)) < this.minCaptionFont;
+      const tooNarrow = this.captionOff || (this.minCaptionFont !== undefined && Number.parseFloat(String(this.caption.style.fontSize)) < this.minCaptionFont);
       this.caption.setVisible(!tooNarrow);
       if (tooNarrow) {
         this.fitContent(this.content, width * 0.8, height * 0.8);
@@ -110,6 +111,12 @@ export class SquareButton extends Phaser.GameObjects.Container {
       }
     }
     this.draw();
+    return this;
+  }
+
+  /** Leaves the word out on purpose (so all buttons of a row look alike when one of them has no room for it); takes effect with the next `layoutTo`. */
+  setCaptionOff(off: boolean): this {
+    this.captionOff = off;
     return this;
   }
 

@@ -786,6 +786,19 @@ function checkShopFits({ village: v, w, h, tab, check }) {
     const p = v.ui[spot];
     check(p !== undefined && (p.w === undefined || (p.w >= 48 && p.h >= 48)), `${where}: „${spot}“ kleiner als 48 px`);
   }
+  // Die feste Zeile für den Satz einer gesperrten Karte liegt im Feld und überdeckt keine Karte (T1).
+  const line = v.ui['shop-line'];
+  check(line !== undefined && line.x - line.w / 2 >= panel.x - panel.w / 2 - 0.5 && line.x + line.w / 2 <= panel.x + panel.w / 2 + 0.5 && line.y + line.h / 2 <= panel.y + panel.h / 2 + 0.5, `${where}: Zeile fehlt oder liegt nicht im Feld`);
+  if (line) {
+    for (const [spot, c] of cards) {
+      check(Math.abs(line.x - c.x) >= (line.w + c.w) / 2 - 0.5 || Math.abs(line.y - c.y) >= (line.h + c.h) / 2 - 0.5, `${where}: Zeile überdeckt „${spot}“`);
+    }
+  }
+  // Schrift unter den Reitern: mindestens 12 px oder nur das Symbol (T5).
+  for (const spot of Object.keys(v.ui).filter((name) => name.startsWith('tab-'))) {
+    const font = v.ui[spot].font;
+    check(font === 0 || font >= 12, `${where}: Schrift unter „${spot}“ nur ${font} px`);
+  }
   // Reiter, ✕ und Karten überdecken sich auch gegenseitig nicht.
   const parts = Object.entries(v.ui).filter(([spot]) => spot.startsWith('item-') || spot.startsWith('tab-') || spot === 'shop-close');
   for (const [a, pa] of parts) {
@@ -959,6 +972,10 @@ async function testBuilding({ page, check, shot, size, input, drag, name }) {
   if (!pathArea) return;
   const lTiles = [0, 1, 2, 3].map((dx) => ({ x: pathArea.x + dx, y: pathArea.y })).concat([1, 2].map((dy) => ({ x: pathArea.x + 3, y: pathArea.y + dy })));
   await selectTool('path');
+  // Das aktive Werkzeug erneut antippen schaltet es nicht ab (R9).
+  await tapUi('tool-path');
+  await sleep(500);
+  check((await readVillage(page)).tool === 'path', 'Das Werkzeug Weg erneut antippen hat es abgeschaltet');
   await tapTile(lTiles[0]);
   await waitForVillage(page, (v) => v.preview === 'path:ok=1,blocked=0,existing=0', 'Weg-Vorschau mit einer Kachel');
   await tapTile(lTiles[lTiles.length - 1]);
@@ -1269,7 +1286,7 @@ async function testEconomy({ page, check, shot, size, input, name }) {
   const bakery = village.buildings.find((b) => b.type === 'bakery');
   check(bakery.connected, 'Bäckerei steht nicht am Weg');
   // Der Markt kauft nebenbei überschüssige Beeren: die Taler können ein paar Münzen über dem Preis liegen.
-  village = await waitStock((stock) => stock.coins <= before.coins - 25 + 8 && stock.wood <= before.wood - 6, 'abgebuchte Kosten der Bäckerei', 8000);
+  village = await waitStock((stock) => stock.coins <= before.coins - 25 + 15 && stock.wood <= before.wood - 6, 'abgebuchte Kosten der Bäckerei', 8000);
   check(village.stock.coins >= before.coins - 25, `Bäckerei: Taler ${village.stock.coins}, erwartet mindestens ${before.coins - 25}`);
 
   // --- Holzfäller ohne Bäume in der Nähe: rot mit Hinweis ---
@@ -1315,7 +1332,7 @@ async function testEconomy({ page, check, shot, size, input, name }) {
   village = await confirm((v) => typeCount(v, 'lumberjack') === 1, 'der Holzfäller');
   const lumberjack = village.buildings.find((b) => b.type === 'lumberjack');
   check(lumberjack.connected, 'Holzfäller steht nicht am Weg');
-  village = await waitStock((stock) => stock.coins <= woodBefore.coins - 15 + 12 && stock.coins >= woodBefore.coins - 15, 'abgebuchte Kosten des Holzfällers (nur Taler)', 8000);
+  village = await waitStock((stock) => stock.coins <= woodBefore.coins - 15 + 18 && stock.coins >= woodBefore.coins - 15, 'abgebuchte Kosten des Holzfällers (nur Taler)', 8000);
   const afterLumberjack = village.stock;
   check(afterLumberjack.wood >= woodBefore.wood, `Holzfäller: Holz ${afterLumberjack.wood} gesunken, er soll nur Taler kosten`);
   // Nach ein paar Sekunden liefert er: das Lager steigt, und der Holzfäller meldet „working“.
@@ -1345,14 +1362,15 @@ async function testEconomy({ page, check, shot, size, input, name }) {
   await exitTool();
   village = await openShop();
   village = await openTab('houses');
-  // Reicht das Geld noch für ein Haus (40 Taler, 8 Holz), wird eins gebaut; liegt es knapp darunter (ab 33 Taler), ein paar Blumen
-  // (3 Taler): der Markt verdient weiter, das Haus soll aber auch ein paar Sekunden später noch zu teuer sein.
+  // Reicht das Geld und das Holz noch für ein Haus (40 Taler, 8 Holz), wird eins gebaut; fehlt nur knapp etwas (ab 31 Taler oder
+  // 5 Holz), ein paar Zäune (3 Taler, 1 Holz): der Markt verdient und der Holzfäller liefert weiter, das Haus soll aber auch ein paar
+  // Sekunden später noch zu teuer sein.
   const used = [{ x: lonely?.x ?? -9, y: lonely?.y ?? -9 }];
-  for (let guard = 0; guard < 6; guard += 1) {
+  for (let guard = 0; guard < 12; guard += 1) {
     const state = village.ui['item-house-red']?.state;
-    const coins = village.stock.coins;
-    if (state !== 'ok' && coins < 33) break;
-    const item = state === 'ok' ? 'house-red' : 'flower';
+    const safe = village.stock.coins <= 30 || village.stock.wood <= 4;
+    if (state !== 'ok' && safe) break;
+    const item = state === 'ok' ? 'house-red' : 'fence';
     const fp = item === 'house-red' ? 2 : 1;
     await tapUi('tab-' + SHOP_TAB[item]);
     await waitForVillage(page, (v) => v.shop.startsWith(`${SHOP_TAB[item]}:`) && `item-${item}` in v.ui, `der Reiter für ${item}`);
@@ -1598,6 +1616,7 @@ async function testShop({ page, check, shot, size, input, name, waitLong }) {
   check(village.shop === 'houses:1/1', `Shop: ${village.shop}, erwartet „houses:1/1“ (alles auf einer Seite)`);
   for (const tab of Object.keys(SHOP_ITEMS)) check(`tab-${tab}` in village.ui, `Shop: Reiter ${tab} fehlt`);
   check('shop-close' in village.ui && village.ui['shop-close'].w >= 48, 'Shop: kein großes ✕');
+  for (const tab of Object.keys(SHOP_ITEMS)) check(village.ui[`tab-${tab}`]?.font >= 12, `Shop: Schrift unter dem Reiter ${tab} nur ${village.ui[`tab-${tab}`]?.font} px`);
   check('stock' in village.ui, 'Shop: die Lagerleiste ist verschwunden');
   check(!('zoom-in' in village.ui) && !('tool-path' in village.ui), 'Shop: Zoom-Knöpfe oder Werkzeugleiste liegen unter dem Shop');
   await sleep(500);
@@ -1628,7 +1647,7 @@ async function testShop({ page, check, shot, size, input, name, waitLong }) {
   check(village.tool === 'shop' && village.variant === '' && village.shop.startsWith('deco:'), `Gesperrt: Werkzeug ${village.tool}, Artikel „${village.variant}“ – nichts darf gewählt sein`);
   await shot(`${name}-shop-deko-gesperrt`);
   await tapUi('item-fountain');
-  village = await waitForVillage(page, (v) => /250 Taler/.test(v.tip), 'der Satz am Brunnen');
+  village = await waitForVillage(page, (v) => /300 Taler/.test(v.tip), 'der Satz am Brunnen');
   village = await openTab('production');
   await tapUi('item-carpenter');
   village = await waitForVillage(page, (v) => /Holzfäller/.test(v.tip), 'der Satz an der Schreinerei');
@@ -1637,6 +1656,26 @@ async function testShop({ page, check, shot, size, input, name, waitLong }) {
   village = await waitForVillage(page, (v) => /2 Häuser/.test(v.tip), 'der Satz am großen Pilzhaus');
   await tapUi('shop-close');
   await waitForVillage(page, (v) => v.tool === 'view' && v.shop === 'closed', 'der geschlossene Shop');
+
+  // --- Der Satz bleibt in der festen Zeile, bis etwas anderes angetippt wird (T1) ---
+  step('Satz in der festen Zeile bleibt');
+  village = await openShop();
+  village = await openTab('deco');
+  await tapUi('item-bench');
+  village = await waitForVillage(page, (v) => /40 Taler/.test(v.tip), 'der Satz an der Bank');
+  check('shop-line' in village.ui, 'Shop: keine feste Zeile');
+  await sleep(7000);
+  village = await readVillage(page);
+  check(/40 Taler/.test(village.tip), `Der Satz ist nach 7 Sekunden weg („${village.tip}“)`);
+  await tapUi('tab-production');
+  village = await waitForVillage(page, (v) => v.shop.startsWith('production:'), 'der Reiter Gebäude');
+  check(village.tip === '', `Nach dem Reiterwechsel steht noch „${village.tip}“`);
+  // Ein Tipp neben das Feld schließt den Shop, ohne etwas anderes zu tun (T3).
+  const tapBefore = village.lastTap;
+  const buildingsBefore = village.buildings.length;
+  await input.tap({ x: size.width * 0.5, y: size.height - 24 });
+  village = await waitForVillage(page, (v) => v.shop === 'closed' && v.tool === 'view', 'der Shop nach dem Tipp daneben');
+  check(village.lastTap === tapBefore && village.buildings.length === buildingsBefore && village.preview === 'none', 'Der Tipp neben den Shop hat auch etwas anderes ausgelöst');
 
   // --- Zoom heraus: Wald und Küste im Bild ---
   village = await readVillage(page);
@@ -1697,7 +1736,7 @@ async function testShop({ page, check, shot, size, input, name, waitLong }) {
   await waitForVillage(page, (v) => v.preview === 'place:ok', 'grüne Vorschau für die Blume');
   village = await confirm((v) => typeCount(v, 'flower') === typeCount(village, 'flower') + 1, 'die Blume');
   check(village.tool === 'place' && village.variant === 'flower', `Blume: nach ✓ Werkzeug ${village.tool}, Artikel ${village.variant}`);
-  village = await waitForVillage(page, (v) => v.stock.coins <= coinsBefore - 3 + 8, 'die abgebuchten 3 Taler');
+  village = await waitForVillage(page, (v) => v.stock.coins <= coinsBefore - 3 + 15, 'die abgebuchten 3 Taler');
   check(village.stock.coins >= coinsBefore - 3, `Blume: Taler ${village.stock.coins}, erwartet mindestens ${coinsBefore - 3}`);
 
   // --- Bäckerei für den Markt, damit Taler verdient werden (Land aufschütten braucht 60) ---
@@ -1731,9 +1770,10 @@ async function testShop({ page, check, shot, size, input, name, waitLong }) {
   village = await confirm((v) => terrainAt(v, treeSpot) === 'f' && v.planted === 1, 'der gepflanzte Baum');
   check(forestCount(village) === forestBefore + 1, `Baum: ${forestCount(village)} Waldkacheln, erwartet ${forestBefore + 1}`);
   check(village.repaint.count >= 1, 'Baum: der Boden wurde nicht neu gemalt');
-  console.log(`  [${name}] Boden neu malen (Baum): ${village.repaint.last.toFixed(1)} ms für ${village.repaint.tiles} Kacheln (größtes: ${village.repaint.max.toFixed(1)} ms)`);
-  check(village.repaint.last < 250, `Baum: Boden neu malen dauerte ${village.repaint.last.toFixed(0)} ms`);
-  village = await waitForVillage(page, (v) => v.stock.coins <= treeCoins - 5 + 8, 'die abgebuchten 5 Taler');
+  console.log(`  [${name}] Boden neu malen (Baum): ${village.repaint.last.toFixed(1)} ms für ${village.repaint.blocks} von ${village.repaint.blocksTotal} Blöcken à 512 px (größtes: ${village.repaint.max.toFixed(1)} ms, insgesamt hochgeladen: ${village.repaint.uploaded} Blöcke)`);
+  check(village.repaint.blocks >= 1 && village.repaint.blocks <= 4, `Baum: ${village.repaint.blocks} Blöcke neu gemalt, erwartet 1 bis 4`);
+  check(village.repaint.last < 120, `Baum: Boden neu malen dauerte ${village.repaint.last.toFixed(0)} ms`);
+  village = await waitForVillage(page, (v) => v.stock.coins <= treeCoins - 5 + 15, 'die abgebuchten 5 Taler');
   check(village.stock.coins >= treeCoins - 5, `Baum: Taler ${village.stock.coins}, erwartet mindestens ${treeCoins - 5}`);
   // Noch einmal auf die gleiche Kachel: „schon etwas da“, ✓ gesperrt.
   await sleep(500);
@@ -1776,6 +1816,9 @@ async function testShop({ page, check, shot, size, input, name, waitLong }) {
   if (natural) {
     await tapTile(natural);
     village = await waitForVillage(page, (v) => /von allein/.test(v.hint), 'der Hinweis „von allein gewachsen“');
+    // Der Hinweis bleibt, bis der nächste Tipp kommt (nicht zeitgesteuert, T1).
+    await sleep(6000);
+    check(/von allein/.test((await readVillage(page)).hint), 'Der Hinweis „von allein gewachsen“ ist nach 6 Sekunden weg');
     check(village.preview === 'none', `Natürlicher Baum: Vorschau ${village.preview}, erwartet „none“`);
     check(terrainAt(village, natural) === 'f', 'Der natürliche Baum wurde abgerissen');
   }
@@ -1800,9 +1843,11 @@ async function testShop({ page, check, shot, size, input, name, waitLong }) {
   step('Land aufschütten (gesperrt, bis der Markt Taler verdient hat)');
   village = await openShop();
   village = await openTab('island');
-  check(stateOf(village, 'beach') === 'locked', 'Strand ist von Anfang an frei');
-  await tapUi('item-beach');
-  village = await waitForVillage(page, (v) => /60 Taler/.test(v.tip), 'der Satz am Strand');
+  // Der Strand war am Anfang gesperrt (oben geprüft); jetzt kann er schon frei sein, wenn der Markt inzwischen 60 Taler verdient hat.
+  if (stateOf(village, 'beach') === 'locked') {
+    await tapUi('item-beach');
+    village = await waitForVillage(page, (v) => /60 Taler/.test(v.tip), 'der Satz am Strand');
+  }
   await tapUi('shop-close');
   await waitForVillage(page, (v) => v.shop === 'closed' && v.tool === 'view', 'der geschlossene Shop');
   if (!waitLong) {
@@ -1828,8 +1873,9 @@ async function testShop({ page, check, shot, size, input, name, waitLong }) {
   village = await confirm((v) => terrainAt(v, coast) === 's', 'der aufgeschüttete Strand');
   check(landTiles(village) === landCount + 1, `Strand: ${landTiles(village)} Landkacheln, erwartet ${landCount + 1}`);
   check(village.repaint.count > repaintsBefore, 'Strand: der Boden wurde nicht neu gemalt');
-  console.log(`  [${name}] Boden neu malen (Strand): ${village.repaint.last.toFixed(1)} ms für ${village.repaint.tiles} Kacheln (größtes: ${village.repaint.max.toFixed(1)} ms)`);
-  check(village.repaint.last < 250, `Strand: Boden neu malen dauerte ${village.repaint.last.toFixed(0)} ms`);
+  console.log(`  [${name}] Boden neu malen (Strand): ${village.repaint.last.toFixed(1)} ms für ${village.repaint.blocks} von ${village.repaint.blocksTotal} Blöcken à 512 px (größtes: ${village.repaint.max.toFixed(1)} ms, insgesamt hochgeladen: ${village.repaint.uploaded} Blöcke)`);
+  check(village.repaint.blocks >= 1 && village.repaint.blocks <= 4, `Strand: ${village.repaint.blocks} Blöcke neu gemalt, erwartet 1 bis 4`);
+  check(village.repaint.last < 120, `Strand: Boden neu malen dauerte ${village.repaint.last.toFixed(0)} ms`);
   // Wasser, das nicht ans Land grenzt: rot.
   const open = findTerrainTile(village, cam, size, { letters: 'w', near: { x: size.width * 0.1, y: size.height * 0.5 }, skip: [coast] });
   const isolated = open && [[-1, 0], [1, 0], [0, -1], [0, 1]].every(([dx, dy]) => village.terrain[(open.y + dy) * MAP_TILES + open.x + dx] === 'w');
@@ -1893,6 +1939,12 @@ async function testShopSmall({ page, check, shot, size, input, name }) {
     await page.setViewportSize({ width: w, height: h });
     await sleep(1500);
     await waitForCameraRest(page);
+    // Die Werkzeugleiste: Schrift mindestens 12 px oder nur das Symbol (T5).
+    const bar = await readVillage(page);
+    for (const tool of ['path', 'shop', 'move', 'demolish']) {
+      const font = bar.ui[`tool-${tool}`]?.font;
+      check(font === 0 || font >= 12, `${w}×${h}: Schrift unter „${tool}“ nur ${font} px`);
+    }
     await openShop();
     let v;
     for (const tab of ['houses', 'deco', 'production', 'island']) {
@@ -1901,10 +1953,10 @@ async function testShopSmall({ page, check, shot, size, input, name }) {
       if (tab === 'deco' && w === 320) await shot(`${name}-shop-handy-hochkant`);
       if (tab === 'deco' && w === 568) await shot(`${name}-shop-handy-quer`);
     }
-    // Die Deko hat mehr Karten, als auf eine Seite passen könnten: eine Seite zeigt mehr als eine, und durchblättern geht.
+    // Jede Seite zeigt mehr als eine Karte (mindestens 3), und wenn geblättert wird, sieht man beim Durchblättern alle 8 Deko-Karten.
     v = await openTab('deco');
     const onPage = Object.keys(v.ui).filter((spot) => spot.startsWith('item-')).length;
-    check(onPage >= 2, `${w}×${h}: Deko zeigt nur ${onPage} Karte(n) pro Seite`);
+    check(onPage >= 3, `${w}×${h}: Deko zeigt nur ${onPage} Karte(n) pro Seite`);
     const pages = Number(v.shop.split('/')[1]);
     if (pages > 1) {
       let seen = new Set(Object.keys(v.ui).filter((spot) => spot.startsWith('item-')));

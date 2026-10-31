@@ -356,17 +356,30 @@ export class BuildUI {
     this.toolbarRect = shopOpen ? EMPTY : bar;
     this.toolbarPanel.setVisible(!shopOpen);
     drawPanel(this.toolbarPanel, bar);
-    TOOLS.forEach((id, index) => {
-      const row = Math.floor(index / cols);
-      const inRow = Math.min(cols, TOOLS.length - row * cols);
-      const col = index - row * cols;
-      const rowW = inRow * button + (inRow - 1) * TOOLBAR_GAP;
-      const toolButton = this.toolButtons.get(id);
-      toolButton
-        ?.setVisible(!shopOpen)
-        .layoutTo(button, button)
-        .setPosition((width - rowW) / 2 + button / 2 + col * (button + TOOLBAR_GAP), bar.y + TOOLBAR_PAD + button / 2 + row * (button + TOOLBAR_GAP));
-    });
+    const placeTools = (): void => {
+      TOOLS.forEach((id, index) => {
+        const row = Math.floor(index / cols);
+        const inRow = Math.min(cols, TOOLS.length - row * cols);
+        const col = index - row * cols;
+        const rowW = inRow * button + (inRow - 1) * TOOLBAR_GAP;
+        this.toolButtons
+          .get(id)
+          ?.setVisible(!shopOpen)
+          .layoutTo(button, button)
+          .setPosition((width - rowW) / 2 + button / 2 + col * (button + TOOLBAR_GAP), bar.y + TOOLBAR_PAD + button / 2 + row * (button + TOOLBAR_GAP));
+      });
+    };
+    for (const toolButton of this.toolButtons.values()) {
+      toolButton.setCaptionOff(false);
+    }
+    placeTools();
+    // No room for a word at 12 px or more on one button: no button shows its word (only pictures, all alike).
+    if ([...this.toolButtons.values()].some((toolButton) => toolButton.captionFont === 0)) {
+      for (const toolButton of this.toolButtons.values()) {
+        toolButton.setCaptionOff(true);
+      }
+      placeTools();
+    }
     // The star "something new in the shop" at the corner of the shop button.
     this.shopStar.setVisible(this.tool.shopHasNews).setPosition(button / 2 - 8, -button / 2 + 8);
 

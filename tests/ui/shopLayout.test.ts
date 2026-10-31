@@ -238,8 +238,12 @@ describe('Shop-Layout: Größe der Karten', () => {
         expect(a.rows, `${String(width)}×${String(height)}`).toBe(rowsNeeded);
       }
     }
-    // Auf einem großen Schirm ist das Feld nicht höher als die Karten des größten Reiters: die Hälfte des Bildschirms bleibt Insel.
+    // Auf einem großen Schirm liegen alle Karten des größten Reiters in einer Reihe: das Feld ist niedrig, der größte Teil bleibt Insel.
     const big = open(1920, 1080).shop;
-    expect(big?.rect.height).toBeLessThan(1080 / 2);
+    expect(big?.rows).toBe(1);
+    expect(big?.rect.height).toBeLessThan(1080 / 3);
+    const tablet = open(1024, 768).shop;
+    expect(tablet?.rows).toBe(1);
+    expect(tablet?.rect.height).toBeLessThan(768 / 2.5);
   });
 });

@@ -155,13 +155,13 @@ export function paintGroundBlock(ctx: CanvasRenderingContext2D, world: WorldView
 
 /**
  * The blocks that look different after the terrain of the tiles in `changed` changed: every block whose area
- * (with its bleed) meets the {@link REPAINT_REACH} tiles around the change.
+ * (with its bleed) meets the {@link PAINT_REACH_PX} pixels around the change.
  */
 export function blocksTouching(world: Pick<WorldView, 'width' | 'height'>, changed: TileRange): GroundBlock[] {
-  const x0 = (changed.x0 - REPAINT_REACH) * TILE_SIZE;
-  const y0 = (changed.y0 - REPAINT_REACH) * TILE_SIZE;
-  const x1 = (changed.x1 + 1 + REPAINT_REACH) * TILE_SIZE;
-  const y1 = (changed.y1 + 1 + REPAINT_REACH) * TILE_SIZE;
+  const x0 = changed.x0 * TILE_SIZE - PAINT_REACH_PX;
+  const y0 = changed.y0 * TILE_SIZE - PAINT_REACH_PX;
+  const x1 = (changed.x1 + 1) * TILE_SIZE + PAINT_REACH_PX;
+  const y1 = (changed.y1 + 1) * TILE_SIZE + PAINT_REACH_PX;
   return groundBlocks(world).filter((block) => {
     const area = blockArea(block);
     return area.x < x1 && x0 < area.x + area.width && area.y < y1 && y0 < area.y + area.height;

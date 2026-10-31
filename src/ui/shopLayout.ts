@@ -23,7 +23,7 @@ export const SHOP_CELL_WIDTHS = [104, 88] as const;
 export const SHOP_CELL_HEIGHTS = [120, 100, 88, 72] as const;
 /** The tabs get at most this much width each (on a tablet they would become huge). */
 const MAX_TAB_WIDTH = 150;
-const MAX_PANEL_WIDTH = 760;
+const MAX_PANEL_WIDTH = 920;
 
 export interface ShopLayoutInput {
   readonly width: number;
