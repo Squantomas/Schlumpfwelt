@@ -1554,12 +1554,32 @@ async function testEconomy({ page, check, shot, size, input, name }) {
     await sleep(400);
     const cam2 = await cameraAtRest();
     // Das Zahnrad (seit M5) und die Zoom-Knöpfe liegen über der Welt: der Tipp geht auf eine Kachel des Gartens, die frei davon ist.
-    const covered = (p) => ['menu', 'zoom-in', 'zoom-out'].some((spotName) => v.ui[spotName] && Math.hypot(p.x - v.ui[spotName].x, p.y - v.ui[spotName].y) < zr + 6);
-    const gardenSpots = [gardenTile, { x: garden.x, y: garden.y + 1 }, { x: garden.x + 1, y: garden.y }, { x: garden.x, y: garden.y }].map((tile) => screenOfTile(cam2, small, tile));
-    const gardenAt = gardenSpots.find((p) => !covered(p)) ?? gardenSpots[0];
-    check(gardenAt.x > 20 && gardenAt.x < w - 20 && gardenAt.y > stock.y + stock.h / 2 && gardenAt.y < toolbarTop, `${w}×${h}: Beerengarten liegt nicht antippbar im Bild (${gardenAt.x.toFixed(0)}, ${gardenAt.y.toFixed(0)})`);
-    await input.tap(gardenAt);
-    v = await waitForVillage(page, (state) => state.card === String(garden.id) && 'card-close' in state.ui, `die Infokarte bei ${w}×${h}`, 6000);
+    // Headless rendert nur mit etwa 8 fps und die Kamera kann nach dem Umschalten der Größe noch nachrücken: bis zu drei Versuche,
+    // jedes Mal mit frisch gemessener Kamera (ein Tipp, der danebengeht, zählt nicht als Fehler der Karte).
+    let opened = false;
+    let lastFailure = '';
+    for (let attempt = 0; attempt < 3 && !opened; attempt += 1) {
+      const camNow = attempt === 0 ? cam2 : await cameraAtRest();
+      v = await readVillage(page);
+      const covered = (p) => ['menu', 'zoom-in', 'zoom-out'].some((spotName) => v.ui[spotName] && Math.hypot(p.x - v.ui[spotName].x, p.y - v.ui[spotName].y) < zr + 6);
+      const gardenSpots = [gardenTile, { x: garden.x, y: garden.y + 1 }, { x: garden.x + 1, y: garden.y }, { x: garden.x, y: garden.y }].map((tile) => screenOfTile(camNow, small, tile));
+      const gardenAt = gardenSpots.find((p) => !covered(p)) ?? gardenSpots[0];
+      if (attempt === 0) {
+        check(gardenAt.x > 20 && gardenAt.x < w - 20 && gardenAt.y > stock.y + stock.h / 2 && gardenAt.y < toolbarTop, `${w}×${h}: Beerengarten liegt nicht antippbar im Bild (${gardenAt.x.toFixed(0)}, ${gardenAt.y.toFixed(0)})`);
+      }
+      await input.tap(gardenAt);
+      try {
+        v = await waitForVillage(page, (state) => state.card === String(garden.id) && 'card-close' in state.ui, `die Infokarte bei ${w}×${h}`, 3500);
+        opened = true;
+      } catch (error) {
+        const now = await readVillage(page);
+        await shot(`${name}-karte-fehler-${w}x${h}-${attempt}`).catch(() => {});
+        lastFailure = `${error.message} | Versuch ${attempt + 1}: Tipp bei ${gardenAt.x.toFixed(0)},${gardenAt.y.toFixed(0)}, Kandidaten ${JSON.stringify(gardenSpots.map((p) => [Math.round(p.x), Math.round(p.y)]))}, Garten ${JSON.stringify(garden)}, Kamera ${JSON.stringify(camNow)}, Schirm ${JSON.stringify(small)}, Menü ${now.menu}, Karte „${now.card}“, Hinweis „${now.hint}“, Knöpfe ${JSON.stringify({ menu: now.ui.menu, zoomIn: now.ui['zoom-in'], zoomOut: now.ui['zoom-out'], stock: now.ui.stock })}`;
+        console.log(`  [${name}] (Versuch ${attempt + 1} ohne Karte) ${lastFailure}`);
+        await sleep(700);
+      }
+    }
+    if (!opened) throw new Error(lastFailure);
     const c = v.ui.card;
     inside(c, 'Infokarte');
     check(!rectHitsCircle(c, v.ui['zoom-in'], zr) && !rectHitsCircle(c, v.ui['zoom-out'], zr), `${w}×${h}: Infokarte überdeckt einen Zoom-Knopf`);
