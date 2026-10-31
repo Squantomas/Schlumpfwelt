@@ -1,6 +1,5 @@
 import Phaser from 'phaser';
 import { CAMERA_CONFIG } from '../data/camera';
-import { t } from '../data/texts';
 import { buildingType } from '../data/buildings';
 import { buildingAt, isConnected } from '../sim/buildings';
 import { hash2 } from '../sim/random';
@@ -11,12 +10,11 @@ import { zoomLayout } from '../ui/buildLayout';
 import { growRect, tileAtWorld, visibleRect, type CameraBounds, type Point, type Rect } from '../ui/cameraMath';
 import { landRegions } from '../ui/cameraRegions';
 import { simulationDelta } from '../ui/frameTime';
-import { createLabel, setLabelSize } from '../ui/label';
 import { RoundButton } from '../ui/RoundButton';
-import { COLORS, TILE_SIZE, clamp, rgb } from '../ui/style';
+import { COLORS, TILE_SIZE, rgb } from '../ui/style';
 import { onViewportChange, type ViewSize } from '../ui/viewport';
 import { BuildUI } from './island/BuildUI';
-import { GROUND_EDGE_PX, blockArea, blockShown, blocksTouching, groundBlocks, paintGroundBlock, type GroundBlock } from './island/groundTexture';
+import { GROUND_EDGE_PX, releaseGroundBlocks, blockArea, blockShown, blocksTouching, groundBlocks, paintGroundBlock, type GroundBlock } from './island/groundTexture';
 import {
   GLINT_KEY,
   OBJECT_ORIGIN,
@@ -33,9 +31,6 @@ import { WorldCameraController } from './island/WorldCameraController';
 import { ISLAND_EVENTS, SCENES, type TileTapEvent } from './keys';
 import { markActiveScene, markCamera, markTap, markVillage } from './sceneMarker';
 
-/** How long the greeting stays fully visible, then it fades away (ms). */
-const GREETING_SHOW_MS = 3500;
-const GREETING_FADE_MS = 900;
 /** Tap ring: how long it takes to grow and fade away (ms). */
 const RING_MS = 900;
 /** The ring stays fully visible this long before it fades (ms). */
@@ -87,7 +82,6 @@ export class IslandScene extends Phaser.Scene {
   private buildTool!: BuildTool;
   private village!: VillageView;
   private buildUI!: BuildUI;
-  private greeting!: Phaser.GameObjects.Text;
   private preview: Preview = { kind: 'none' };
   private previewKey = '';
   private publishedRevision = -1;
@@ -181,11 +175,6 @@ export class IslandScene extends Phaser.Scene {
       onTap: (point, _screen, time) => this.handleTap(point, time),
     });
 
-    const greeting = createLabel(this, t('island.greeting'), 64);
-    this.greeting = greeting;
-    this.uiLayer.add(greeting);
-    this.tweens.add({ targets: greeting, alpha: 0, delay: GREETING_SHOW_MS, duration: GREETING_FADE_MS });
-
     const zoomIn = new RoundButton(this, 0, 0, {
       radius: 34, // the real size comes from `zoomLayout` in the layout callback
       icon: 'plus',
@@ -211,9 +200,6 @@ export class IslandScene extends Phaser.Scene {
     onViewportChange(this, ({ width, height }: ViewSize) => {
       this.controller.layout({ width, height });
 
-      const m = Math.min(width, height);
-      setLabelSize(greeting, clamp(m * 0.07, 26, 64), width * 0.9);
-
       // The zoom buttons sit at the top right; the bottom belongs to the toolbar.
       const zoom = zoomLayout(width, height);
       zoomIn.setRadius(zoom.radius).setPosition(zoom.zoomIn.x, zoom.zoomIn.y);
@@ -225,8 +211,6 @@ export class IslandScene extends Phaser.Scene {
           'zoom-out': { x: zoomOut.x, y: zoomOut.y, enabled: true },
         },
       );
-      // The greeting sits below the store bar.
-      greeting.setPosition(width / 2, this.buildUI.stockBottom + 12 + greeting.height / 2);
     });
 
     const fade = rgb(COLORS.waterDeep);
@@ -234,9 +218,7 @@ export class IslandScene extends Phaser.Scene {
     this.worldCamera.fadeIn(300, ...fade);
 
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
-      for (const { key } of this.groundBlocks) {
-        this.textures.remove(key);
-      }
+      this.groundBlocks = releaseGroundBlocks(this.groundBlocks, (key) => this.textures.remove(key));
     });
   }
 
@@ -280,10 +262,7 @@ export class IslandScene extends Phaser.Scene {
    */
   private buildGround(seed: number): void {
     const { world } = this.simulation.state;
-    for (const { key } of this.groundBlocks) {
-      this.textures.remove(key);
-    }
-    this.groundBlocks = [];
+    this.groundBlocks = releaseGroundBlocks(this.groundBlocks, (key) => this.textures.remove(key));
     for (const block of groundBlocks(world)) {
       const area = blockArea(block);
       const key = `ground-${String(seed)}-${String(block.bx)}-${String(block.by)}`;
@@ -508,10 +487,6 @@ export class IslandScene extends Phaser.Scene {
     // The open shop covers the screen: no zoom buttons over it.
     for (const button of this.zoomButtons) {
       button.setVisible(!this.buildUI.shopOpen);
-    }
-    // A tool is on: the greeting makes room for the hint bar.
-    if (this.buildTool.tool !== 'view') {
-      this.greeting.setVisible(false);
     }
 
     const { revision } = this.simulation.state;

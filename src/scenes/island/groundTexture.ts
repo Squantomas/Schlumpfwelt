@@ -474,3 +474,14 @@ function cornerRect(
   ctx.arcTo(x, y, x + a, y, a);
   ctx.closePath();
 }
+
+/**
+ * Removes the textures of the ground blocks and returns the empty list that replaces them: a scene that restarts (loading a
+ * game, M5) must not try to remove the same textures again ("No texture found matching key").
+ */
+export function releaseGroundBlocks<T extends { readonly key: string }>(blocks: readonly T[], remove: (key: string) => void): T[] {
+  for (const { key } of blocks) {
+    remove(key);
+  }
+  return [];
+}

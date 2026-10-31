@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  releaseGroundBlocks,
   DETAIL_REACH_PX,
   GROUND_BLEED_PX,
   GROUND_EDGE_PX,
@@ -127,8 +128,8 @@ function countingContext(): { ctx: CanvasRenderingContext2D; calls: Map<string, 
 }
 
 describe('Mal-Reichweite einer Kachel (Korrekturrunde 1, R3)', () => {
-  it('ist höchstens REPAINT_REACH Kacheln breit – und nicht kleiner als REPAINT_REACH − 1 (sonst wäre die Reichweite zu großzügig)', () => {
-    expect(PAINT_REACH_PX).toBeLessThanOrEqual(REPAINT_REACH * TILE_SIZE);
+  it('ist höchstens REPAINT_REACH Kacheln breit (abzüglich Rand und unsichtbarem Rand einer Block-Textur) – und nicht kleiner als REPAINT_REACH − 1 (sonst wäre die Reichweite zu großzügig)', () => {
+    expect(PAINT_REACH_PX).toBeLessThanOrEqual(REPAINT_REACH * TILE_SIZE - (GROUND_BLEED_PX + GROUND_EDGE_PX));
     expect(PAINT_REACH_PX).toBeGreaterThan((REPAINT_REACH - 1) * TILE_SIZE);
   });
 
@@ -243,5 +244,18 @@ describe('Boden in Blöcken (R4)', () => {
     paintGroundBlock(ctx, world, 3, block);
     expect(fills.has(cssColor(COLORS.forestFloor))).toBe(true);
     expect(fills.has(cssColor(COLORS.grass))).toBe(true);
+  });
+});
+
+describe('Szenen-Neustart (N1)', () => {
+  it('gibt die Block-Texturen genau einmal frei und liefert die leere Liste: ein zweites Freigeben (Neustart) entfernt nichts mehr', () => {
+    const removed: string[] = [];
+    let blocks = [{ key: 'a' }, { key: 'b' }, { key: 'c' }];
+    blocks = releaseGroundBlocks(blocks, (key) => removed.push(key));
+    expect(removed).toEqual(['a', 'b', 'c']);
+    expect(blocks).toEqual([]);
+    // Beim Herunterfahren und beim Neubauen wird je einmal freigegeben: kein „No texture found matching key“.
+    releaseGroundBlocks(blocks, (key) => removed.push(key));
+    expect(removed).toHaveLength(3);
   });
 });
