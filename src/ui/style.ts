@@ -73,6 +73,8 @@ export const COLORS = {
   wood: 0xb5833f,
   woodDark: 0x8a5f2b,
   woodLight: 0xd9a95d,
+  roof: 0xc4653a,
+  roofShade: 0x9c4a28,
   iron: 0x4a4f5c,
   ironLight: 0x7a8090,
   lampGlow: 0xfff2a0,

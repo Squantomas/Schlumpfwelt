@@ -6,7 +6,7 @@ import { HOUSE_PALETTES } from '../../src/ui/style';
 describe('buildings.json', () => {
   it('hat nur Typen mit bekannter Kategorie, Größe und Optik', () => {
     for (const type of BUILDING_TYPES) {
-      expect(['path', 'house', 'deco'], type.id).toContain(type.category);
+      expect(['path', 'house', 'deco', 'production'], type.id).toContain(type.category);
       expect(Number.isInteger(type.footprint.w) && type.footprint.w >= 1, type.id).toBe(true);
       expect(Number.isInteger(type.footprint.h) && type.footprint.h >= 1, type.id).toBe(true);
       expect(type.terrains.length, type.id).toBeGreaterThan(0);

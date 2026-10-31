@@ -7,7 +7,9 @@
  * commands (see `commands.ts`).
  */
 import { addBuilding, addPaths, lineTiles, type PlacedBuilding } from './buildings';
+import { createStartInventory, type Inventory, type ProducerState } from './economy';
 import { generateIsland } from './islandGen';
+import { refreshStatuses } from './production';
 import { normalizeSeed } from './random';
 import type { World } from './world';
 
@@ -20,12 +22,16 @@ export interface SimState {
   tick: number;
   /** While paused, time stands still: commands are applied, nothing else happens. */
   paused: boolean;
-  /** Houses and decoration (no paths). */
+  /** Houses, decoration and production buildings (no paths). */
   buildings: PlacedBuilding[];
   /** Id for the next building; ids are never reused. */
   nextBuildingId: number;
   /** Tiles with a path as tile indices (`y * width + x`), ascending and without duplicates. */
   paths: number[];
+  /** The store: coins and goods by id, whole numbers (see `economy.ts`). */
+  inventory: Inventory;
+  /** The working state of every production building, in the order they were built. */
+  production: ProducerState[];
   /**
    * Counts every change of buildings or paths. Scenes compare it with the
    * value they last drew and only redraw when it differs.
@@ -47,6 +53,8 @@ export function createInitialState(seed: number = DEFAULT_SEED): SimState {
     buildings: [],
     nextBuildingId: 1,
     paths: [],
+    inventory: createStartInventory(),
+    production: [],
     revision: 0,
   };
   buildStartVillage(state);
@@ -54,19 +62,26 @@ export function createInitialState(seed: number = DEFAULT_SEED): SimState {
 }
 
 /**
- * A small start: one house with a path and a few flowers in the middle of the
- * island (the generator keeps it clear and grassy), so a child sees at once
- * what the game is about. Everything can be moved or demolished for free.
+ * A small start in the middle of the island (the generator keeps it clear and
+ * grassy): a house, a berry garden and a market, all along one path, plus a
+ * few flowers – so a child sees at once what the game is about, and the
+ * berries only need a bakery to turn into coins. Everything can be moved or
+ * demolished for free (demolishing gives the cost back). The start village
+ * is part of the initial state: it costs nothing and does not count as a
+ * change (`revision` stays 0).
  */
 function buildStartVillage(state: SimState): void {
   const cx = Math.floor(state.world.width / 2);
   const cy = Math.floor(state.world.height / 2);
-  addBuilding(state, 'house-red', cx - 3, cy - 3);
+  addBuilding(state, 'house-red', cx - 3, cy - 3, false);
   // Along the front of the house, then down to the south east.
   addPaths(state, lineTiles({ x: cx - 3, y: cy - 1 }, { x: cx + 2, y: cy + 2 }));
-  addBuilding(state, 'flower', cx - 4, cy - 1);
-  addBuilding(state, 'bush', cx - 1, cy - 3);
-  addBuilding(state, 'flower', cx + 3, cy + 2);
-  // The start village is part of the initial state, not a change made by someone.
+  // Below the path: the berry garden left, the market right of it, both touching the path.
+  addBuilding(state, 'berry-garden', cx - 3, cy, false);
+  addBuilding(state, 'market', cx - 1, cy, false);
+  addBuilding(state, 'flower', cx - 4, cy - 1, false);
+  addBuilding(state, 'bush', cx - 1, cy - 3, false);
+  addBuilding(state, 'flower', cx + 3, cy + 2, false);
+  refreshStatuses(state);
   state.revision = 0;
 }

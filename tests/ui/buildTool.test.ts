@@ -47,7 +47,7 @@ describe('Werkzeuge', () => {
   });
 
   it('ordnet Werkzeuge ihren Kategorien zu (datengetrieben)', () => {
-    expect(TOOL_CATEGORIES).toEqual({ house: 'house', deco: 'deco' });
+    expect(TOOL_CATEGORIES).toEqual({ house: 'house', building: 'production', deco: 'deco' });
     const { tool } = setup();
     for (const id of TOOLS) {
       tool.selectTool(id);
@@ -420,6 +420,7 @@ describe('Abreißen', () => {
     expect(tool.preview()).toEqual({
       kind: 'demolish',
       tiles: [{ x: 3, y: 3 }, { x: 4, y: 3 }, { x: 3, y: 4 }, { x: 4, y: 4 }],
+      refund: { coins: 40, stone: 5 },
     });
   });
 
@@ -435,7 +436,7 @@ describe('Abreißen', () => {
   it('reißt genau eine Weg-Kachel ab', () => {
     const { state, tool } = withVillage();
     tool.tap({ x: 8, y: 8 });
-    expect(tool.preview()).toEqual({ kind: 'demolish', tiles: [{ x: 8, y: 8 }] });
+    expect(tool.preview()).toEqual({ kind: 'demolish', tiles: [{ x: 8, y: 8 }], refund: {} });
     tool.confirm();
     expect(pathAt(state, 8, 8)).toBe(false);
     expect(pathAt(state, 9, 8)).toBe(true);
@@ -445,7 +446,7 @@ describe('Abreißen', () => {
     const { tool } = withVillage();
     tool.tap({ x: 4, y: 4 });
     tool.tap({ x: 9, y: 8 });
-    expect(tool.preview()).toEqual({ kind: 'demolish', tiles: [{ x: 9, y: 8 }] });
+    expect(tool.preview()).toEqual({ kind: 'demolish', tiles: [{ x: 9, y: 8 }], refund: {} });
   });
 
   it('erklärt, wenn nichts da ist, und räumt die Markierung weg', () => {
@@ -503,7 +504,7 @@ describe('Tipp aufs Dach (Regression)', () => {
     const { state, tool } = withRoofPath();
     tool.selectTool('demolish');
     tool.tap(roofOverPath.tile, roofOverPath.world);
-    expect(tool.preview()).toEqual({ kind: 'demolish', tiles: [{ x: 5, y: 4 }] });
+    expect(tool.preview()).toEqual({ kind: 'demolish', tiles: [{ x: 5, y: 4 }], refund: {} });
     tool.confirm();
     expect(pathAt(state, 5, 4)).toBe(false);
     expect(state.buildings).toHaveLength(1);
@@ -560,7 +561,7 @@ describe('Tipp aufs Dach (Regression)', () => {
     const { tool } = withRoofPath();
     tool.selectTool('demolish');
     tool.tap({ x: 5, y: 4 });
-    expect(tool.preview()).toEqual({ kind: 'demolish', tiles: [{ x: 5, y: 4 }] });
+    expect(tool.preview()).toEqual({ kind: 'demolish', tiles: [{ x: 5, y: 4 }], refund: {} });
   });
 
   it('baut beim Platzieren weiter nach der Kachel, nicht nach der Grafik eines Hauses', () => {

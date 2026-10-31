@@ -7,7 +7,7 @@ import { format, placeholdersOf, t, themeValues, type TextKey } from '../../src/
  * Placeholders that are filled at runtime via `t(key, params)` instead of the
  * theme. Add new names here when a text needs one (e.g. `count`).
  */
-const RUNTIME_PLACEHOLDERS = new Set<string>([]);
+const RUNTIME_PLACEHOLDERS = new Set<string>(['count', 'name', 'list']);
 
 const keys = Object.keys(texts) as TextKey[];
 

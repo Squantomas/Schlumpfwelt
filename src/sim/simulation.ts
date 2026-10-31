@@ -1,6 +1,7 @@
 import { FixedStepClock } from './clock';
 import { applyCommand, type Command } from './commands';
 import type { DeepReadonly } from './readonly';
+import { tickProduction } from './production';
 import { createInitialState, type SimState } from './state';
 
 /**
@@ -72,5 +73,6 @@ export class Simulation {
       return;
     }
     this.current.tick += 1;
+    tickProduction(this.current);
   }
 }
