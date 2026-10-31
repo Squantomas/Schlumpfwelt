@@ -43,3 +43,11 @@ export class MessageBoard {
     return this.explanation !== undefined;
   }
 }
+
+/**
+ * Does the hint bar show news right now? Not while a preview is on (its own hint matters more), not while the shop is open
+ * and not while an info card is open (both cover or replace the hint bar). Only where this is true may the news clock run.
+ */
+export function newsVisible(situation: { readonly hasPreview: boolean; readonly shopOpen: boolean; readonly inspectedId: number | undefined }): boolean {
+  return !situation.hasPreview && !situation.shopOpen && situation.inspectedId === undefined;
+}

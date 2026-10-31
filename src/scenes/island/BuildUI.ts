@@ -9,7 +9,7 @@ import { CANCEL_DIAMETER, CONFIRM_DIAMETER } from '../../ui/confirmLayout';
 import { createLabel, setLabelSize } from '../../ui/label';
 import { cardStatus, productionInfo } from '../../ui/productionInfo';
 import { RoundButton } from '../../ui/RoundButton';
-import { MessageBoard } from '../../ui/messageBoard';
+import { MessageBoard, newsVisible } from '../../ui/messageBoard';
 import { newItemsText } from '../../ui/shopModel';
 import { SquareButton } from '../../ui/SquareButton';
 import { worldTapIgnored } from '../../ui/tapPause';
@@ -456,12 +456,17 @@ export class BuildUI {
     if (this.tool.inspectedId !== undefined) {
       return this.cardFallback;
     }
-    const message = this.board.current(this.scene.time.now, !this.tool.hasPreview);
+    const message = this.board.current(this.scene.time.now, this.newsAllowed());
     if (message !== undefined) {
       return message;
     }
     const hint = this.tool.hint;
     return hint ? t(hint, this.tool.hintParams) : undefined;
+  }
+
+  /** May news ("Neu im Shop") be shown now? Only where the hint bar really shows it – otherwise its 7 seconds would run out unseen. */
+  private newsAllowed(): boolean {
+    return newsVisible({ hasPreview: this.tool.hasPreview, shopOpen: this.tool.shopOpen, inspectedId: this.tool.inspectedId });
   }
 
   /** Brings the buttons in line with the tool state (highlight, shop, hint, ✓ / ✕). */
@@ -508,7 +513,7 @@ export class BuildUI {
     this.tool.sync();
     const state = this.getState();
     // News runs out by itself: redraw the hint bar when what it shows changes (then a standing explanation is back).
-    const message = this.board.current(this.scene.time.now, !this.tool.hasPreview);
+    const message = this.board.current(this.scene.time.now, this.newsAllowed());
     const expired = message !== this.lastMessage;
     this.lastMessage = message;
     // Something was unlocked: a friendly message (and the star on the shop button, which `refresh` redraws).

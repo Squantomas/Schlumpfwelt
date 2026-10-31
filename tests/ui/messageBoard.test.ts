@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { MessageBoard } from '../../src/ui/messageBoard';
+import { MessageBoard, newsVisible } from '../../src/ui/messageBoard';
 
 describe('MessageBoard: Erklärung und Neuigkeit (N3)', () => {
   it('zeigt eine Erklärung, bis sie gelöscht wird – ohne Zeitablauf', () => {
@@ -61,5 +61,26 @@ describe('MessageBoard: Erklärung und Neuigkeit (N3)', () => {
     expect(board.current(20_500, true)).toBe('Neu im Shop: Strand!');
     expect(board.current(27_000, true)).toBe('Neu im Shop: Strand!');
     expect(board.current(27_500, true)).toBeUndefined();
+  });
+});
+
+describe('Neuigkeit nur, wo die Hinweisleiste sie zeigt (Nacharbeit #17)', () => {
+  it('erlaubt sie nur ohne Vorschau, ohne offenen Shop und ohne Infokarte', () => {
+    expect(newsVisible({ hasPreview: false, shopOpen: false, inspectedId: undefined })).toBe(true);
+    expect(newsVisible({ hasPreview: true, shopOpen: false, inspectedId: undefined })).toBe(false);
+    expect(newsVisible({ hasPreview: false, shopOpen: true, inspectedId: undefined })).toBe(false);
+    expect(newsVisible({ hasPreview: false, shopOpen: false, inspectedId: 3 })).toBe(false);
+  });
+
+  it('startet die Uhr nicht, solange die Neuigkeit zurückgehalten wird, und zeigt sie danach volle 7 s', () => {
+    const board = new MessageBoard();
+    board.announce('Neu im Shop: Bank!', 7000);
+    // Shop (or card) open for a long time: asked every frame with withNews = false.
+    for (let now = 0; now < 60_000; now += 1000) {
+      expect(board.current(now, newsVisible({ hasPreview: false, shopOpen: true, inspectedId: undefined }))).toBeUndefined();
+    }
+    expect(board.current(60_000, newsVisible({ hasPreview: false, shopOpen: false, inspectedId: undefined }))).toBe('Neu im Shop: Bank!');
+    expect(board.current(66_999)).toBe('Neu im Shop: Bank!');
+    expect(board.current(67_000)).toBeUndefined();
   });
 });
