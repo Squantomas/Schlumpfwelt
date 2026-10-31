@@ -275,7 +275,7 @@ async function checkCorners({ page, check, shot, size, dragBy, name }) {
   const toCorner = async (fx, fy, label) => {
     let previous = await readCamera(page);
     for (let i = 0; i < 12; i += 1) {
-      await dragBy(fx * size.width * 0.8, fy * size.height * 0.8);
+      await dragBy(fx * size.width * 0.8, fy * size.height * 0.7);
       const current = await waitForCameraRest(page);
       checkInsideBounds(current, size, check, `Ecke ${label}`);
       if (Math.abs(current.x - previous.x) < 0.2 && Math.abs(current.y - previous.y) < 0.2) return current;
@@ -370,11 +370,11 @@ async function testTouchCamera({ page, context, check, shot, size }) {
   const stillLeft = await waitForCameraRest(page);
   check(Math.abs(stillLeft.x - left.x) < 0.3, `Grenze links: weiteres Ziehen verschob die Kamera (${left.x} → ${stillLeft.x})`);
   await shot('tablet-grenze'); // linker Rand: Insel rechts, Wasser links
-  const top = await reachEdge(0, size.height * 0.9, 'y', 'oben');
+  const top = await reachEdge(0, size.height * 0.7, 'y', 'oben');
   check(top.y < near.y - 100, `Grenze oben: Kamera y=${top.y} nicht über ${near.y}`);
   const right = await reachEdge(-size.width * 0.9, 0, 'x', 'rechts');
   check(right.x > left.x + 500, `Grenze rechts: Kamera x=${right.x} nicht rechts von ${left.x}`);
-  const bottom = await reachEdge(0, -size.height * 0.9, 'y', 'unten');
+  const bottom = await reachEdge(0, -size.height * 0.7, 'y', 'unten');
   check(bottom.y > top.y + 500, `Grenze unten: Kamera y=${bottom.y} nicht unter ${top.y}`);
 
   // --- Maximalzoom: in alle Ecken ziehen, es bleibt Land im Bild ---
@@ -541,11 +541,11 @@ async function testMouseCamera({ page, check, shot, size }) {
   const left = await reachEdge(size.width * 0.8, 0, 'x', 'links');
   check(left.x < near.x - 100, `Grenze links: Kamera x=${left.x} nicht links von ${near.x}`);
   await shot('desktop-grenze'); // linker Rand: Insel rechts, Wasser links
-  const top = await reachEdge(0, size.height * 0.8, 'y', 'oben');
+  const top = await reachEdge(0, size.height * 0.7, 'y', 'oben');
   check(top.y < near.y - 100, `Grenze oben: Kamera y=${top.y} nicht über ${near.y}`);
   const right = await reachEdge(-size.width * 0.8, 0, 'x', 'rechts');
   check(right.x > left.x + 500, `Grenze rechts: Kamera x=${right.x} nicht rechts von ${left.x}`);
-  const bottom = await reachEdge(0, -size.height * 0.8, 'y', 'unten');
+  const bottom = await reachEdge(0, -size.height * 0.7, 'y', 'unten');
   check(bottom.y > top.y + 500, `Grenze unten: Kamera y=${bottom.y} nicht unter ${top.y}`);
 
   // --- Maximalzoom: in alle Ecken ziehen, es bleibt Land im Bild ---
