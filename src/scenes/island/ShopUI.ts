@@ -4,7 +4,7 @@ import { t } from '../../data/texts';
 import type { Rect } from '../../ui/cameraMath';
 import { createLabel, setLabelSize } from '../../ui/label';
 import { RoundButton } from '../../ui/RoundButton';
-import { progressText, shopCards, unlockIcon, unlockSentenceText, type ShopCard, type ShopView } from '../../ui/shopModel';
+import { progressText, shopCards, unlockIcons, unlockSentenceText, type ShopCard, type ShopView } from '../../ui/shopModel';
 import { SHOP_ARROW, shopCellRects, shopPages, type ShopLayout } from '../../ui/shopLayout';
 import { SquareButton } from '../../ui/SquareButton';
 import { COLORS, clamp } from '../../ui/style';
@@ -13,28 +13,29 @@ import { buildingTextureKey } from './buildingTextures';
 import { CostRow } from './CostRow';
 import { goodTextureKey } from './goodTextures';
 
-/** How long the sentence on a tapped locked card stays (ms). */
-const TIP_MS = 3400;
-
 /** The foot of a card: what it costs, or – on a locked card – what the village still has to build or earn. */
 class CardFooter extends Phaser.GameObjects.Container {
   private readonly cost: CostRow;
-  private readonly icon: Phaser.GameObjects.Image;
+  /** The pictures of the condition (a building; for money the market and a coin: "earn it at the market"). */
+  private readonly icons: Phaser.GameObjects.Image[];
   private readonly progress: Phaser.GameObjects.Text;
   private footerH = 1;
+  private footerW = 1;
   private locked = false;
+  private shownIcons = 0;
 
   constructor(scene: Phaser.Scene) {
     super(scene, 0, 0);
     this.cost = new CostRow(scene);
-    this.icon = scene.add.image(0, 0, goodTextureKey('coins')).setVisible(false);
+    this.icons = [0, 1].map(() => scene.add.image(0, 0, goodTextureKey('coins')).setVisible(false));
     this.progress = createLabel(scene, '', 14).setVisible(false);
-    this.add([this.cost, this.icon, this.progress]);
+    this.add([this.cost, ...this.icons, this.progress]);
     scene.add.existing(this);
   }
 
   layoutTo(width: number, height: number): this {
     this.footerH = height;
+    this.footerW = width;
     this.cost.layoutTo(width, height);
     this.placeLock();
     return this;
@@ -43,11 +44,13 @@ class CardFooter extends Phaser.GameObjects.Container {
   showCost(card: ShopCard): void {
     this.locked = false;
     this.cost.setVisible(true).setCost(card.cost, card.missing);
-    this.icon.setVisible(false);
+    for (const icon of this.icons) {
+      icon.setVisible(false);
+    }
     this.progress.setVisible(false);
   }
 
-  /** The requirement as a picture and "0/1" (a lock sits on the picture of the card). */
+  /** The requirement as pictures and "0/1" (a lock sits on the picture of the card). */
   showLock(card: ShopCard): void {
     const lock = card.lock;
     if (!lock) {
@@ -55,27 +58,41 @@ class CardFooter extends Phaser.GameObjects.Container {
     }
     this.locked = true;
     this.cost.setVisible(false);
-    const what = unlockIcon(lock.unlock);
-    const key = what.kind === 'coins' ? goodTextureKey('coins') : buildingTextureKey(what.id);
-    this.icon.setTexture(key).setVisible(true);
+    const pictures = unlockIcons(lock.unlock);
+    this.shownIcons = pictures.length;
+    this.icons.forEach((icon, index) => {
+      const what = pictures[index];
+      icon.setVisible(what !== undefined);
+      if (what) {
+        icon.setTexture(what.kind === 'coins' ? goodTextureKey('coins') : buildingTextureKey(what.id));
+      }
+    });
     this.progress.setText(progressText(lock.progress)).setVisible(true);
     this.placeLock();
   }
 
+  /** Pictures and number in one row, as big as the foot allows; the pictures give way first, the number stays at 13 px or more. */
   private placeLock(): void {
     if (!this.locked) {
       return;
     }
-    const size = Math.min(this.footerH * 1.05, 30);
-    const picture = this.icon;
-    const scale = Math.min(size / picture.width, size / picture.height);
-    picture.setScale(scale);
-    const shown = picture.width * scale;
-    setLabelSize(this.progress, clamp(this.footerH * 0.8, 13, 17));
-    const total = shown + 4 + this.progress.width;
-    const left = -total / 2;
-    picture.setPosition(left + shown / 2, 0);
-    this.progress.setPosition(left + shown + 4 + this.progress.width / 2, 0);
+    const fontSize = clamp(this.footerH * 0.8, 13, 17);
+    setLabelSize(this.progress, fontSize);
+    const gap = 3;
+    let size = Math.min(this.footerH * 1.05, 30);
+    const shownIcons = this.icons.slice(0, this.shownIcons);
+    const widthOf = (icon: Phaser.GameObjects.Image, edge: number): number => icon.width * Math.min(edge / icon.width, edge / icon.height);
+    const total = (): number => shownIcons.reduce((sum, icon) => sum + widthOf(icon, size) + gap, 0) + this.progress.width;
+    while (total() > this.footerW - 2 && size > 14) {
+      size -= 1;
+    }
+    let left = -total() / 2;
+    for (const icon of shownIcons) {
+      const scale = Math.min(size / icon.width, size / icon.height);
+      icon.setScale(scale).setPosition(left + (icon.width * scale) / 2, 0);
+      left += icon.width * scale + gap;
+    }
+    this.progress.setPosition(left + this.progress.width / 2, 0);
   }
 }
 
@@ -106,6 +123,8 @@ export interface ShopSpot {
   readonly state?: string;
   readonly fresh?: boolean;
   readonly active?: boolean;
+  /** Tabs: the size of the word under the picture (0: only the picture). */
+  readonly font?: number;
 }
 
 /**
@@ -127,13 +146,14 @@ export class ShopUI {
   private readonly tipLabel: Phaser.GameObjects.Text;
   private readonly tabStars = new Map<ShopCategory, Phaser.GameObjects.Graphics>();
   private layoutData: ShopLayout | undefined;
-  private tip: { until: number; rect: Rect; text: string } | undefined;
+  /** The sentence of the locked card that was tapped last; it stays until something else is tapped. */
+  private tip = '';
   private activeTab: ShopCategory = SHOP_CATEGORIES[0];
   /** What is on the page right now (cards with their rectangles). */
   private shown: { cards: { card: ShopCard; rect: Rect | undefined }[]; page: number; pages: number } = { cards: [], page: 0, pages: 1 };
 
   constructor(
-    private readonly scene: Phaser.Scene,
+    scene: Phaser.Scene,
     uiLayer: Phaser.GameObjects.Layer,
     private readonly handlers: ShopUiHandlers,
   ) {
@@ -143,6 +163,7 @@ export class ShopUI {
     for (const category of SHOP_CATEGORIES) {
       const tab = new SquareButton(scene, {
         label: t(`shop.${category}`),
+        minCaptionFont: 12,
         content: scene.add.graphics(),
         fitContent: (content, width, height) => {
           drawCategoryIcon(content as Phaser.GameObjects.Graphics, category, Math.min(width, height));
@@ -250,7 +271,7 @@ export class ShopUI {
     this.prevButton.setVisible(false);
     this.nextButton.setVisible(false);
     if (!layout) {
-      this.tip = undefined;
+      this.tip = '';
       this.tipPanel.setVisible(false);
       this.tipLabel.setVisible(false);
       return;
@@ -289,6 +310,7 @@ export class ShopUI {
       this.nextButton.setVisible(true).setPosition(layout.next.x + layout.next.width / 2, layout.next.y + layout.next.height / 2).setDimmed(current >= pages - 1);
     }
     this.shown = { cards: onPage.map((card, index) => ({ card, rect: rects[index] })), page: current, pages };
+    this.drawLine();
   }
 
   get pageInfo(): { page: number; pages: number } {
@@ -320,57 +342,52 @@ export class ShopUI {
 
   private onCardTap(typeId: string): void {
     const card = this.shown.cards.find((entry) => entry.card.typeId === typeId);
-    if (card?.card.state === 'locked' && card.card.lock && card.rect) {
-      // A locked card: say what to do, in one sentence over the card (it does not choose anything).
-      this.say(unlockSentenceText(card.card.lock.unlock), card.rect);
+    if (card?.card.state === 'locked' && card.card.lock) {
+      // A locked card: say what to do, in the fixed line at the bottom of the panel (it does not choose anything).
+      this.tip = unlockSentenceText(card.card.lock.unlock);
+      this.drawLine();
       return;
     }
     this.handlers.onPick(typeId);
   }
 
-  /** A short sentence in a bubble at the foot of a card. */
-  private say(text: string, near: Rect): void {
+  /** Empties the line at the bottom: something else was tapped. */
+  clearTip(): void {
+    if (this.tip !== '') {
+      this.tip = '';
+      this.drawLine();
+    }
+  }
+
+  /** The fixed line at the bottom of the panel: a slot that holds the sentence of a locked card, as big as it fits. */
+  private drawLine(): void {
     const layout = this.layoutData;
+    this.tipPanel.clear().setVisible(layout !== undefined);
+    this.tipLabel.setVisible(layout !== undefined && this.tip !== '');
     if (!layout) {
       return;
     }
-    const maxW = Math.min(layout.rect.width - 24, 420);
-    setLabelSize(this.tipLabel.setWordWrapWidth(maxW - 24).setText(text), 18, maxW - 24);
-    const w = Math.min(maxW, this.tipLabel.width + 28);
-    const h = this.tipLabel.height + 18;
-    const x = clamp(near.x + near.width / 2 - w / 2, layout.rect.x + 8, layout.rect.x + layout.rect.width - w - 8);
-    // Below the card or above it, whichever has more room inside the panel; the tabs stay free as long as there is room below.
-    const roomAbove = near.y - (layout.grid.y - 4);
-    const roomBelow = layout.rect.y + layout.rect.height - (near.y + near.height);
-    const y = clamp(roomBelow >= h + 4 || roomBelow >= roomAbove ? near.y + near.height + 2 : near.y - h - 2, layout.grid.y - 4, layout.rect.y + layout.rect.height - h - 4);
-    this.tip = { until: this.scene.time.now + TIP_MS, rect: { x, y, width: w, height: h }, text };
-    this.drawTip();
-  }
-
-  private drawTip(): void {
-    const tip = this.tip;
-    this.tipPanel.clear().setVisible(tip !== undefined);
-    this.tipLabel.setVisible(tip !== undefined);
-    if (!tip) {
-      return;
-    }
-    const { x, y, width, height } = tip.rect;
-    this.tipPanel.fillStyle(COLORS.cardFace, 0.98).fillRoundedRect(x, y, width, height, 16);
-    this.tipPanel.lineStyle(3, COLORS.markerRim, 1).strokeRoundedRect(x, y, width, height, 16);
-    this.tipLabel.setPosition(x + width / 2, y + height / 2);
-  }
-
-  /** Once per frame: lets the sentence run out. */
-  update(): void {
-    if (this.tip && this.scene.time.now >= this.tip.until) {
-      this.tip = undefined;
-      this.drawTip();
+    const { x, y, width, height } = layout.line;
+    const filled = this.tip !== '';
+    this.tipPanel.fillStyle(filled ? COLORS.cardFace : COLORS.black, filled ? 0.98 : 0.12).fillRoundedRect(x, y, width, height, Math.min(16, height / 2));
+    if (filled) {
+      this.tipPanel.lineStyle(3, COLORS.markerRim, 1).strokeRoundedRect(x, y, width, height, Math.min(16, height / 2));
+      // As big as fits (two lines at most in the slot), never under 11 px.
+      const maxW = width - 20;
+      let size = clamp(height * 0.42, 12, 20);
+      this.tipLabel.setWordWrapWidth(maxW).setText(this.tip);
+      setLabelSize(this.tipLabel, size, maxW);
+      while (this.tipLabel.height > height - 6 && size > 11) {
+        size -= 1;
+        setLabelSize(this.tipLabel, size, maxW);
+      }
+      this.tipLabel.setPosition(x + width / 2, y + height / 2);
     }
   }
 
-  /** The sentence that is shown on a locked card now (for tests). */
+  /** The sentence that is shown in the line now (for tests). */
   get shownTip(): string {
-    return this.tip?.text ?? '';
+    return this.tip;
   }
 
   /** Where the controls are (CSS px), for the test marker. */
@@ -382,10 +399,11 @@ export class ShopUI {
     }
     const center = (rect: Rect): { x: number; y: number; w: number; h: number } => ({ x: rect.x + rect.width / 2, y: rect.y + rect.height / 2, w: rect.width, h: rect.height });
     spots['shop'] = center(layout.rect);
+    spots['shop-line'] = center(layout.line);
     SHOP_CATEGORIES.forEach((category, index) => {
       const rect = layout.tabs[index];
       if (rect) {
-        spots[`tab-${category}`] = { ...center(rect), active: category === this.activeTab };
+        spots[`tab-${category}`] = { ...center(rect), active: category === this.activeTab, font: this.tabs.get(category)?.captionFont ?? 0 };
       }
     });
     spots['shop-close'] = center(layout.close);

@@ -22,10 +22,8 @@ import { InfoCard } from './InfoCard';
 import { ShopUI } from './ShopUI';
 import { StockBar } from './StockBar';
 
-/** How long a short explanation ("Hier geht das nicht.") stays. */
-const NOTICE_MS = 2800;
-/** The message "Neu im Shop: …" stays a little longer (a child has to read it). */
-const NEWS_MS = 5000;
+/** The message "Neu im Shop: …" stays a good while (a child has to read it): at least 6 seconds. */
+const NEWS_MS = 7000;
 
 export interface UiSpot {
   readonly x: number;
@@ -42,7 +40,12 @@ export interface UiSpot {
   readonly active?: boolean;
   /** The shop button shows the star "something new". */
   readonly badge?: boolean;
+  /** Toolbar buttons and shop tabs: the size of the word under the picture (0: only the picture). */
+  readonly font?: number;
 }
+
+/** The words under the toolbar buttons and the shop tabs are at least this big (CSS px), else only the picture stays. */
+const MIN_LABEL_FONT = 12;
 
 const EMPTY: Rect = { x: 0, y: 0, width: 0, height: 0 };
 
@@ -86,6 +89,7 @@ export class BuildUI {
   private toolbarRect: Rect = EMPTY;
   private chipRect: Rect = EMPTY;
   private shopPage = 0;
+  private lastTool: ToolId = 'view';
   private hintAtBottom = false;
   private lastUiTap = Number.NEGATIVE_INFINITY;
   /** The text of the hint bar as last set (the hint is only worked out when something changed). */
@@ -135,6 +139,7 @@ export class BuildUI {
     for (const id of TOOLS) {
       const button = new SquareButton(scene, {
         label: t(`tool.${id}`),
+        minCaptionFont: MIN_LABEL_FONT,
         content: scene.add.graphics(),
         fitContent: (content, width, height) => {
           drawToolIcon(content as Phaser.GameObjects.Graphics, id, Math.min(width, height));
@@ -156,15 +161,18 @@ export class BuildUI {
         this.touched(time);
       },
       onTab: (category) => {
+        this.shop.clearTip();
         this.tool.setShopTab(category);
         this.shopPage = 0;
         this.refresh();
       },
       onClose: () => {
+        this.shop.clearTip();
         this.tool.closeShop();
         this.refresh();
       },
       onPick: (typeId) => {
+        this.shop.clearTip();
         const notice = this.tool.chooseItem(typeId);
         if (notice) {
           this.showNotice(notice);
@@ -175,6 +183,7 @@ export class BuildUI {
         this.refresh();
       },
       onPage: (step) => {
+        this.shop.clearTip();
         this.shopPage += step;
         this.refresh();
       },
@@ -253,9 +262,20 @@ export class BuildUI {
     return worldTapIgnored(eventTime, this.lastUiTap);
   }
 
-  /** Short explanation for the child ("Dieses Haus braucht einen Weg."). */
+  /**
+   * Short explanation for the child ("Dieses Haus braucht einen Weg."). It stays until the child taps something else
+   * (a tap on the world, another tool, ✓ or ✕) – a slow reader gets all the time, nothing runs out by the clock.
+   */
   showNotice(key: TextKey, params?: TextParams): void {
-    this.showText(t(key, params), NOTICE_MS);
+    this.showText(t(key, params), Number.POSITIVE_INFINITY);
+  }
+
+  /** The next tap of the child: an old explanation goes away. */
+  clearNotice(): void {
+    if (this.notice !== undefined) {
+      this.notice = undefined;
+      this.seenVersion = -1;
+    }
   }
 
   private showText(text: string, durationMs: number): void {
@@ -436,6 +456,11 @@ export class BuildUI {
 
   /** Brings the buttons in line with the tool state (highlight, shop, hint, ✓ / ✕). */
   private refresh(): void {
+    // An explanation about the last tool does not belong to the next one.
+    if (this.tool.tool !== this.lastTool) {
+      this.lastTool = this.tool.tool;
+      this.notice = undefined;
+    }
     for (const [id, button] of this.toolButtons) {
       // The shop button stays lit while an item from the shop is being placed.
       button.setHighlighted(this.tool.tool === id || (id === 'shop' && this.tool.tool === 'place'));
@@ -486,7 +511,6 @@ export class BuildUI {
     if (expired || news.length > 0 || this.seenVersion !== this.tool.version || (stockChanged && this.tool.shopOpen)) {
       this.refresh();
     }
-    this.shop.update();
     // The card follows the simulation, which changes once per tick.
     const inspected = this.tool.inspectedId;
     if (inspected !== undefined && this.cardTick !== state.tick) {
@@ -509,14 +533,14 @@ export class BuildUI {
       const spots: Record<string, UiSpot> = { ...this.zoomSpots };
       if (!this.shop.isOpen) {
         for (const [id, button] of this.toolButtons) {
-          spots[`tool-${id}`] = { x: button.x, y: button.y, enabled: true, ...(id === 'shop' ? { badge: this.tool.shopHasNews } : {}) };
+          spots[`tool-${id}`] = { x: button.x, y: button.y, enabled: true, font: button.captionFont, ...(id === 'shop' ? { badge: this.tool.shopHasNews } : {}) };
         }
       } else {
         delete spots['zoom-in'];
         delete spots['zoom-out'];
       }
       for (const [name, spot] of Object.entries(this.shop.spots(this.tool.item))) {
-        spots[name] = { x: spot.x, y: spot.y, enabled: true, w: spot.w, h: spot.h, ...(spot.state !== undefined ? { state: spot.state, dim: spot.state !== 'ok' } : {}), ...(spot.fresh !== undefined ? { fresh: spot.fresh } : {}), ...(spot.active !== undefined ? { active: spot.active } : {}) };
+        spots[name] = { x: spot.x, y: spot.y, enabled: true, w: spot.w, h: spot.h, ...(spot.state !== undefined ? { state: spot.state, dim: spot.state !== 'ok' } : {}), ...(spot.fresh !== undefined ? { fresh: spot.fresh } : {}), ...(spot.active !== undefined ? { active: spot.active } : {}), ...(spot.font !== undefined ? { font: spot.font } : {}) };
       }
       const stockRect = this.stock.rect;
       spots['stock'] = { x: stockRect.x + stockRect.width / 2, y: stockRect.y + stockRect.height / 2, enabled: true, w: stockRect.width, h: stockRect.height };

@@ -2,16 +2,21 @@ import type { Rect } from './cameraMath';
 
 /**
  * Where everything of the shop goes, as pure maths (CSS px): a panel under the
- * store bar with the four tabs and the big ✕ in a row on top and the grid of
- * item cards below. The cards are as big as the screen allows – bigger cards
- * are tried first; only if even the smallest do not fit, the grid turns pages
- * with big arrows. Tested on all screen sizes for overlaps and the screen edge.
+ * store bar with the four tabs and the big ✕ in a row on top, the grid of item
+ * cards below and a fixed line at the bottom for the sentence of a locked
+ * card (it stays until something else is tapped). The cards are as big as the
+ * screen allows – bigger cards are tried first; only if even the smallest do
+ * not all fit, the grid turns pages (the same grid with several rows, narrow
+ * and low cards allowed), with the two big arrows left and right of the line.
+ * Tested on all screen sizes for overlaps and the screen edge.
  */
 
 /** Diameter of the page arrows (over the 48 px tap minimum). */
 export const SHOP_ARROW = 56;
 export const SHOP_GAP = 8;
 export const SHOP_PAD = 8;
+/** The gap between the grid and the bottom line. */
+const BAR_GAP = 4;
 /** Widths of a card: the wide one on tablets, the narrow one before the grid starts paging. */
 export const SHOP_CELL_WIDTHS = [104, 88] as const;
 /** Heights of a card, biggest first. 72 px is the least in which picture, name and price stay readable (`costRowLayout`). */
@@ -37,8 +42,10 @@ export interface ShopLayout {
   readonly tabs: readonly Rect[];
   /** The big ✕ that closes the shop. */
   readonly close: Rect;
-  /** The area of the cards (and the arrows). */
+  /** The area of the cards. */
   readonly grid: Rect;
+  /** The fixed line at the bottom of the panel: the sentence of a locked card. */
+  readonly line: Rect;
   readonly cellW: number;
   readonly cellH: number;
   /** Columns and rows of the cards on one page. */
@@ -54,62 +61,95 @@ export interface ShopLayout {
   readonly fits: boolean;
 }
 
+interface Choice {
+  readonly cellW: number;
+  readonly cellH: number;
+  readonly cols: number;
+  readonly rows: number;
+  readonly paged: boolean;
+  readonly perPage: number;
+}
+
 export function shopLayout(input: ShopLayoutInput): ShopLayout {
   const { width, height, top, count, tabCount } = input;
+  const low = height < 400;
   const edge = width < 400 ? 6 : 10;
   const panelW = Math.min(width - 2 * edge, MAX_PANEL_WIDTH);
   const panelX = (width - panelW) / 2;
   const bottom = height - edge;
 
-  // Header row: the tabs and the ✕.
-  const tabH = height < 400 ? 52 : width >= 700 ? 72 : 60;
-  const closeSize = Math.max(tabH, 56);
+  // Header row: the tabs and the ✕ (at least 48 px; a bit bigger where there is room).
+  const tabH = low ? 48 : width >= 700 ? 72 : 60;
+  const closeSize = low ? 48 : Math.max(tabH, 56);
+  const headerH = Math.max(tabH, closeSize);
   const innerW = panelW - 2 * SHOP_PAD;
   const tabW = Math.min(MAX_TAB_WIDTH, (innerW - closeSize - tabCount * SHOP_GAP) / tabCount);
   const headerY = top + SHOP_PAD;
   const tabs: Rect[] = Array.from({ length: tabCount }, (_, index) => ({
     x: panelX + SHOP_PAD + index * (tabW + SHOP_GAP),
-    y: headerY,
+    y: headerY + (headerH - tabH) / 2,
     width: tabW,
     height: tabH,
   }));
-  const close: Rect = { x: panelX + panelW - SHOP_PAD - closeSize, y: headerY + (tabH - closeSize) / 2, width: closeSize, height: closeSize };
+  const close: Rect = { x: panelX + panelW - SHOP_PAD - closeSize, y: headerY + (headerH - closeSize) / 2, width: closeSize, height: closeSize };
 
-  // The cards.
-  const gridTop = headerY + Math.max(tabH, closeSize) + SHOP_GAP;
+  // The bottom line: one line on low screens (a phone held sideways), two lines on narrow ones.
+  const lineH = low ? 26 : width < 400 ? 46 : 44;
+  const gridTop = headerY + headerH + SHOP_GAP;
   const availW = panelW - 2 * SHOP_PAD;
   const availH = bottom - SHOP_PAD - gridTop;
   const need = (rows: number, cellH: number): number => rows * cellH + (rows - 1) * SHOP_GAP;
+  const colsFor = (cellW: number): number => Math.max(1, Math.min(count, Math.floor((availW + SHOP_GAP) / (cellW + SHOP_GAP))));
 
-  let choice: { cellW: number; cellH: number; cols: number; rows: number; paged: boolean; perPage: number } | undefined;
+  let choice: Choice | undefined;
   // The biggest cards for which all cards fit on one page; the wide ones before the narrow ones.
   for (const cellH of SHOP_CELL_HEIGHTS) {
     for (const cellW of SHOP_CELL_WIDTHS) {
-      const cols = Math.max(1, Math.min(count, Math.floor((availW + SHOP_GAP) / (cellW + SHOP_GAP))));
+      const cols = colsFor(cellW);
       const rows = Math.max(1, Math.ceil(count / cols));
-      if (!choice && need(rows, cellH) <= availH) {
+      if (!choice && need(rows, cellH) <= availH - lineH - BAR_GAP) {
         choice = { cellW, cellH, cols, rows, paged: false, perPage: count };
       }
     }
   }
+  const barH = Math.max(lineH, SHOP_ARROW);
   if (!choice) {
-    // Even the smallest cards do not all fit: one row, turn pages with the arrows.
-    const cellW = SHOP_CELL_WIDTHS[0];
-    const cellH = Math.min(SHOP_CELL_HEIGHTS[0], Math.max(SHOP_CELL_HEIGHTS[SHOP_CELL_HEIGHTS.length - 1] ?? 72, availH));
-    const perPage = Math.max(1, Math.floor((availW - 2 * (SHOP_ARROW + SHOP_GAP) + SHOP_GAP) / (cellW + SHOP_GAP)));
-    choice = { cellW, cellH, cols: Math.min(perPage, count), rows: 1, paged: true, perPage: Math.min(perPage, count) };
+    // Not all cards fit: the same grid with as many cards per page as possible (several rows, narrow and low cards allowed).
+    let best: Choice | undefined;
+    for (const cellH of SHOP_CELL_HEIGHTS) {
+      for (const cellW of SHOP_CELL_WIDTHS) {
+        const cols = colsFor(cellW);
+        const rows = Math.floor((availH - barH - BAR_GAP + SHOP_GAP) / (cellH + SHOP_GAP));
+        if (rows < 1) {
+          continue;
+        }
+        const perPage = Math.min(count, cols * rows);
+        // Most cards per page; then the bigger cards.
+        if (!best || perPage > best.perPage) {
+          best = { cellW, cellH, cols, rows: Math.min(rows, Math.ceil(count / cols)), paged: true, perPage };
+        }
+      }
+    }
+    // A screen too low even for one row of the smallest cards: one row anyway (the panel will not fit; `fits` says so).
+    const smallest = SHOP_CELL_HEIGHTS[SHOP_CELL_HEIGHTS.length - 1] ?? 72;
+    const cols = colsFor(SHOP_CELL_WIDTHS[SHOP_CELL_WIDTHS.length - 1] ?? 88);
+    choice = best ?? { cellW: SHOP_CELL_WIDTHS[SHOP_CELL_WIDTHS.length - 1] ?? 88, cellH: smallest, cols, rows: 1, paged: true, perPage: cols };
   }
 
-  const gridH = choice.paged ? Math.max(choice.cellH, SHOP_ARROW) : need(choice.rows, choice.cellH);
+  const gridH = need(choice.rows, choice.cellH);
   const grid: Rect = { x: panelX + SHOP_PAD, y: gridTop, width: availW, height: gridH };
-  const rect: Rect = { x: panelX, y: top, width: panelW, height: gridTop + gridH + SHOP_PAD - top };
+  const bar = choice.paged ? barH : lineH;
+  const barY = gridTop + gridH + BAR_GAP;
+  const rect: Rect = { x: panelX, y: top, width: panelW, height: barY + bar + SHOP_PAD - top };
 
   let prev: Rect | undefined;
   let next: Rect | undefined;
+  let line: Rect = { x: grid.x, y: barY + (bar - lineH) / 2, width: grid.width, height: lineH };
   if (choice.paged) {
-    const y = grid.y + (grid.height - SHOP_ARROW) / 2;
+    const y = barY + (bar - SHOP_ARROW) / 2;
     prev = { x: grid.x, y, width: SHOP_ARROW, height: SHOP_ARROW };
     next = { x: grid.x + grid.width - SHOP_ARROW, y, width: SHOP_ARROW, height: SHOP_ARROW };
+    line = { x: grid.x + SHOP_ARROW + SHOP_GAP, y: barY + (bar - lineH) / 2, width: grid.width - 2 * (SHOP_ARROW + SHOP_GAP), height: lineH };
   }
 
   return {
@@ -117,10 +157,11 @@ export function shopLayout(input: ShopLayoutInput): ShopLayout {
     tabs,
     close,
     grid,
+    line,
     ...choice,
     prev,
     next,
-    fits: rect.y + rect.height <= bottom + 0.001 && choice.cellH <= availH + 0.001 && tabW >= 48,
+    fits: rect.y + rect.height <= bottom + 0.001 && tabW >= 48 && choice.rows * choice.cellH + (choice.rows - 1) * SHOP_GAP <= availH - bar - BAR_GAP + 0.001,
   };
 }
 
@@ -130,21 +171,18 @@ export function shopPages(layout: ShopLayout, items: number): number {
 }
 
 /**
- * The rectangles of the cards on a page. A row that is not full is centred
- * (so are the cards between the arrows); `onPage` is the number of cards on that page.
+ * The rectangles of the cards on a page. A row that is not full is centred;
+ * `onPage` is the number of cards on that page.
  */
 export function shopCellRects(layout: ShopLayout, onPage: number): Rect[] {
   const { grid, cellW, cellH, cols } = layout;
   const rects: Rect[] = [];
-  const left = layout.paged ? grid.x + SHOP_ARROW + SHOP_GAP : grid.x;
-  const rowAreaW = layout.paged ? grid.width - 2 * (SHOP_ARROW + SHOP_GAP) : grid.width;
-  const top = layout.paged ? grid.y + (grid.height - cellH) / 2 : grid.y;
   for (let index = 0; index < onPage; index += 1) {
     const row = Math.floor(index / cols);
     const inRow = Math.min(cols, onPage - row * cols);
     const rowW = inRow * cellW + (inRow - 1) * SHOP_GAP;
     const col = index - row * cols;
-    rects.push({ x: left + (rowAreaW - rowW) / 2 + col * (cellW + SHOP_GAP), y: top + row * (cellH + SHOP_GAP), width: cellW, height: cellH });
+    rects.push({ x: grid.x + (grid.width - rowW) / 2 + col * (cellW + SHOP_GAP), y: grid.y + row * (cellH + SHOP_GAP), width: cellW, height: cellH });
   }
   return rects;
 }

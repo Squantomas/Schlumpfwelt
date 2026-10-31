@@ -1,5 +1,20 @@
 import { describe, expect, it } from 'vitest';
-import { groundSize, MAX_GROUND_TEXTURE_SIZE, REPAINT_REACH, paintGround, repaintGround } from '../../src/scenes/island/groundTexture';
+import {
+  DETAIL_REACH_PX,
+  GROUND_BLEED_PX,
+  GROUND_EDGE_PX,
+  blockShown,
+  GROUND_BLOCK_TILES,
+  MAX_GROUND_TEXTURE_SIZE,
+  PAINT_REACH_PX,
+  REPAINT_REACH,
+  blockArea,
+  blocksTouching,
+  groundBlocks,
+  groundSize,
+  paintGround,
+  paintGroundBlock,
+} from '../../src/scenes/island/groundTexture';
 import { DEFAULT_WORLD_PARAMS, generateIsland } from '../../src/sim/islandGen';
 import { createWorld, setTerrain } from '../../src/sim/world';
 import { COLORS, TILE_SIZE, cssColor, rgb } from '../../src/ui/style';
@@ -86,20 +101,20 @@ describe('Bodentextur', () => {
   });
 });
 
-/** Ein Canvas-Kontext, der zählt, wie oft gefüllt wurde, und sich die Rechtecke von rect/fillRect merkt. */
-function countingContext(): { ctx: CanvasRenderingContext2D; calls: Map<string, number>; rects: number[][] } {
+/** Ein Canvas-Kontext, der Aufrufe zählt und sich Argumente von rect, fillRect, translate, ellipse und arc merkt. */
+function countingContext(): { ctx: CanvasRenderingContext2D; calls: Map<string, number>; args: Map<string, number[][]> } {
   const calls = new Map<string, number>();
-  const rects: number[][] = [];
+  const args = new Map<string, number[][]>();
   const state: Record<string, unknown> = {};
   const ctx = new Proxy(state, {
     get(target, key: string) {
       if (key in target) {
         return target[key];
       }
-      return (...args: number[]): void => {
+      return (...values: number[]): void => {
         calls.set(key, (calls.get(key) ?? 0) + 1);
-        if (key === 'rect' || key === 'fillRect') {
-          rects.push(args);
+        if (['rect', 'fillRect', 'translate', 'ellipse', 'arc'].includes(key)) {
+          args.set(key, [...(args.get(key) ?? []), values]);
         }
       };
     },
@@ -108,47 +123,124 @@ function countingContext(): { ctx: CanvasRenderingContext2D; calls: Map<string, 
       return true;
     },
   }) as unknown as CanvasRenderingContext2D;
-  return { ctx, calls, rects };
+  return { ctx, calls, args };
 }
 
-describe('Boden neu malen (Baum pflanzen, Land aufschütten)', () => {
-  it('malt nur die Umgebung der geänderten Kachel – ein Bruchteil der Arbeit eines ganzen Bildes', () => {
-    const world = generateIsland(7);
-    const full = countingContext();
-    paintGround(full.ctx, world, 7);
-    const part = countingContext();
-    const area = repaintGround(part.ctx, world, 7, { x0: 24, y0: 24, x1: 24, y1: 24 });
-    const total = (calls: Map<string, number>): number => [...calls.values()].reduce((sum, n) => sum + n, 0);
-    expect(total(part.calls)).toBeLessThan(total(full.calls) / 10);
-    expect(area).toEqual({ x0: 24 - REPAINT_REACH, y0: 24 - REPAINT_REACH, x1: 24 + REPAINT_REACH, y1: 24 + REPAINT_REACH });
+describe('Mal-Reichweite einer Kachel (Korrekturrunde 1, R3)', () => {
+  it('ist höchstens REPAINT_REACH Kacheln breit – und nicht kleiner als REPAINT_REACH − 1 (sonst wäre die Reichweite zu großzügig)', () => {
+    expect(PAINT_REACH_PX).toBeLessThanOrEqual(REPAINT_REACH * TILE_SIZE);
+    expect(PAINT_REACH_PX).toBeGreaterThan((REPAINT_REACH - 1) * TILE_SIZE);
   });
 
-  it('schneidet auf diesen Bereich zu und füllt ihn mit der Tiefwasserfarbe, bevor es malt', () => {
-    const world = generateIsland(7);
-    const { ctx, rects } = countingContext();
-    repaintGround(ctx, world, 7, { x0: 10, y0: 12, x1: 11, y1: 12 });
-    const left = (10 - REPAINT_REACH) * TILE_SIZE;
-    const top = (12 - REPAINT_REACH) * TILE_SIZE;
-    const width = (2 + 2 * REPAINT_REACH) * TILE_SIZE;
-    const height = (1 + 2 * REPAINT_REACH) * TILE_SIZE;
-    expect(rects).toContainEqual([left, top, width, height]);
-    // Der Hintergrund wird nur in diesem Bereich gemalt, nie über die ganze Karte.
-    const mapSize = groundSize(world);
-    expect(rects.some((rect) => rect[2] === mapSize.width && rect[3] === mapSize.height)).toBe(false);
+  it('die Details, die wirklich gemalt werden (Flecken, Blumen, Steine …), ragen höchstens DETAIL_REACH_PX über ihre Kachel', () => {
+    let worst = 0;
+    for (const seed of [1, 2, 3, 5, 8, 13]) {
+      const world = generateIsland(seed);
+      const { ctx, args } = countingContext();
+      paintGround(ctx, world, seed);
+      const shapes: { x: number; y: number; reach: number }[] = [
+        ...(args.get('ellipse') ?? []).map(([x = 0, y = 0, rx = 0, ry = 0]) => ({ x, y, reach: Math.max(rx, ry) })),
+        ...(args.get('arc') ?? []).map(([x = 0, y = 0, r = 0]) => ({ x, y, reach: r })),
+      ];
+      for (const { x, y, reach } of shapes) {
+        // Die Kachel, in der die Form ihren Mittelpunkt hat; Halos (große Rechtecke) und Schaum sind keine Ellipsen.
+        const left = Math.floor(x / TILE_SIZE) * TILE_SIZE;
+        const top = Math.floor(y / TILE_SIZE) * TILE_SIZE;
+        const spill = Math.max(left - (x - reach), x + reach - (left + TILE_SIZE), top - (y - reach), y + reach - (top + TILE_SIZE), 0);
+        worst = Math.max(worst, spill);
+      }
+    }
+    expect(worst).toBeGreaterThan(0);
+    expect(worst).toBeLessThanOrEqual(DETAIL_REACH_PX + 0.001);
+    expect(DETAIL_REACH_PX).toBeLessThanOrEqual(PAINT_REACH_PX);
+  });
+});
+
+describe('Boden in Blöcken (R4)', () => {
+  it('teilt eine Karte in Blöcke, die jede Kachel genau einmal abdecken – auch wenn die Karte kein Vielfaches der Blockgröße ist', () => {
+    for (const [width, height] of [[48, 48], [20, 13], [8, 8], [9, 1]] as const) {
+      const seen = new Set<string>();
+      for (const block of groundBlocks({ width, height })) {
+        for (let y = block.range.y0; y <= block.range.y1; y += 1) {
+          for (let x = block.range.x0; x <= block.range.x1; x += 1) {
+            expect(seen.has(`${String(x)},${String(y)}`), `${String(x)},${String(y)} doppelt`).toBe(false);
+            seen.add(`${String(x)},${String(y)}`);
+          }
+        }
+      }
+      expect(seen.size).toBe(width * height);
+    }
+    expect(groundBlocks({ width: 48, height: 48 })).toHaveLength((48 / GROUND_BLOCK_TILES) ** 2);
   });
 
-  it('bleibt am Kartenrand in der Karte', () => {
-    const world = generateIsland(7);
-    const { ctx } = countingContext();
-    expect(repaintGround(ctx, world, 7, { x0: 0, y0: 0, x1: 0, y1: 0 })).toEqual({ x0: 0, y0: 0, x1: REPAINT_REACH, y1: REPAINT_REACH });
-    expect(repaintGround(ctx, world, 7, { x0: 47, y0: 47, x1: 47, y1: 47 })).toEqual({ x0: 47 - REPAINT_REACH, y0: 47 - REPAINT_REACH, x1: 47, y1: 47 });
+  it('jede Block-Textur ist klein (weit unter der Kante von 4096 px) und hat ringsum den Rand zu den Nachbarn', () => {
+    for (const block of groundBlocks({ width: 48, height: 48 })) {
+      const area = blockArea(block);
+      expect(Math.max(area.width, area.height)).toBeLessThanOrEqual(MAX_GROUND_TEXTURE_SIZE / 4);
+      const shown = blockShown(block);
+      expect(area.width).toBe((block.range.x1 - block.range.x0 + 1) * TILE_SIZE + 2 * (GROUND_BLEED_PX + GROUND_EDGE_PX));
+      expect(shown.x).toBe(block.range.x0 * TILE_SIZE - GROUND_BLEED_PX);
+      expect(shown.width).toBe((block.range.x1 - block.range.x0 + 1) * TILE_SIZE + 2 * GROUND_BLEED_PX);
+    }
+    // Die gezeigten Teile von Nachbarn überlappen sich um 2 × Rand: keine Lücke bei beliebigem Zoom.
+    const [a, b] = groundBlocks({ width: 48, height: 48 });
+    if (a && b) {
+      expect(blockShown(a).x + blockShown(a).width - blockShown(b).x).toBe(2 * GROUND_BLEED_PX);
+    }
   });
 
-  it('malt die Farben der neuen Geländeart (Wald auf einer Wiese)', () => {
-    const world = createWorld(12, 12, 'grass');
+  it('malt einen Block in seine Fläche: Ursprung verschoben, Tiefwasser über die ganze Fläche, Kacheln bis REPAINT_REACH ringsum', () => {
+    const world = generateIsland(7);
+    const block = groundBlocks(world)[9];
+    if (!block) {
+      throw new Error('kein Block');
+    }
+    const area = blockArea(block);
+    const { ctx, args } = countingContext();
+    paintGroundBlock(ctx, world, 7, block);
+    expect(args.get('translate')).toEqual([[-area.x, -area.y]]);
+    expect(args.get('fillRect')).toContainEqual([area.x, area.y, area.width, area.height]);
+  });
+
+  it('eine Änderung berührt höchstens vier Blöcke, in der Blockmitte nur einen', () => {
+    const world = generateIsland(7);
+    const middle = blocksTouching(world, { x0: 12, y0: 20, x1: 12, y1: 20 });
+    expect(middle.map((block) => [block.bx, block.by])).toEqual([[1, 2]]);
+    for (const [x, y] of [[0, 0], [7, 7], [8, 8], [15, 16], [24, 24], [47, 47], [8, 3]] as const) {
+      const touched = blocksTouching(world, { x0: x, y0: y, x1: x, y1: y });
+      expect(touched.length, `${String(x)},${String(y)}`).toBeGreaterThanOrEqual(1);
+      expect(touched.length, `${String(x)},${String(y)}`).toBeLessThanOrEqual(4);
+    }
+    // An einer Blockkante ändert die Nachbarblöcke mit (Halo reicht hinüber).
+    expect(blocksTouching(world, { x0: 8, y0: 20, x1: 8, y1: 20 }).map((block) => block.bx).sort()).toEqual([0, 1]);
+  });
+
+  it('ein Block deckt jede Kachel, deren Mal-Reichweite in seine Fläche fällt: nach einer Änderung sind alle betroffenen Blöcke dabei', () => {
+    const world = generateIsland(7);
+    // Für jede Kachel: jeder Block, dessen Fläche (mit Rand) näher als REPAINT_REACH an ihr liegt, wird neu gemalt.
+    for (let y = 0; y < world.height; y += 3) {
+      for (let x = 0; x < world.width; x += 3) {
+        const touched = new Set(blocksTouching(world, { x0: x, y0: y, x1: x, y1: y }).map((block) => `${String(block.bx)},${String(block.by)}`));
+        for (const block of groundBlocks(world)) {
+          const gapX = Math.max(blockArea(block).x - (x + 1) * TILE_SIZE, x * TILE_SIZE - (blockArea(block).x + blockArea(block).width), 0);
+          const gapY = Math.max(blockArea(block).y - (y + 1) * TILE_SIZE, y * TILE_SIZE - (blockArea(block).y + blockArea(block).height), 0);
+          if (Math.max(gapX, gapY) < PAINT_REACH_PX) {
+            expect(touched.has(`${String(block.bx)},${String(block.by)}`), `Block ${String(block.bx)},${String(block.by)} bei ${String(x)},${String(y)}`).toBe(true);
+          }
+        }
+      }
+    }
+  });
+
+  it('malt die Farben der neuen Geländeart in einen Block (Wald auf einer Wiese)', () => {
+    const world = createWorld(16, 16, 'grass');
     setTerrain(world, 6, 6, 'forest');
     const { ctx, fills } = recordingContext();
-    repaintGround(ctx, world, 3, { x0: 6, y0: 6, x1: 6, y1: 6 });
+    const block = groundBlocks(world)[0];
+    if (!block) {
+      throw new Error('kein Block');
+    }
+    paintGroundBlock(ctx, world, 3, block);
     expect(fills.has(cssColor(COLORS.forestFloor))).toBe(true);
     expect(fills.has(cssColor(COLORS.grass))).toBe(true);
   });

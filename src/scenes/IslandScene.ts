@@ -16,7 +16,7 @@ import { RoundButton } from '../ui/RoundButton';
 import { COLORS, TILE_SIZE, clamp, rgb } from '../ui/style';
 import { onViewportChange, type ViewSize } from '../ui/viewport';
 import { BuildUI } from './island/BuildUI';
-import { groundSize, paintGround, repaintGround, type TileRange } from './island/groundTexture';
+import { GROUND_EDGE_PX, blockArea, blockShown, blocksTouching, groundBlocks, paintGroundBlock, type GroundBlock } from './island/groundTexture';
 import {
   GLINT_KEY,
   OBJECT_ORIGIN,
@@ -73,13 +73,13 @@ export class IslandScene extends Phaser.Scene {
   private ring!: Phaser.GameObjects.Image;
   private ringTween: Phaser.Tweens.Tween | undefined;
   private ringFade: Phaser.Tweens.Tween | undefined;
-  private groundKey = '';
-  private groundTexture: Phaser.Textures.CanvasTexture | undefined;
+  /** The ground, cut into blocks that are each their own texture (a change uploads only the blocks it touches). */
+  private groundBlocks: { readonly block: GroundBlock; readonly key: string; readonly texture: Phaser.Textures.CanvasTexture }[] = [];
   /** The terrain as it is drawn now: the scene compares it with the state when the revision changes. */
   private drawnTerrain: Terrain[] = [];
   private terrainRevision = 0;
-  /** What redrawing the ground cost so far (`<html data-repaint>`): count, last and most time in ms, and the tiles of the last one. */
-  private repaint = { count: 0, last: 0, max: 0, tiles: 0 };
+  /** What redrawing the ground cost so far (`<html data-repaint>`): number of changes, time of the last and the longest in ms, blocks of the last and in all. */
+  private repaint = { count: 0, last: 0, max: 0, blocks: 0, uploaded: 0, blocksTotal: 0 };
   private cameraBounds!: { -readonly [K in keyof CameraBounds]: CameraBounds[K] };
   private zoomButtons: RoundButton[] = [];
   private cameraKey = '';
@@ -118,7 +118,7 @@ export class IslandScene extends Phaser.Scene {
     this.preview = { kind: 'none' };
     this.drawnTerrain = [...world.tiles];
     this.terrainRevision = this.simulation.state.revision;
-    this.repaint = { count: 0, last: 0, max: 0, tiles: 0 };
+    this.repaint = { count: 0, last: 0, max: 0, blocks: 0, uploaded: 0, blocksTotal: 0 };
 
     this.worldLayer = this.add.layer();
     this.uiLayer = this.add.layer();
@@ -234,7 +234,9 @@ export class IslandScene extends Phaser.Scene {
     this.worldCamera.fadeIn(300, ...fade);
 
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
-      this.textures.remove(this.groundKey);
+      for (const { key } of this.groundBlocks) {
+        this.textures.remove(key);
+      }
     });
   }
 
@@ -272,22 +274,34 @@ export class IslandScene extends Phaser.Scene {
     });
   }
 
-  /** Paints the ground once onto a canvas texture and shows it as one image. */
+  /**
+   * Paints the ground block by block (512 px squares, each its own texture and image that reaches a few pixels over its
+   * neighbours, so no gap shows between them – and without the unreliable outermost pixels of its canvas) – a change later only paints and uploads the blocks it touches.
+   */
   private buildGround(seed: number): void {
     const { world } = this.simulation.state;
-    const { width, height } = groundSize(world);
-    this.groundKey = `ground-${String(seed)}`;
-    if (this.textures.exists(this.groundKey)) {
-      this.textures.remove(this.groundKey);
+    for (const { key } of this.groundBlocks) {
+      this.textures.remove(key);
     }
-    const texture = this.textures.createCanvas(this.groundKey, width, height);
-    if (!texture) {
-      return;
+    this.groundBlocks = [];
+    for (const block of groundBlocks(world)) {
+      const area = blockArea(block);
+      const key = `ground-${String(seed)}-${String(block.bx)}-${String(block.by)}`;
+      if (this.textures.exists(key)) {
+        this.textures.remove(key);
+      }
+      const texture = this.textures.createCanvas(key, area.width, area.height);
+      if (!texture) {
+        continue;
+      }
+      paintGroundBlock(texture.getContext(), world, seed, block);
+      texture.refresh();
+      // Only the inner part is shown: the outermost pixels of a canvas are a little off and must not cover the neighbour.
+      const shown = blockShown(block);
+      texture.add('shown', 0, GROUND_EDGE_PX, GROUND_EDGE_PX, shown.width, shown.height);
+      this.worldLayer.add(this.add.image(shown.x, shown.y, key, 'shown').setOrigin(0, 0).setDepth(0));
+      this.groundBlocks.push({ block, key, texture });
     }
-    this.groundTexture = texture;
-    paintGround(texture.getContext(), world, seed);
-    texture.refresh();
-    this.worldLayer.add(this.add.image(0, 0, this.groundKey).setOrigin(0, 0).setDepth(0));
   }
 
   /** One tree per forest tile, one rock per rock tile; the sprite's depth is its ground y. */
@@ -352,24 +366,29 @@ export class IslandScene extends Phaser.Scene {
     if (changed.length === 0) {
       return;
     }
-    // Ground: only the surroundings of the changed tiles are painted again (a whole new picture, if very much changed).
+    // Ground: only the blocks the changed tiles touch are painted again and uploaded to the graphics card.
     const started = performance.now();
-    const texture = this.groundTexture;
-    let tiles = 0;
-    if (texture) {
-      const range: TileRange = { x0, y0, x1, y1 };
-      const everything = (x1 - x0 + 1) * (y1 - y0 + 1) > (world.width * world.height) / 4;
-      if (everything) {
-        paintGround(texture.getContext(), world, seed);
-        tiles = world.width * world.height;
-      } else {
-        const area = repaintGround(texture.getContext(), world, seed, range);
-        tiles = (area.x1 - area.x0 + 1) * (area.y1 - area.y0 + 1);
+    const touched = new Set<string>();
+    for (const { x, y } of changed) {
+      for (const block of blocksTouching(world, { x0: x, y0: y, x1: x, y1: y })) {
+        touched.add(`${String(block.bx)},${String(block.by)}`);
       }
-      texture.refresh();
+    }
+    for (const entry of this.groundBlocks) {
+      if (touched.has(`${String(entry.block.bx)},${String(entry.block.by)}`)) {
+        paintGroundBlock(entry.texture.getContext(), world, seed, entry.block);
+        entry.texture.refresh();
+      }
     }
     const elapsed = performance.now() - started;
-    this.repaint = { count: this.repaint.count + 1, last: elapsed, max: Math.max(this.repaint.max, elapsed), tiles };
+    this.repaint = {
+      count: this.repaint.count + 1,
+      last: elapsed,
+      max: Math.max(this.repaint.max, elapsed),
+      blocks: touched.size,
+      uploaded: this.repaint.uploaded + touched.size,
+      blocksTotal: this.groundBlocks.length,
+    };
 
     for (const { x, y } of changed) {
       const index = y * world.width + x;
@@ -436,10 +455,13 @@ export class IslandScene extends Phaser.Scene {
     if (this.buildUI.worldTapsPaused(eventTime)) {
       return;
     }
-    // The open shop covers the island: a tap beside the panel does nothing (✕ closes it).
+    // The open shop covers the island: a tap beside the panel closes it and does nothing else (no building, no ring).
     if (this.buildUI.shopOpen) {
+      this.buildTool.closeShop();
       return;
     }
+    // An explanation stays until the next tap.
+    this.buildUI.clearNotice();
     // A tap beside the open info card closes it and does nothing else.
     if (this.buildTool.inspectedId !== undefined) {
       this.buildTool.closeInfo();

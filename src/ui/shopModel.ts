@@ -46,15 +46,21 @@ export function shopCards(state: ShopView, category: ShopCategory): ShopCard[] {
   return shopItems(category).map((type) => shopCard(state, type.id));
 }
 
-/** The picture that stands for a condition on the card: the building to build, a house, or coins (an item id of `goods.json`). */
-export function unlockIcon(unlock: UnlockDef): { readonly kind: 'building' | 'coins'; readonly id: string } {
+/**
+ * The pictures that stand for a condition on the card, in a row before the number: the building to build, a house,
+ * or – for money – the market and a coin ("earn it at the market", so "0/40" is not taken for "you own 0").
+ */
+export function unlockIcons(unlock: UnlockDef): readonly { readonly kind: 'building' | 'coins'; readonly id: string }[] {
   switch (unlock.kind) {
     case 'count':
-      return { kind: 'building', id: unlock.building };
+      return [{ kind: 'building', id: unlock.building }];
     case 'houses':
-      return { kind: 'building', id: 'house-red' };
+      return [{ kind: 'building', id: 'house-red' }];
     case 'earned':
-      return { kind: 'coins', id: 'coins' };
+      return [
+        { kind: 'building', id: 'market' },
+        { kind: 'coins', id: 'coins' },
+      ];
   }
 }
 

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { BUILDING_TYPES, SHOP_CATEGORIES, buildingType, shopItems, unlockOf } from '../../src/data/buildings';
 import { t } from '../../src/data/texts';
 import { createInitialState } from '../../src/sim/state';
-import { nameList, newItemsText, progressText, shopCard, shopCards, unlockIcon, unlockSentenceText } from '../../src/ui/shopModel';
+import { nameList, newItemsText, progressText, shopCard, shopCards, unlockIcons, unlockSentenceText } from '../../src/ui/shopModel';
 import { setStore } from '../sim/helpers';
 
 describe('shopCards', () => {
@@ -79,10 +79,11 @@ describe('Sätze und Symbole für gesperrte Karten', () => {
     }
   });
 
-  it('zeigen als Symbol das Gebäude, ein Haus oder Taler', () => {
-    expect(unlockIcon({ kind: 'count', building: 'lumberjack', count: 1 })).toEqual({ kind: 'building', id: 'lumberjack' });
-    expect(unlockIcon({ kind: 'houses', count: 3 })).toEqual({ kind: 'building', id: 'house-red' });
-    expect(unlockIcon({ kind: 'earned', coins: 5 })).toEqual({ kind: 'coins', id: 'coins' });
+  it('zeigen als Symbol das Gebäude, ein Haus oder Markt und Taler', () => {
+    expect(unlockIcons({ kind: 'count', building: 'lumberjack', count: 1 })).toEqual([{ kind: 'building', id: 'lumberjack' }]);
+    expect(unlockIcons({ kind: 'houses', count: 3 })).toEqual([{ kind: 'building', id: 'house-red' }]);
+    // Verdiente Taler: der Markt und die Münze – „auf dem Markt verdienen“ (T8).
+    expect(unlockIcons({ kind: 'earned', coins: 5 })).toEqual([{ kind: 'building', id: 'market' }, { kind: 'coins', id: 'coins' }]);
   });
 
   it('schreiben den Fortschritt als „1/3“', () => {

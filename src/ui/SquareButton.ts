@@ -13,6 +13,11 @@ export interface SquareButtonOptions {
   readonly onTap: (eventTime: number) => void;
   /** An extra row at the bottom of the button (the cost); it gets `layoutTo(width, height)` and is placed there. */
   readonly footer?: Phaser.GameObjects.Container & { layoutTo: (width: number, height: number) => unknown };
+  /**
+   * The word under the picture is never smaller than this (CSS px): if it would have to shrink further to fit the
+   * button, it is left out and the picture alone stays (tabs and toolbar).
+   */
+  readonly minCaptionFont?: number;
 }
 
 /** Share of the button height that the picture may use; the rest is for the label. */
@@ -36,12 +41,14 @@ export class SquareButton extends Phaser.GameObjects.Container {
   private highlighted = false;
   private pressed = false;
   private readonly footer: SquareButtonOptions['footer'];
+  private readonly minCaptionFont: number | undefined;
 
   constructor(scene: Phaser.Scene, options: SquareButtonOptions) {
     super(scene, 0, 0);
     this.content = options.content;
     this.fitContent = options.fitContent;
     this.footer = options.footer;
+    this.minCaptionFont = options.minCaptionFont;
     this.face = scene.add.graphics();
     this.caption = createLabel(scene, options.label, 14);
     this.add([this.face, options.content, this.caption]);
@@ -91,11 +98,24 @@ export class SquareButton extends Phaser.GameObjects.Container {
       this.footer.setPosition(0, height / 2 - footerHeight / 2 - height * 0.03);
     } else {
       const lines = this.caption.text.split('\n').length;
-      setLabelSize(this.caption, Math.max(11, Math.min(17, height * (lines > 1 ? 0.15 : 0.19))), width - 6);
+      const minFont = this.minCaptionFont ?? 11;
+      setLabelSize(this.caption, Math.max(minFont, Math.min(17, height * (lines > 1 ? 0.15 : 0.19))), width - 6);
       this.caption.setPosition(0, height / 2 - (height * (1 - PICTURE_SHARE)) / 2 - height * 0.02);
+      // Too narrow for the word at the minimum size: the picture alone (centred and a bit bigger).
+      const tooNarrow = this.minCaptionFont !== undefined && Number.parseFloat(String(this.caption.style.fontSize)) < this.minCaptionFont;
+      this.caption.setVisible(!tooNarrow);
+      if (tooNarrow) {
+        this.fitContent(this.content, width * 0.8, height * 0.8);
+        this.content.setPosition(0, 0);
+      }
     }
     this.draw();
     return this;
+  }
+
+  /** The size of the word under the picture in CSS px (0 if it is left out): for the smoke test. */
+  get captionFont(): number {
+    return this.caption.visible ? Number.parseFloat(String(this.caption.style.fontSize)) : 0;
   }
 
   /** A dimmed button looks switched off (what it needs is missing); it still takes taps. */

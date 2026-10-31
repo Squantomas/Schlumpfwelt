@@ -20,6 +20,7 @@ const SCREENS: readonly (readonly [number, number])[] = [
   [1920, 1080],
   [812, 375],
   [740, 360],
+  [320, 480],
 ];
 
 const COUNTS = SHOP_CATEGORIES.map((category) => shopItems(category).length);
@@ -53,7 +54,7 @@ function open(width: number, height: number, count = MOST) {
 
 describe('Shop-Layout: nichts überlappt, nichts ragt über den Rand', () => {
   for (const [width, height] of SCREENS) {
-    for (const count of [3, ...COUNTS]) {
+    for (const count of [3, ...COUNTS, 12, 16, 20]) {
       it(`${String(width)}×${String(height)} mit ${String(count)} Karten`, () => {
         const layout = open(width, height, count);
         const shop = layout.shop;
@@ -89,6 +90,14 @@ describe('Shop-Layout: nichts überlappt, nichts ragt über den Rand', () => {
         }
         expect(shop.tabs).toHaveLength(SHOP_CATEGORIES.length);
 
+        // Die feste Zeile unten (Satz einer gesperrten Karte): im Feld, hoch genug für Text, überdeckt nichts.
+        expect(inside(shop.line, shop.rect), 'Zeile im Feld').toBe(true);
+        expect(shop.line.height, 'Zeile Höhe').toBeGreaterThanOrEqual(height < 400 ? 26 : 44);
+        expect(shop.line.width, 'Zeile Breite').toBeGreaterThanOrEqual(120);
+        expect(intersects(shop.line, shop.grid), 'Zeile überdeckt das Gitter').toBe(false);
+        for (const [name, rect] of header) {
+          expect(intersects(shop.line, rect), `Zeile überdeckt ${name}`).toBe(false);
+        }
         // Karten: im Gitter, ohne Überlappung, unter dem Kopf, mit Mindestgröße.
         const onPage = Math.min(count, shop.perPage);
         const cells = shopCellRects(shop, onPage);
@@ -119,6 +128,8 @@ describe('Shop-Layout: nichts überlappt, nichts ragt über den Rand', () => {
             for (const cell of cells) {
               expect(intersects(arrow, cell)).toBe(false);
             }
+            expect(intersects(arrow, shop.line), 'Pfeil überdeckt die Zeile').toBe(false);
+            expect(intersects(arrow, shop.grid), 'Pfeil überdeckt das Gitter').toBe(false);
           }
           expect(shopPages(shop, count)).toBe(Math.ceil(count / shop.perPage));
         } else {
@@ -147,11 +158,36 @@ describe('Shop-Layout: Größe der Karten', () => {
     expect(shop?.cellH).toBeGreaterThanOrEqual(88);
   });
 
-  it('#14: auch auf allen anderen Schirmen zeigt jede Seite mehr als 1 Karte', () => {
+  it('#14 (R1): mit 8 bis 20 Artikeln zeigt jede Seite auf jedem Schirm mindestens 4 Karten, auf den kleinsten mindestens 3', () => {
     for (const [width, height] of SCREENS) {
-      const shop = open(width, height).shop;
-      expect(shop?.perPage, `${String(width)}×${String(height)}`).toBeGreaterThan(1);
+      for (let count = 8; count <= 20; count += 1) {
+        const shop = open(width, height, count).shop;
+        const where = `${String(width)}×${String(height)} mit ${String(count)} Karten`;
+        expect(shop?.fits, where).toBe(true);
+        expect(shop?.perPage, where).toBeGreaterThanOrEqual(4);
+        // Es wird nur geblättert, wenn nicht alle passen, und dann mit demselben Gitter (mehrere Reihen, wo es geht).
+        if (shop && !shop.paged) {
+          expect(shop.perPage).toBeGreaterThanOrEqual(count);
+        }
+        if (shop?.paged) {
+          expect(shop.cols * shop.rows, where).toBeGreaterThanOrEqual(shop.perPage);
+        }
+      }
     }
+  });
+
+  it('R1: die Fälle aus dem Befund – 320×568 mit 16, 320×480 mit 10, 360×640 mit 16, 480×320 mit 3 möglichen Karten', () => {
+    expect(open(320, 568, 16).shop?.perPage).toBeGreaterThanOrEqual(8);
+    expect(open(320, 480, 10).shop?.perPage).toBeGreaterThanOrEqual(6);
+    expect(open(360, 640, 16).shop?.perPage).toBeGreaterThanOrEqual(8);
+    expect(open(480, 320, 8).shop?.perPage).toBeGreaterThanOrEqual(3);
+  });
+
+  it('beim Blättern wird dasselbe Raster wie ohne Blättern benutzt: mehrere Reihen auf hohen Schirmen', () => {
+    const shop = open(320, 568, 20).shop;
+    expect(shop?.paged).toBe(true);
+    expect(shop?.rows).toBeGreaterThanOrEqual(3);
+    expect(shop?.cols).toBeGreaterThanOrEqual(3);
   });
 
   it('nimmt auf dem Tablet die breiten, hohen Karten und alle in einer Seite', () => {
@@ -161,14 +197,16 @@ describe('Shop-Layout: Größe der Karten', () => {
     expect(shop?.cellH).toBe(SHOP_CELL_HEIGHTS[0]);
   });
 
-  it('blättert erst, wenn selbst die kleinsten Karten nicht alle passen – dann mit großen Pfeilen', () => {
-    // Ein sehr niedriger Schirm: nur eine Reihe passt.
-    const shop = shopLayout({ width: 568, height: 230, top: 54, count: 8, tabCount: 4 });
-    expect(shop.paged).toBe(true);
-    expect(shop.rows).toBe(1);
-    expect(shop.perPage).toBeGreaterThan(1);
-    expect(shop.perPage).toBeLessThan(8);
+  it('auf einem quer gehaltenen Handy (568×320) passen die 8 Karten einer Kategorie ohne Blättern', () => {
+    expect(open(568, 320, 8).shop?.paged).toBe(false);
+    expect(open(640, 360, 8).shop?.paged).toBe(false);
+  });
+
+  it('die Pfeile sind groß und stehen links und rechts neben der Zeile, nur beim Blättern', () => {
+    const shop = open(320, 568, 20).shop;
     expect(SHOP_ARROW).toBeGreaterThanOrEqual(MIN_TAP_SIZE);
+    expect(shop?.prev && shop.next && shop.line.x >= shop.prev.x + shop.prev.width && shop.line.x + shop.line.width <= shop.next.x).toBeTruthy();
+    expect(open(1024, 768, 8).shop?.prev).toBeUndefined();
   });
 
   it('meldet „passt nicht“, wenn der Schirm zu niedrig für selbst eine Reihe ist', () => {
@@ -189,9 +227,19 @@ describe('Shop-Layout: Größe der Karten', () => {
     expect(Math.abs(left - right)).toBeLessThan(0.01);
   });
 
-  it('hält das Feld gleich groß für alle Reiter (Geometrie aus dem größten Reiter)', () => {
-    const a = open(320, 568, MOST).shop;
-    const b = open(320, 568, MOST).shop;
-    expect(a?.rect).toEqual(b?.rect);
+  it('hält das Feld gleich groß für alle Reiter (Geometrie aus dem größten Reiter) und nicht höher als nötig (T7)', () => {
+    for (const [width, height] of SCREENS) {
+      const a = open(width, height, MOST).shop;
+      const b = open(width, height, MOST).shop;
+      expect(a?.rect).toEqual(b?.rect);
+      // Die Höhe richtet sich nach den Karten des größten Reiters, nicht nach dem Bildschirm: nie mehr als die Zeilen brauchen.
+      if (a && !a.paged) {
+        const rowsNeeded = Math.ceil(MOST / a.cols);
+        expect(a.rows, `${String(width)}×${String(height)}`).toBe(rowsNeeded);
+      }
+    }
+    // Auf einem großen Schirm ist das Feld nicht höher als die Karten des größten Reiters: die Hälfte des Bildschirms bleibt Insel.
+    const big = open(1920, 1080).shop;
+    expect(big?.rect.height).toBeLessThan(1080 / 2);
   });
 });
