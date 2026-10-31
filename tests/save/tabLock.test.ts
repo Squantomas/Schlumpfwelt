@@ -1,52 +1,61 @@
 import { describe, expect, it } from 'vitest';
 import { acquireSaveLock, type LockManagerLike } from '../../src/save/tabLock';
 
-/** A tiny Web Locks: `ifAvailable` gives the lock to the first, `null` to the others; the lock is held until `release`. */
-function fakeLocks(): LockManagerLike & { held: Set<string>; release: (name: string) => void; calls: number } {
-  const held = new Set<string>();
-  const api = {
-    held,
-    calls: 0,
-    release: (name: string) => held.delete(name),
-    request: (name: string, _options: { ifAvailable: boolean }, callback: (lock: unknown) => Promise<void> | undefined) => {
-      api.calls += 1;
-      if (held.has(name)) {
-        void callback(null);
-        return Promise.resolve();
-      }
-      held.add(name);
-      return callback({ name }) ?? Promise.resolve();
-    },
+/** A tiny Web Locks with `steal`: a new request takes the lock, the request of the old holder ends with an `AbortError`. */
+function fakeLocks(): LockManagerLike & { holders: Map<string, (error: Error) => void> } {
+  const holders = new Map<string, (error: Error) => void>();
+  return {
+    holders,
+    request: (name, _options, callback) =>
+      new Promise((_resolve, reject) => {
+        holders.get(name)?.(new DOMException('stolen', 'AbortError'));
+        holders.set(name, reject);
+        // The holder's promise never ends (the lock is held until the page is gone).
+        void callback({ name });
+      }),
   };
-  return api;
 }
 
-describe('Ein Fenster speichert (R2)', () => {
-  it('das erste Fenster bekommt die Sperre, das zweite nicht', async () => {
+describe('Das neueste Fenster speichert (N1)', () => {
+  it('das erste Fenster bekommt die Sperre', async () => {
     const locks = fakeLocks();
-    expect(await acquireSaveLock(locks, 'test', 2, 1)).toBe('granted');
-    expect(await acquireSaveLock(locks, 'test', 2, 1)).toBe('taken');
-    expect(locks.calls).toBe(3);
+    let lost = 0;
+    expect(await acquireSaveLock(() => (lost += 1), locks, 'test')).toBe('granted');
+    expect(lost).toBe(0);
   });
 
-  it('ein Fenster, das gerade neu lädt, gibt die Sperre gleich frei: der Neustart bekommt sie noch', async () => {
+  it('ein neues Fenster übernimmt mit steal; das alte wird sofort benachrichtigt – genau einmal', async () => {
     const locks = fakeLocks();
-    await acquireSaveLock(locks, 'test', 1, 1);
-    setTimeout(() => {
-      locks.release('test');
-    }, 20);
-    expect(await acquireSaveLock(locks, 'test', 5, 15)).toBe('granted');
+    let lostA = 0;
+    let lostB = 0;
+    await acquireSaveLock(() => (lostA += 1), locks, 'test');
+    expect(await acquireSaveLock(() => (lostB += 1), locks, 'test')).toBe('granted');
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(lostA).toBe(1);
+    expect(lostB).toBe(0);
+    // A third window takes over from the second.
+    await acquireSaveLock(() => undefined, locks, 'test');
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(lostB).toBe(1);
+    expect(lostA).toBe(1);
   });
 
   it('andere Namen sperren sich nicht gegenseitig (zwei Kopien des Spiels)', async () => {
     const locks = fakeLocks();
-    expect(await acquireSaveLock(locks, 'village-save/Schlumpfwelt/', 1, 1)).toBe('granted');
-    expect(await acquireSaveLock(locks, 'village-save/anderes/', 1, 1)).toBe('granted');
+    let lost = 0;
+    await acquireSaveLock(() => (lost += 1), locks, 'village-save/eins/');
+    await acquireSaveLock(() => undefined, locks, 'village-save/zwei/');
+    await Promise.resolve();
+    expect(lost).toBe(0);
   });
 
-  it('ohne Web Locks oder bei einem Fehler: „nicht unterstützt“, das Spiel läuft trotzdem', async () => {
-    expect(await acquireSaveLock(undefined, 'test', 1, 1)).toBe('unsupported');
+  it('ohne Web Locks oder bei einem Fehler: „nicht unterstützt“ – dann entscheidet der Eintrag in der Datenbank', async () => {
+    expect(await acquireSaveLock(() => undefined, undefined, 'test')).toBe('unsupported');
     const broken: LockManagerLike = { request: () => Promise.reject(new Error('gesperrt')) };
-    expect(await acquireSaveLock(broken, 'test', 1, 1)).toBe('unsupported');
+    let lost = 0;
+    expect(await acquireSaveLock(() => (lost += 1), broken, 'test')).toBe('unsupported');
+    expect(lost).toBe(0);
   });
 });

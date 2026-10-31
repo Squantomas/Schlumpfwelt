@@ -55,3 +55,14 @@ export class MemoryStore implements SaveStore {
     return Promise.resolve(BACKUP_KEYS.filter((key) => this.backups.has(key)).map((key) => structuredClone(this.backups.get(key))));
   }
 }
+
+/**
+ * Thrown by `save` when another window has taken over the saving (the newest window saves, see `tabLock.ts`): this
+ * window has to stop writing for good – what it holds may be older than what the other window saved.
+ */
+export class OwnerLostError extends Error {
+  constructor() {
+    super('another window saves now');
+    this.name = 'OwnerLostError';
+  }
+}

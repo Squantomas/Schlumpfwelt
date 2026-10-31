@@ -322,6 +322,13 @@ export class BuildUI {
     );
   }
 
+  /** Is this screen point (CSS px) on the round gear button? (The wheel over it does not zoom the island.) */
+  overMenuButton(x: number, y: number): boolean {
+    const { x: left, y: top, width, height } = this.menuRect;
+    const radius = width / 2;
+    return width > 0 && Math.hypot(x - (left + radius), y - (top + height / 2)) <= radius;
+  }
+
   /** Call whenever the visible area changes (start, resize, rotation). `zoomSpots` are published with the others. */
   layout(size: ViewSize, zoomSpots: Record<string, UiSpot>): void {
     this.view = size;

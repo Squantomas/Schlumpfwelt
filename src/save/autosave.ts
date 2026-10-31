@@ -1,7 +1,7 @@
 import type { DeepReadonly } from '../sim/readonly';
 import { toSaveData } from '../sim/saveData';
 import type { SimState } from '../sim/state';
-import type { SaveStore } from './saveStore';
+import { OwnerLostError, type SaveStore } from './saveStore';
 
 export interface AutosaveOptions {
   /** Saves at least this often while the game runs (ms). Default: every minute. */
@@ -49,6 +49,10 @@ export class Autosave {
   private seenRevision = 0;
   private blockedUntil = Number.NEGATIVE_INFINITY;
   private inFlight: Promise<void> | undefined;
+  /** Another window took over the saving: nothing is written any more, for good. */
+  private lost = false;
+  /** A write that was asked for (an imported village) failed: it is tried again as soon as writing is allowed again. */
+  private owed = false;
   /** Someone asked for a write while one was running. */
   private again: 'no' | 'ifChanged' | 'always' = 'no';
   private lastNow = 0;
@@ -64,6 +68,17 @@ export class Autosave {
     this.debounceMs = options.debounceMs ?? AUTOSAVE_DEBOUNCE_MS;
   }
 
+  /** Has another window taken over the saving? Then this window never writes again (the newest window saves). */
+  get isLost(): boolean {
+    return this.lost;
+  }
+
+  /** Another window took over (told by the Web Lock, see `tabLock.ts`). */
+  markLost(): void {
+    this.lost = true;
+    this.again = 'no';
+  }
+
   get stats(): AutosaveStats {
     return { saves: this.saves, failures: this.failures, savedTick: this.savedTick };
   }
@@ -71,6 +86,9 @@ export class Autosave {
   /** Call once per frame with a time in ms that only goes up. */
   update(nowMs: number): void {
     this.lastNow = nowMs;
+    if (this.lost) {
+      return;
+    }
     const state = this.read();
     if (!this.seen) {
       this.remember(state, nowMs);
@@ -91,14 +109,17 @@ export class Autosave {
     if (nowMs < this.blockedUntil) {
       return;
     }
-    const due = (changed && nowMs - this.lastChangeAt >= this.debounceMs) || (state.tick !== this.savedTick && nowMs - this.lastSaveAt >= this.intervalMs);
+    const due = this.owed || (changed && nowMs - this.lastChangeAt >= this.debounceMs) || (state.tick !== this.savedTick && nowMs - this.lastSaveAt >= this.intervalMs);
     if (due) {
-      void this.write('ifChanged');
+      void this.write(this.owed ? 'always' : 'ifChanged');
     }
   }
 
   /** The page is being left or hidden: save at once if anything changed since the last save. */
   flush(): Promise<void> {
+    if (this.lost) {
+      return Promise.resolve();
+    }
     const state = this.read();
     if (!this.seen) {
       this.remember(state, this.lastNow);
@@ -111,6 +132,9 @@ export class Autosave {
 
   /** Saves right now, whatever changed (after a file was loaded). */
   saveNow(): Promise<void> {
+    if (this.lost) {
+      return Promise.resolve();
+    }
     return this.write('always');
   }
 
@@ -141,9 +165,14 @@ export class Autosave {
     return running;
   }
 
+  /** What was asked for while the write ran (a method, so the type is not narrowed by earlier assignments). */
+  private pending(): 'no' | 'ifChanged' | 'always' {
+    return this.again;
+  }
+
   private async run(first: 'ifChanged' | 'always'): Promise<void> {
     let kind: 'no' | 'ifChanged' | 'always' = first;
-    while (kind !== 'no') {
+    while (kind !== 'no' && !this.lost) {
       this.again = 'no';
       // The data is copied now, so what is saved is exactly this moment.
       const state = this.read();
@@ -155,12 +184,21 @@ export class Autosave {
       const startedAt = this.lastNow;
       try {
         await this.store.save(data);
-      } catch {
-        // Full disk, blocked storage …: try again later, quietly.
+      } catch (error) {
+        if (error instanceof OwnerLostError) {
+          // Another window saves now: never write again (what this window has may be older).
+          this.lost = true;
+          this.again = 'no';
+          return;
+        }
+        // Full disk, blocked storage …: try again later, quietly – a write that was asked for (import) is not forgotten.
         this.failures += 1;
         this.blockedUntil = startedAt + this.intervalMs;
+        this.owed ||= kind === 'always' || this.pending() === 'always';
+        this.again = 'no';
         return;
       }
+      this.owed = false;
       this.saves += 1;
       this.savedTick = tick;
       this.savedRevision = revision;

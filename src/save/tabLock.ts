@@ -1,58 +1,56 @@
 /**
- * Only one window may save the village: with the web app and a browser tab open at once, the one with the older
- * state would write over the progress of the other when it closes. A Web Lock (held until the page is gone) says
- * who saves; the second window plays on without saving and says so.
+ * The newest window saves the village. With the web app and a browser tab open at once, only one of them may write:
+ * a window that was forgotten in the background (an old tab) must not keep the saving for ever, and the one with the
+ * older state must never write over the newer progress of the other.
+ *
+ * Two layers, the same rule ("the newest window saves"):
+ * - The **owner entry** in the database (`indexedDbStore.ts`): every window enters its own name when it opens, and
+ *   every write checks in the same transaction that the name is still its own. This is what protects the data, in every
+ *   browser: the window that opened first can not write after the newer one has opened and loaded.
+ * - The **Web Lock** (here): the newest window takes the lock with `steal`, the old window is told at once (its request
+ *   ends with an `AbortError`) and stops, instead of finding out at its next write – up to a minute later. Without Web
+ *   Locks the old window finds out at its next write.
  */
 
 /** The part of `navigator.locks` that is used (so tests can bring their own). */
 export interface LockManagerLike {
-  request(name: string, options: { ifAvailable: boolean }, callback: (lock: unknown) => Promise<void> | undefined): Promise<unknown>;
+  request(name: string, options: { steal: boolean }, callback: (lock: unknown) => Promise<void> | undefined): Promise<unknown>;
 }
 
-/**
- * - `granted`: this window saves.
- * - `taken`: another window already has the lock – this one does not save.
- * - `unsupported`: no Web Locks in this browser (the store then lets the newest window save).
- */
-export type LockResult = 'granted' | 'taken' | 'unsupported';
+/** `granted`: this window holds the lock (the older window was told). `unsupported`: no Web Locks – the owner entry alone decides. */
+export type LockResult = 'granted' | 'unsupported';
 
 export const LOCK_NAME = `village-save${import.meta.env.BASE_URL}`;
 
 /**
- * Tries to take the lock. A window that is being replaced by a reload may still hold it for a moment, so a "taken"
- * is asked again a few times (`tries` × `waitMs`) before it counts.
+ * Takes the lock from whoever holds it. `onLost` is called when a newer window takes it from this one (once). The lock is
+ * held until the page is gone.
  */
 export async function acquireSaveLock(
+  onLost: () => void,
   locks: LockManagerLike | undefined = typeof navigator === 'undefined' ? undefined : (navigator as { locks?: LockManagerLike }).locks,
   name = LOCK_NAME,
-  tries = 3,
-  waitMs = 150,
 ): Promise<LockResult> {
   if (!locks) {
     return 'unsupported';
   }
-  for (let attempt = 0; attempt < tries; attempt += 1) {
-    try {
-      const granted = await new Promise<boolean>((resolve, reject) => {
-        locks
-          .request(name, { ifAvailable: true }, (lock) => {
-            resolve(lock !== null);
-            // Hold the lock until this page is gone (the promise never ends).
-            return lock === null ? undefined : new Promise<void>(() => undefined);
-          })
-          .catch(reject);
-      });
-      if (granted) {
-        return 'granted';
-      }
-    } catch {
-      return 'unsupported';
-    }
-    if (attempt + 1 < tries) {
-      await new Promise((resolve) => {
-        setTimeout(resolve, waitMs);
-      });
-    }
+  try {
+    return await new Promise<LockResult>((resolve) => {
+      locks
+        .request(name, { steal: true }, () => {
+          resolve('granted');
+          // Hold the lock until this page is gone (the promise never ends).
+          return new Promise<void>(() => undefined);
+        })
+        .catch((error: unknown) => {
+          if (error instanceof DOMException && error.name === 'AbortError') {
+            // A newer window stole the lock: this one saves no more.
+            onLost();
+          }
+          resolve('unsupported');
+        });
+    });
+  } catch {
+    return 'unsupported';
   }
-  return 'taken';
 }

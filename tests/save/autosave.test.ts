@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { Autosave } from '../../src/save/autosave';
 import { saveWhenLeaving } from '../../src/save/lifecycle';
-import { MemoryStore, type SaveStore } from '../../src/save/saveStore';
+import { MemoryStore, OwnerLostError, type SaveStore } from '../../src/save/saveStore';
 import { fromSaveData } from '../../src/sim/saveData';
 import { createInitialState, type SimState } from '../../src/sim/state';
 
@@ -35,6 +35,13 @@ class SlowStore implements SaveStore {
       }
       this.pending.push({ resolve, reject });
     });
+  }
+
+  /** The writes that are running now fail. */
+  fail(): void {
+    for (const entry of this.pending.splice(0)) {
+      entry.reject(new Error('Speicher voll'));
+    }
   }
 
   finish(): void {
@@ -310,5 +317,106 @@ describe('Speichern beim Verlassen der Seite', () => {
     win.dispatchEvent(new Event('pagehide'));
     await settle();
     expect(store.writes).toBe(2);
+  });
+});
+
+describe('Autosave: ein Schreibvorgang, der misslingt, vergisst den Import nicht (N5)', () => {
+  it('ein wartendes saveNow wird nach der Pause nachgeholt', async () => {
+    const state = createInitialState(2);
+    const store = new SlowStore();
+    const autosave = new Autosave(store, () => state);
+    autosave.update(0);
+    state.revision += 1;
+    autosave.update(100);
+    expect(store.writes).toHaveLength(1);
+    // The village of an imported file is waiting while this write fails.
+    state.inventory['coins'] = 4242;
+    autosave.rebase(150);
+    const done = autosave.saveNow();
+    store.fail();
+    await done;
+    expect(autosave.stats.failures).toBe(1);
+    // Nothing is written during the pause …
+    autosave.update(5_000);
+    await settle();
+    expect(store.writes).toHaveLength(1);
+    // … and after it the import is written although nothing else changed.
+    autosave.update(100 + 60_000 + 1);
+    expect(store.writes).toHaveLength(2);
+    store.finish();
+    await settle();
+    expect((store.writes[1] as { inventory: Record<string, number> }).inventory['coins']).toBe(4242);
+    expect(autosave.stats.saves).toBe(1);
+    autosave.update(200_000);
+    await settle();
+    expect(store.writes).toHaveLength(2);
+  });
+});
+
+describe('Autosave: ein anderes Fenster hat übernommen (N1, N4)', () => {
+  function lostStore(): SaveStore & { writes: number } {
+    const store = {
+      kind: 'indexedDb' as const,
+      writes: 0,
+      load: () => Promise.resolve(undefined),
+      saveBackup: () => Promise.resolve(),
+      loadBackups: () => Promise.resolve([] as unknown[]),
+      save: () => {
+        store.writes += 1;
+        return Promise.reject(new OwnerLostError());
+      },
+    };
+    return store;
+  }
+
+  it('beim ersten Abbruch wegen eines fremden Besitzers ist Schluss: kein zweiter Versuch, nie wieder ein Schreibvorgang', async () => {
+    const state = createInitialState(2);
+    const store = lostStore();
+    const autosave = new Autosave(store, () => state);
+    autosave.update(0);
+    state.revision += 1;
+    autosave.update(100);
+    await settle();
+    expect(store.writes).toBe(1);
+    expect(autosave.isLost).toBe(true);
+    expect(autosave.stats.failures).toBe(0);
+    for (let now = 1000; now < 300_000; now += 5000) {
+      state.tick += 50;
+      state.revision += 1;
+      autosave.update(now);
+    }
+    await autosave.flush();
+    await autosave.saveNow();
+    await settle();
+    expect(store.writes).toBe(1);
+  });
+
+  it('markLost (die Web Lock wurde übernommen) schaltet den Autosave ab, ohne noch einmal zu schreiben', async () => {
+    const { state, autosave, store } = setup();
+    autosave.update(0);
+    autosave.markLost();
+    expect(autosave.isLost).toBe(true);
+    state.revision += 1;
+    state.tick += 100;
+    autosave.update(100);
+    await autosave.flush();
+    await autosave.saveNow();
+    await settle();
+    expect(store.writes).toBe(0);
+  });
+
+  it('ein Schreibvorgang, der beim Übernehmen läuft, zieht keinen Nachschlag mehr nach', async () => {
+    const state = createInitialState(2);
+    const store = new SlowStore();
+    const autosave = new Autosave(store, () => state);
+    autosave.update(0);
+    state.revision += 1;
+    autosave.update(100);
+    state.revision += 1;
+    autosave.update(200);
+    autosave.markLost();
+    store.finish();
+    await settle();
+    expect(store.writes).toHaveLength(1);
   });
 });

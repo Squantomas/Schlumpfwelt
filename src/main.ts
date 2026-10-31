@@ -40,13 +40,20 @@ function randomSeed(): number {
 async function start(root: HTMLElement): Promise<void> {
   // `?nosave=1` (tests) neither loads nor saves; `?seed=N` alone only picks the island of a new village (see `src/save/startup.ts`).
   const params = parseStartParams(window.location.search);
-  // One window saves: a second one (web app and browser tab) plays on without saving, so it can not overwrite the first.
-  const lock = params.persist ? await acquireSaveLock() : 'granted';
-  const store = params.persist ? await openSaveStore(lock === 'unsupported') : new MemoryStore();
-  const begin = await prepareStart(params, store, randomSeed, lock !== 'taken');
+  // The newest window saves (web app and browser tab, or an old forgotten tab): this one takes over first, then reads the
+  // village – the last one the older window wrote – and that window is told and stops (see `src/save/tabLock.ts`).
+  const holder: { autosave: Autosave | undefined } = { autosave: undefined };
+  if (params.persist) {
+    await acquireSaveLock(() => {
+      holder.autosave?.markLost();
+    });
+  }
+  const store = params.persist ? await openSaveStore() : new MemoryStore();
+  const begin = await prepareStart(params, store, randomSeed);
 
   const simulation = new Simulation(begin.state);
   const autosave = begin.autosave ? new Autosave(store, () => simulation.state) : undefined;
+  holder.autosave = autosave;
   if (autosave) {
     saveWhenLeaving(autosave);
   }

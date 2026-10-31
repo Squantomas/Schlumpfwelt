@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { t } from '../../src/data/texts';
 import { MemoryStore, type SaveStore } from '../../src/save/saveStore';
 import { parseStartParams, prepareStart } from '../../src/save/startup';
 import { SAVE_VERSION, toSaveData } from '../../src/sim/saveData';
@@ -133,19 +134,12 @@ describe('Start: Laden beim Start', () => {
     expect(await future.loadBackups()).toEqual([]);
   });
 
-  it('R2: ein zweites Fenster liest das Dorf, schreibt aber nichts (auch keine Kopie) und sagt es', async () => {
-    const saved = createInitialState(99);
-    saved.tick = 777;
-    const inner = new MemoryStore(toSaveData(saved));
-    const start = await prepareStart(parseStartParams(''), idbLike(undefined, inner), random, false);
-    expect(start.kind).toBe('otherWindow');
-    expect(start.autosave).toBe(false);
-    expect(start.notice).toBe('save.otherWindow');
-    expect(start.state.tick).toBe(777);
-    expect(inner.writes).toBe(0);
-    const broken = new MemoryStore({ kaputt: 1 });
-    const second = await prepareStart(parseStartParams(''), idbLike(undefined, broken), random, false);
-    expect(second.autosave).toBe(false);
-    expect(await broken.loadBackups()).toEqual([]);
+  it('N6: lässt sich die Kopie nicht anlegen, sagt der Satz auch, dass nicht gespeichert wird', async () => {
+    const inner = new MemoryStore({ kaputt: true });
+    const store: SaveStore = { ...idbLike(undefined, inner), saveBackup: () => Promise.reject(new Error('voll')) };
+    const start = await prepareStart(parseStartParams(''), store, random);
+    expect(start.notice).toBe('save.startBrokenNoSave');
+    expect(t('save.startBrokenNoSave')).toMatch(/nicht gespeichert/);
+    expect(t('save.startBroken')).not.toMatch(/nicht gespeichert/);
   });
 });

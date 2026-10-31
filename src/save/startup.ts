@@ -28,12 +28,12 @@ export function parseStartParams(search: string): StartParams {
 }
 
 /** What happened when the saved village was looked for. */
-export type StartKind = 'new' | 'loaded' | 'unreadable' | 'tooNew' | 'storageFailed' | 'otherWindow';
+export type StartKind = 'new' | 'loaded' | 'unreadable' | 'tooNew' | 'storageFailed';
 
 export interface StartResult {
   readonly state: SimState;
   readonly kind: StartKind;
-  /** Save while playing? (Not when the save is from a newer version, the store failed, the address says no, or another window owns the saving.) */
+  /** Save while playing? (Not when the save is from a newer version, the store failed, or the address says no.) */
   readonly autosave: boolean;
   /** A friendly sentence for the child or the parents, or `undefined`. */
   readonly notice: TextKey | undefined;
@@ -43,21 +43,10 @@ export interface StartResult {
  * Looks for a saved village and returns the state to start with. Never
  * throws: whatever is stored, the game starts (with a new island if the save is unusable).
  */
-export async function prepareStart(params: StartParams, store: SaveStore, randomSeed: () => number, ownsSaving = true): Promise<StartResult> {
+export async function prepareStart(params: StartParams, store: SaveStore, randomSeed: () => number): Promise<StartResult> {
   const fresh = (): SimState => createInitialState(params.seed ?? randomSeed());
   if (!params.persist) {
     return { state: fresh(), kind: 'new', autosave: false, notice: undefined };
-  }
-  if (!ownsSaving) {
-    // Another window saves: this one only reads (the village as it is now) and writes nothing, not even a copy.
-    let other: unknown;
-    try {
-      other = await store.load();
-    } catch {
-      other = undefined;
-    }
-    const read = other === undefined ? undefined : fromSaveData(other);
-    return { state: read?.ok ? read.state : fresh(), kind: 'otherWindow', autosave: false, notice: 'save.otherWindow' };
   }
   const memoryNotice = store.kind === 'memory' ? 'save.noStorage' : undefined;
   let stored: unknown;
@@ -83,7 +72,7 @@ export async function prepareStart(params: StartParams, store: SaveStore, random
     await store.saveBackup(stored);
   } catch {
     // No copy possible: then nothing is written over it either.
-    return { state: fresh(), kind: 'unreadable', autosave: false, notice: 'save.startBroken' };
+    return { state: fresh(), kind: 'unreadable', autosave: false, notice: 'save.startBrokenNoSave' };
   }
   return { state: fresh(), kind: 'unreadable', autosave: true, notice: 'save.startBroken' };
 }

@@ -185,7 +185,7 @@ export class IslandScene extends Phaser.Scene {
       blocksCamera: (object) => object.displayList === this.uiLayer,
       blocksPoint: (x, y) => this.menu.isOpen || this.buildUI.coversPoint(x, y),
       // The wheel is for the island only: not over panels, not while the menu or the shop covers it.
-      blocksWheel: (x, y) => this.menu.isOpen || this.buildUI.shopOpen || this.buildUI.coversPoint(x, y),
+      blocksWheel: (x, y) => this.menu.isOpen || this.buildUI.shopOpen || this.buildUI.coversPoint(x, y) || this.buildUI.overMenuButton(x, y),
       onTap: (point, _screen, time) => this.handleTap(point, time),
     });
 
@@ -260,6 +260,10 @@ export class IslandScene extends Phaser.Scene {
     const seconds = ((this.simulation.state.tick + alpha) * this.simulation.tickMs) / 1000;
 
     this.session.autosave?.update(time);
+    const lost = this.session.takeLostNotice();
+    if (lost) {
+      this.buildUI.showNotice(lost);
+    }
     this.controller.update(delta);
     this.publishCamera();
     this.updateVillage(seconds, delta);

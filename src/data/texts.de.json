@@ -124,6 +124,7 @@
   "menu.errorBroken": "Diese Datei ist kaputt. Dein Dorf bleibt, wie es ist.",
   "menu.errorTooBig": "Die Datei ist viel zu groß. Dein Dorf bleibt, wie es ist.",
   "menu.errorRead": "Die Datei ließ sich nicht lesen. Dein Dorf bleibt, wie es ist.",
-  "save.otherWindow": "Das Spiel ist schon in einem anderen Fenster offen. Hier wird nicht gespeichert.",
-  "hint.full": "Dein Dorf ist voll. Reiß etwas ab, dann ist wieder Platz."
+  "hint.full": "Dein Dorf ist voll. Reiß etwas ab, dann ist wieder Platz.",
+  "save.lostWindow": "Das Spiel ist jetzt in einem anderen Fenster offen. Hier wird nicht mehr gespeichert.",
+  "save.startBrokenNoSave": "Dein altes Dorf ging nicht auf. Hier ist eine neue Insel – sie wird nicht gespeichert."
 }

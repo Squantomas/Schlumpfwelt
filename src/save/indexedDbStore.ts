@@ -1,4 +1,4 @@
-import { BACKUP_KEYS, MemoryStore, type SaveStore } from './saveStore';
+import { BACKUP_KEYS, MemoryStore, OwnerLostError, type SaveStore } from './saveStore';
 
 /**
  * One database per address of the game: every copy on the same origin (a copy and a test copy next to it)
@@ -8,7 +8,7 @@ const DB_NAME = `village-game${import.meta.env.BASE_URL}`;
 const DB_VERSION = 1;
 const STORE_NAME = 'saves';
 const KEY = 'main';
-/** Which window may write (only without Web Locks, see `tabLock.ts`). */
+/** Which window may write: the newest one (see `tabLock.ts`). */
 const OWNER_KEY = 'owner';
 /** Some browsers never answer when storing is blocked: after this long the memory store takes over (the start screen waits for it, so it is short). */
 const OPEN_TIMEOUT_MS = 2000;
@@ -45,15 +45,12 @@ class IndexedDbStore implements SaveStore {
 
   constructor(
     private readonly db: IDBDatabase,
-    /** Without Web Locks: the window that opened last owns the saving; an older window does not overwrite its village. */
-    private readonly session: string | undefined,
+    /** The name of this window: the one that opened last owns the saving, an older window never overwrites its village. */
+    private readonly session: string,
   ) {}
 
   /** Takes over the saving for this window (the newest window wins). */
   async claim(): Promise<void> {
-    if (this.session === undefined) {
-      return;
-    }
     const transaction = this.db.transaction(STORE_NAME, 'readwrite');
     transaction.objectStore(STORE_NAME).put(this.session, OWNER_KEY);
     await transactionDone(transaction);
@@ -68,20 +65,22 @@ class IndexedDbStore implements SaveStore {
   async save(data: unknown): Promise<void> {
     const transaction = this.db.transaction(STORE_NAME, 'readwrite');
     const objects = transaction.objectStore(STORE_NAME);
-    if (this.session === undefined) {
-      objects.put(data, KEY);
-    } else {
-      // Check and write in one transaction: nothing can slip in between.
-      const owner = objects.get(OWNER_KEY);
-      owner.onsuccess = () => {
-        if (owner.result === this.session) {
-          objects.put(data, KEY);
-        } else {
-          transaction.abort();
-        }
-      };
+    let lost = false;
+    // Check and write in one transaction: nothing can slip in between.
+    const owner = objects.get(OWNER_KEY);
+    owner.onsuccess = () => {
+      if (owner.result === this.session) {
+        objects.put(data, KEY);
+      } else {
+        lost = true;
+        transaction.abort();
+      }
+    };
+    try {
+      await transactionDone(transaction);
+    } catch (error) {
+      throw lost ? new OwnerLostError() : error;
     }
-    await transactionDone(transaction);
   }
 
   async saveBackup(data: unknown): Promise<void> {
@@ -136,14 +135,15 @@ function newSessionId(): string {
 
 /**
  * The store of the browser: IndexedDB if it works (within a short time), otherwise a memory store (quietly – the game
- * runs on, saving to a file still works). `ownerCheck` is for browsers without Web Locks: then the window that opened
- * last owns the saving. Also asks the installed web app for lasting storage (see {@link requestPersistentStorage}).
+ * runs on, saving to a file still works). Opening takes over the saving for this window (the newest window saves) – do it
+ * **before** the village is read, so the village that is read is the last one the older window wrote. Also asks the installed
+ * web app for lasting storage (see {@link requestPersistentStorage}).
  */
-export async function openSaveStore(ownerCheck = false): Promise<SaveStore> {
+export async function openSaveStore(): Promise<SaveStore> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     const open = async (): Promise<SaveStore> => {
-      const store = new IndexedDbStore(await openDatabase(), ownerCheck ? newSessionId() : undefined);
+      const store = new IndexedDbStore(await openDatabase(), newSessionId());
       // A real read proves that this browser lets us use it (some only fail at the first transaction).
       await store.load();
       await store.claim();

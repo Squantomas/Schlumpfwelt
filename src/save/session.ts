@@ -35,9 +35,20 @@ export class GameSession {
     return notice;
   }
 
-  /** Does the village save itself? */
+  /** Does the village save itself? (Not any more once another window has taken over.) */
   get saves(): boolean {
-    return this.autosave !== undefined;
+    return this.autosave !== undefined && !this.autosave.isLost;
+  }
+
+  /** Is the sentence "now in another window" still to be shown? Once: when the newest window took over the saving. */
+  private lostAnnounced = false;
+
+  takeLostNotice(): TextKey | undefined {
+    if (this.autosave?.isLost !== true || this.lostAnnounced) {
+      return undefined;
+    }
+    this.lostAnnounced = true;
+    return 'save.lostWindow';
   }
 
   /**
@@ -59,6 +70,7 @@ export class GameSession {
     return JSON.stringify({
       store: this.store.kind,
       autosave: this.saves,
+      lost: this.autosave?.isLost ?? false,
       start: this.kind,
       startTick: this.startTick,
       startStock: this.startStock,
