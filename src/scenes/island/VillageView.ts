@@ -1,13 +1,16 @@
 import Phaser from 'phaser';
 import { buildingType } from '../../data/buildings';
-import { buildingAt, tileIndex, unconnectedBuildings } from '../../sim/buildings';
+import { format } from '../../data/texts';
+import { buildingAt, isConnected, tileIndex } from '../../sim/buildings';
+import { nearbyArea, nearbyTiles, productionOf } from '../../sim/economy';
 import type { Simulation } from '../../sim/simulation';
 import type { PathPreviewTile, Preview } from '../../ui/buildTool';
+import { createLabel } from '../../ui/label';
 import { markerY } from '../../ui/markerPosition';
+import { missingInputOf } from '../../ui/productionInfo';
 import { COLORS, TILE_SIZE } from '../../ui/style';
 import {
   MARKER_BUBBLE,
-  MARKER_KEY,
   MARKER_SIZE,
   PUFF_KEY,
   buildingOrigin,
@@ -15,6 +18,7 @@ import {
   pathTextureKey,
   registerBuildingTextures,
 } from './buildingTextures';
+import { goodTextureKey, registerGoodTextures, signTextureKey } from './goodTextures';
 import { TEXTURE_SCALE } from './objectTextures';
 
 const PATH_DEPTH = 2;
@@ -22,6 +26,11 @@ const OVERLAY_DEPTH = 800_000;
 const GHOST_DEPTH = 800_001;
 const PUFF_DEPTH = 900_000;
 const MARKER_DEPTH = 950_000;
+const POPUP_DEPTH = 960_000;
+/** A "+1" over a building is at least this big on screen (CSS px). */
+const POPUP_MIN_CSS_PX = 30;
+const POPUP_MS = 1300;
+const INSPECT_DEPTH = 700_000;
 /** The sign above a house is at least this big on screen (CSS px), so it is seen from far away. */
 const MARKER_MIN_CSS_PX = 46;
 const MARKER_MAX_SCALE = 3.4;
@@ -36,6 +45,8 @@ interface BuildingSprite {
 
 interface Marker {
   readonly image: Phaser.GameObjects.Image;
+  /** What the sign says: `path`, `tree`, `rock` or `good-<id>`. */
+  readonly kind: string;
   readonly phase: number;
   readonly baseX: number;
   readonly baseY: number;
@@ -47,17 +58,29 @@ interface Marker {
 }
 
 /**
- * Draws what the simulation says is built: house and deco sprites (sorted by
- * their front edge like trees), path tiles that join their neighbours, the
- * signs above houses without a path, the preview of what the child is about
- * to build, and little puffs. It only reads the state; `sync()` compares the
- * state's `revision` with the last drawn one and redraws only on a change.
+ * Draws what the simulation says is built: house, deco and production
+ * building sprites (sorted by their front edge like trees), path tiles that
+ * join their neighbours, the signs above buildings that have a problem (no
+ * path, no trees nearby, waiting for wood …), the preview of what the child is
+ * about to build, little puffs, and – for working production buildings – a
+ * gentle rocking and a floating "+1" when something was delivered. It only
+ * reads the state; `sync()` compares the state's `revision` with the last
+ * drawn one and redraws only on a change, the signs are looked at once per
+ * tick.
  */
 export class VillageView {
   private readonly sprites = new Map<number, BuildingSprite>();
   private readonly pathImages = new Map<number, Phaser.GameObjects.Image>();
   private readonly markers = new Map<number, Marker>();
   private readonly overlay: Phaser.GameObjects.Graphics;
+  /** The area (and the trees / rocks in it) of the production building whose card is open. */
+  private readonly inspectOverlay: Phaser.GameObjects.Graphics;
+  /** How often each building had delivered when we last looked (a rise = a "+1"). */
+  private readonly delivered = new Map<number, number>();
+  /** Buildings that are rocking right now (so they can be set straight when they stop). */
+  private readonly rocking = new Set<number>();
+  private signTick = -1;
+  private inspectId: number | undefined;
   /** The ✓ / ✕ signs of the preview, above the ghost. */
   private readonly badges: Phaser.GameObjects.Graphics;
   private readonly ghost: Phaser.GameObjects.Image;
@@ -71,10 +94,12 @@ export class VillageView {
     private readonly simulation: Simulation,
   ) {
     registerBuildingTextures(scene);
+    registerGoodTextures(scene);
+    this.inspectOverlay = scene.add.graphics().setDepth(INSPECT_DEPTH);
     this.overlay = scene.add.graphics().setDepth(OVERLAY_DEPTH);
     this.ghost = scene.add.image(0, 0, PUFF_KEY).setDepth(GHOST_DEPTH).setVisible(false);
     this.badges = scene.add.graphics().setDepth(GHOST_DEPTH + 1);
-    layer.add([this.overlay, this.ghost, this.badges]);
+    layer.add([this.inspectOverlay, this.overlay, this.ghost, this.badges]);
   }
 
   /** Number of signs ("this house needs a path") that are showing. */
@@ -108,7 +133,14 @@ export class VillageView {
     this.revision = state.revision;
     this.syncBuildings(animate);
     this.syncPaths(animate);
-    this.syncMarkers(animate);
+    this.syncSigns(animate);
+    this.signTick = state.tick;
+    if (this.inspectId !== undefined) {
+      // The building may have moved: draw its area again.
+      const id = this.inspectId;
+      this.inspectId = undefined;
+      this.setInspect(id);
+    }
     return true;
   }
 
@@ -155,6 +187,8 @@ export class VillageView {
         }
         entry.image.destroy();
         this.sprites.delete(id);
+        this.delivered.delete(id);
+        this.rocking.delete(id);
         if (this.liftedId === id) {
           this.liftedId = undefined;
         }
@@ -205,10 +239,36 @@ export class VillageView {
     }
   }
 
-  private syncMarkers(animate: boolean): void {
+  /** The kind of sign each building needs right now: no path, no trees / rocks nearby, waiting for an input. */
+  private desiredSigns(): Map<number, string> {
+    const state = this.simulation.state;
+    const wanted = new Map<number, string>();
+    for (const building of state.buildings) {
+      const type = buildingType(building.type);
+      if (type?.needsPath && !isConnected(state, building.id)) {
+        wanted.set(building.id, 'path');
+        continue;
+      }
+      const producer = state.production.find((p) => p.buildingId === building.id);
+      if (!producer) {
+        continue;
+      }
+      if (producer.status === 'noNearby') {
+        wanted.set(building.id, productionOf(building.type)?.needsNearby?.terrain === 'rock' ? 'rock' : 'tree');
+      } else if (producer.status === 'waitingInput') {
+        const missing = missingInputOf(state, building.id);
+        if (missing !== undefined) {
+          wanted.set(building.id, `good-${missing}`);
+        }
+      }
+    }
+    return wanted;
+  }
+
+  private syncSigns(animate: boolean): void {
     const { buildings } = this.simulation.state;
-    const missing = new Set(unconnectedBuildings(this.simulation.state));
-    for (const id of missing) {
+    const wanted = this.desiredSigns();
+    for (const [id, kind] of wanted) {
       const building = buildings.find((b) => b.id === id);
       const type = building ? buildingType(building.type) : undefined;
       if (!building || !type) {
@@ -216,24 +276,24 @@ export class VillageView {
       }
       const existing = this.markers.get(id);
       const baseX = (building.x + type.footprint.w / 2) * TILE_SIZE;
-      // The tip of the sign points at the top of the cap.
+      // The tip of the sign points at the top of the roof or cap.
       const baseY = building.y * TILE_SIZE - type.look.rise * 0.62;
-      if (existing && !existing.leaving && existing.baseX === baseX && existing.baseY === baseY) {
+      if (existing && !existing.leaving && existing.kind === kind && existing.baseX === baseX && existing.baseY === baseY) {
         continue;
       }
       if (existing) {
         existing.image.destroy();
       }
       const image = this.scene.add
-        .image(baseX, baseY, MARKER_KEY)
+        .image(baseX, baseY, signTextureKey(kind))
         .setOrigin(0.5, 1)
         .setDepth(MARKER_DEPTH)
         .setScale(0);
       this.layer.add(image);
-      this.markers.set(id, { image, phase: id * 1.7, baseX, baseY, houseBottomY: (building.y + type.footprint.h) * TILE_SIZE, appear: animate ? 0 : 1, leaving: false });
+      this.markers.set(id, { image, kind, phase: id * 1.7, baseX, baseY, houseBottomY: (building.y + type.footprint.h) * TILE_SIZE, appear: animate ? 0 : 1, leaving: false });
     }
     for (const [id, marker] of this.markers) {
-      if (!missing.has(id)) {
+      if (!wanted.has(id)) {
         marker.leaving = true;
       }
     }
@@ -242,6 +302,12 @@ export class VillageView {
   /** Moves the signs (bobbing, size for the current zoom) and wobbles the lifted building. `seconds` is simulation time, `minWorldY` the top edge (world px) they must stay below. */
   update(seconds: number, deltaMs: number, zoom: number, minWorldY = Number.NEGATIVE_INFINITY): void {
     const step = Math.min(deltaMs, 100) / 1000;
+    // Whether a building waits for wood or has no path can change with every tick, not only with the revision.
+    if (this.simulation.state.tick !== this.signTick) {
+      this.signTick = this.simulation.state.tick;
+      this.syncSigns(true);
+    }
+    this.updateProduction(seconds, zoom);
     for (const [id, marker] of this.markers) {
       marker.appear = marker.leaving ? marker.appear - step * 5 : Math.min(1, marker.appear + step * 4);
       if (marker.leaving && marker.appear <= 0) {
@@ -263,6 +329,118 @@ export class VillageView {
     }
   }
 
+  /**
+   * Working production buildings rock gently; whenever a building has
+   * delivered something since the last look, a small picture with "+1" floats
+   * up from its roof (coins for the market).
+   */
+  private updateProduction(seconds: number, zoom: number): void {
+    const { production } = this.simulation.state;
+    for (const producer of production) {
+      const sprite = this.sprites.get(producer.buildingId);
+      if (!sprite) {
+        continue;
+      }
+      const lastDelivered = this.delivered.get(producer.buildingId);
+      if (lastDelivered !== undefined && producer.delivered > lastDelivered) {
+        this.popDelivery(producer.buildingId, zoom);
+      }
+      this.delivered.set(producer.buildingId, producer.delivered);
+
+      const rocks = producer.status === 'working' && this.liftedId !== producer.buildingId;
+      if (rocks) {
+        const phase = seconds * 5.5 + producer.buildingId;
+        sprite.image.setAngle(Math.sin(phase) * 1.1).setY(sprite.baseY - Math.max(0, Math.sin(phase * 2)) * 1.6);
+        this.rocking.add(producer.buildingId);
+      } else if (this.rocking.delete(producer.buildingId) && this.liftedId !== producer.buildingId) {
+        sprite.image.setAngle(0).setY(sprite.baseY);
+      }
+    }
+  }
+
+  /** What a building delivered last: its outputs, or the coins the market earned. */
+  private popDelivery(buildingId: number, zoom: number): void {
+    const { buildings, production } = this.simulation.state;
+    const building = buildings.find((b) => b.id === buildingId);
+    const type = building ? buildingType(building.type) : undefined;
+    const rules = building ? productionOf(building.type) : undefined;
+    const producer = production.find((p) => p.buildingId === buildingId);
+    if (!building || !type || !rules || !producer) {
+      return;
+    }
+    const amounts: [string, number][] = rules.sell ? [['coins', producer.lastSale]] : Object.entries(rules.outputs);
+    this.popAmounts((building.x + type.footprint.w / 2) * TILE_SIZE, building.y * TILE_SIZE - type.look.rise * 0.5, amounts, zoom);
+  }
+
+  /**
+   * Little pictures with "+3" that float up from a world point and fade away
+   * (a delivery, or the refund when something is demolished). Several
+   * amounts stand next to each other.
+   */
+  popAmounts(x: number, y: number, amounts: readonly (readonly [string, number])[], zoom: number): void {
+    const shown = amounts.filter(([, amount]) => amount > 0);
+    // Big enough on screen even when the island is far away.
+    const fit = Phaser.Math.Clamp(POPUP_MIN_CSS_PX / (28 * zoom), 1, 3);
+    const gap = 62 * fit;
+    shown.forEach(([id, amount], index) => {
+      const offset = (index - (shown.length - 1) / 2) * gap;
+      const picture = this.scene.add.image(-18 * fit, 0, goodTextureKey(id)).setDisplaySize(36 * fit, 36 * fit);
+      const label = createLabel(this.scene, format('+{count}', { count: amount }), 26).setPosition(16 * fit, 0).setScale(fit);
+      const group = this.scene.add.container(x + offset, y, [picture, label]).setDepth(POPUP_DEPTH);
+      this.layer.add(group);
+      group.setAlpha(0);
+      this.scene.tweens.add({ targets: group, alpha: 1, duration: 140 });
+      this.scene.tweens.add({
+        targets: group,
+        y: y - 64 * fit,
+        duration: POPUP_MS,
+        ease: 'Sine.easeOut',
+      });
+      this.scene.tweens.add({
+        targets: group,
+        alpha: 0,
+        delay: POPUP_MS * 0.55,
+        duration: POPUP_MS * 0.45,
+        onComplete: () => group.destroy(),
+      });
+    });
+  }
+
+  /** Shows (or hides, with `undefined`) the area around the production building whose info card is open. */
+  setInspect(buildingId: number | undefined): void {
+    if (buildingId === this.inspectId) {
+      return;
+    }
+    this.inspectId = buildingId;
+    const g = this.inspectOverlay.clear();
+    const building = buildingId === undefined ? undefined : this.simulation.state.buildings.find((b) => b.id === buildingId);
+    const type = building ? buildingType(building.type) : undefined;
+    if (building && type) {
+      this.drawNearby(g, building.type, building.x, building.y);
+    }
+  }
+
+  /** The soft area a lumberjack / quarry works in, with the trees / rocks in it marked. */
+  private drawNearby(g: Phaser.GameObjects.Graphics, typeId: string, x: number, y: number): void {
+    const type = buildingType(typeId);
+    const nearby = productionOf(typeId)?.needsNearby;
+    if (!type || !nearby) {
+      return;
+    }
+    const { world } = this.simulation.state;
+    const area = nearbyArea(world, type, x, y, nearby.radius);
+    const left = area.x0 * TILE_SIZE;
+    const top = area.y0 * TILE_SIZE;
+    const w = (area.x1 - area.x0 + 1) * TILE_SIZE;
+    const h = (area.y1 - area.y0 + 1) * TILE_SIZE;
+    g.fillStyle(COLORS.radiusFill, 0.2).fillRoundedRect(left, top, w, h, 22);
+    g.lineStyle(4, COLORS.radiusFill, 0.75).strokeRoundedRect(left, top, w, h, 22);
+    for (const tile of nearbyTiles(world, type, x, y, nearby.terrain, nearby.radius)) {
+      g.fillStyle(COLORS.radiusFill, 0.38).fillRoundedRect(tile.x * TILE_SIZE + 3, tile.y * TILE_SIZE + 3, TILE_SIZE - 6, TILE_SIZE - 6, 12);
+      g.lineStyle(3, COLORS.white, 0.9).strokeCircle((tile.x + 0.5) * TILE_SIZE, (tile.y + 0.5) * TILE_SIZE, 11);
+    }
+  }
+
   /** Shows what the child is about to build, move or demolish (green = fits, red = does not). */
   setPreview(preview: Preview): void {
     const g = this.overlay.clear();
@@ -274,6 +452,7 @@ export class VillageView {
       case 'none':
         return;
       case 'place': {
+        this.drawNearby(g, preview.typeId, preview.x, preview.y);
         this.showGhost(preview.typeId, preview.x, preview.y, preview.result === 'ok');
         break;
       }
@@ -290,6 +469,7 @@ export class VillageView {
         }
         this.liftedId = preview.id;
         if (preview.target) {
+          this.drawNearby(g, preview.typeId, preview.target.x, preview.target.y);
           this.showGhost(preview.typeId, preview.target.x, preview.target.y, preview.target.result === 'ok');
         }
         break;

@@ -31,8 +31,8 @@ import { TILE_SIZE } from './style';
  * (through `send`); the scene draws whatever `preview()` says.
  */
 
-/** What the tools read: the placement rules' view plus the working state (for refunds). */
-export type BuildToolState = PlacementView & DeepReadonly<Pick<SimState, 'production'>>;
+/** What the tools read: the placement rules' view plus the working state (for refunds) and the tick (for the cards). */
+export type BuildToolState = PlacementView & DeepReadonly<Pick<SimState, 'production' | 'tick'>>;
 
 export type ToolId = 'view' | 'path' | 'house' | 'building' | 'deco' | 'move' | 'demolish';
 
@@ -199,6 +199,15 @@ export class BuildTool {
   /** The production building whose info card is open (only while looking), if any. */
   get inspectedId(): number | undefined {
     return this.current === 'view' ? this.inspected : undefined;
+  }
+
+  /** Opens the info card of a production building (a tap on the sign above it). */
+  inspect(buildingId: number): void {
+    const building = this.getState().buildings.find((b) => b.id === buildingId);
+    if (this.current === 'view' && building && buildingType(building.type)?.category === 'production') {
+      this.inspected = buildingId;
+      this.changes += 1;
+    }
   }
 
   /** Closes the info card. */

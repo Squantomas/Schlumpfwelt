@@ -1,7 +1,8 @@
 import type Phaser from 'phaser';
 import { BUILDING_TYPES, type BuildingType } from '../../data/buildings';
 import { COLORS, HOUSE_PALETTES, FLOWER_PETALS, TILE_SIZE, cssColor, cssRgba } from '../../ui/style';
-import { circle, ellipse, make, roundedBox, type Draw } from './objectTextures';
+import { PAD, circle, ellipse, make, roundedBox, type Draw } from './objectTextures';
+import { PRODUCTION_DRAWERS } from './productionTextures';
 
 /**
  * Placeholder pictures for houses, decoration, paths and the little signs
@@ -11,8 +12,6 @@ import { circle, ellipse, make, roundedBox, type Draw } from './objectTextures';
  * the bottom of the texture.
  */
 
-/** Free space around the footprint in the texture (logical px): room for the shadow. */
-export const PAD = 8;
 
 export const PUFF_KEY = 'puff';
 export const MARKER_KEY = 'marker-path';
@@ -45,6 +44,7 @@ export function buildingOrigin(type: BuildingType): { x: number; y: number } {
 }
 
 const DRAWERS: Readonly<Record<string, (type: BuildingType) => Draw>> = {
+  ...Object.fromEntries(Object.entries(PRODUCTION_DRAWERS).map(([shape, draw]) => [shape, (): Draw => draw])),
   mushroomHouse: (type) => (ctx, w, h) => {
     drawMushroomHouse(ctx, w, h, type.look.palette ?? 'red');
   },

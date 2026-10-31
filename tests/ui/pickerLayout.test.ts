@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { pickerLayout, PICKER_ARROW } from '../../src/ui/pickerLayout';
+import { pickerLayout, PICKER_ARROW, PICKER_CELL_W, PICKER_CELL_W_NARROW } from '../../src/ui/pickerLayout';
 import { toolbarLayout, TOOLBAR_EDGE, TOOLBAR_GAP, TOOLBAR_PAD } from '../../src/ui/toolbarLayout';
 
 /** Oberkante der Werkzeugleiste und Unterkante der Hinweisleiste für eine Bildschirmgröße (wie in BuildUI). */
@@ -72,5 +72,22 @@ describe('Werkzeugleiste bei geringer Höhe', () => {
     const panelH = rows * size + (rows - 1) * TOOLBAR_GAP + 2 * TOOLBAR_PAD + TOOLBAR_EDGE;
     expect(panelH).toBeLessThan(160);
     expect(size).toBeGreaterThanOrEqual(56);
+  });
+});
+
+describe('pickerLayout: schmale Karten vor dem Blättern', () => {
+  it('nimmt auf dem Tablet die breiten Karten', () => {
+    const { top, bottom } = bands(1024, 768, 6);
+    expect(pickerLayout(1024, 6, top, bottom).cellW).toBe(PICKER_CELL_W);
+    expect(PICKER_CELL_W_NARROW).toBeLessThan(PICKER_CELL_W);
+  });
+
+  it('lässt die Karten im Feld und breit genug für Name und Preis', () => {
+    for (const [width, height] of [[320, 568], [360, 640], [768, 1024], [1024, 768]] as const) {
+      const { top, bottom } = bands(width, height, 6);
+      const layout = pickerLayout(width, 6, top, bottom);
+      expect(layout.cellW, `${String(width)}×${String(height)}`).toBeGreaterThanOrEqual(80);
+      expect(layout.cols * layout.cellW + (layout.cols - 1) * 8 + 16).toBeLessThanOrEqual(layout.rect.width + 0.001);
+    }
   });
 });

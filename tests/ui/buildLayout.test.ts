@@ -90,6 +90,15 @@ describe('Auswahl auf niedrigen Schirmen', () => {
     expect(layout.picker?.pages).toBeGreaterThan(1);
   });
 
+  it('zeigt sechs Gebäude auf einem hochkant gehaltenen Handy (320×568) in zwei Reihen schmaler Karten, ohne zu blättern', () => {
+    const layout = layoutBuildUi({ width: 320, height: 568, toolCount: 6, stockCount: 6, infoOpen: false, variantCount: 6, pickerOpen: true, hasPreview: false, hintHeight: HINT_MIN_HEIGHT, hintAtTop: true });
+    expect(layout.picker?.paged).toBe(false);
+    expect(layout.picker?.rows).toBe(2);
+    expect(layout.picker?.cols).toBe(3);
+    expect(layout.picker?.cellW).toBeLessThan(104);
+    expect(layout.picker?.fits).toBe(true);
+  });
+
   it('zeigt 3 Häuser ohne Pfeile, wenn sie ganz passen (568×320)', () => {
     const layout = layoutBuildUi({ width: 568, height: 320, toolCount: 6, stockCount: 6, infoOpen: false, variantCount: 3, pickerOpen: true, hasPreview: false, hintHeight: HINT_MIN_HEIGHT, hintAtTop: true });
     expect(layout.picker?.paged).toBe(false);

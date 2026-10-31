@@ -59,6 +59,12 @@ export function markVillage(info: {
   readonly terrain: string;
   /** Controls on screen: `{ name: { x, y, enabled } }` in CSS px. */
   readonly ui: string;
+  /** The numbers in the store bar as `{ coins: 60, wood: 14, … }`. */
+  readonly stock: string;
+  /** `[building id, status, times delivered]` per production building. */
+  readonly producers: string;
+  /** Id of the building whose info card is open, or an empty text. */
+  readonly card: string;
 }): void {
   const data = document.documentElement.dataset;
   const next = {
@@ -71,6 +77,9 @@ export function markVillage(info: {
     paths: info.paths,
     terrain: info.terrain,
     ui: info.ui,
+    stock: info.stock,
+    producers: info.producers,
+    card: info.card,
   };
   for (const [key, value] of Object.entries(next)) {
     if (data[key] !== value) {

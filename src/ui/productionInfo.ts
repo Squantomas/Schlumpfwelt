@@ -2,7 +2,7 @@ import { buildingType } from '../data/buildings';
 import { sellableGoods } from '../data/goods';
 import type { TextKey, TextParams } from '../data/texts';
 import { findBuilding, type PlacementView } from '../sim/buildings';
-import { amountOf, missingAmounts, productionOf, type ProducerState, type ProducerStatus } from '../sim/economy';
+import { amountOf, missingAmounts, productionOf, type ProducerStatus } from '../sim/economy';
 import type { DeepReadonly } from '../sim/readonly';
 import type { SimState } from '../sim/state';
 import { listText } from './costText';
@@ -72,7 +72,7 @@ type CardState = PlacementView & DeepReadonly<Pick<SimState, 'production'>>;
 /** The state of a production building for its card, or `undefined` if there is no such building. */
 export function cardStatus(state: CardState, buildingId: number): CardStatus | undefined {
   const building = findBuilding(state, buildingId);
-  const producer = state.production.find((p) => p.buildingId === buildingId) as DeepReadonly<ProducerState> | undefined;
+  const producer = state.production.find((p) => p.buildingId === buildingId);
   const type = building ? buildingType(building.type) : undefined;
   const rules = building ? productionOf(building.type) : undefined;
   if (!building || !type || !producer || !rules) {
