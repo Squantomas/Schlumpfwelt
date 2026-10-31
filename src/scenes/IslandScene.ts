@@ -184,6 +184,8 @@ export class IslandScene extends Phaser.Scene {
       wheelZoomPerPixel: CAMERA_CONFIG.wheelZoomPerPixel,
       blocksCamera: (object) => object.displayList === this.uiLayer,
       blocksPoint: (x, y) => this.menu.isOpen || this.buildUI.coversPoint(x, y),
+      // The wheel is for the island only: not over panels, not while the menu or the shop covers it.
+      blocksWheel: (x, y) => this.menu.isOpen || this.buildUI.shopOpen || this.buildUI.coversPoint(x, y),
       onTap: (point, _screen, time) => this.handleTap(point, time),
     });
 
@@ -210,6 +212,7 @@ export class IslandScene extends Phaser.Scene {
       () => {
         this.menu.open();
       },
+      () => this.menu.isOpen,
     );
     this.menu = new VillageMenu(this, this.uiLayer, this.session, {
       touched: (time) => {

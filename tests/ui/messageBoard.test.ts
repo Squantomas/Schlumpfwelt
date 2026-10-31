@@ -70,6 +70,8 @@ describe('Neuigkeit nur, wo die Hinweisleiste sie zeigt (Nacharbeit #17)', () =>
     expect(newsVisible({ hasPreview: true, shopOpen: false, inspectedId: undefined })).toBe(false);
     expect(newsVisible({ hasPreview: false, shopOpen: true, inspectedId: undefined })).toBe(false);
     expect(newsVisible({ hasPreview: false, shopOpen: false, inspectedId: 3 })).toBe(false);
+    expect(newsVisible({ hasPreview: false, shopOpen: false, inspectedId: undefined, menuOpen: true })).toBe(false);
+    expect(newsVisible({ hasPreview: false, shopOpen: false, inspectedId: undefined, menuOpen: false })).toBe(true);
   });
 
   it('startet die Uhr nicht, solange die Neuigkeit zurückgehalten wird, und zeigt sie danach volle 7 s', () => {

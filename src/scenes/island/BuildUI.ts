@@ -117,6 +117,8 @@ export class BuildUI {
     private readonly getState: () => BuildToolState,
     private readonly onChange: () => void,
     private readonly onMenu: () => void,
+    /** Is the menu behind the gear open? It covers the hint bar, so "Neu im Shop" must not run out under it. */
+    private readonly menuOpen: () => boolean,
   ) {
     registerGoodTextures(scene);
     this.stock = new StockBar(scene, uiLayer);
@@ -485,7 +487,7 @@ export class BuildUI {
 
   /** May news ("Neu im Shop") be shown now? Only where the hint bar really shows it – otherwise its 7 seconds would run out unseen. */
   private newsAllowed(): boolean {
-    return newsVisible({ hasPreview: this.tool.hasPreview, shopOpen: this.tool.shopOpen, inspectedId: this.tool.inspectedId });
+    return newsVisible({ hasPreview: this.tool.hasPreview, shopOpen: this.tool.shopOpen, inspectedId: this.tool.inspectedId, menuOpen: this.menuOpen() });
   }
 
   /** Brings the buttons in line with the tool state (highlight, shop, hint, ✓ / ✕). */
