@@ -71,27 +71,100 @@ describe('Autosave: wann gespeichert wird', () => {
     expect(store.writes).toBe(3);
   });
 
-  it('speichert eine Weile nach einer Bauaktion, nicht bei jedem Bild', async () => {
+  it('speichert eine Bauaktion sofort im nächsten Bild (hartes Schließen gleich danach darf nichts kosten)', async () => {
     const { state, autosave, store } = setup();
+    autosave.update(0);
+    state.revision += 1;
+    autosave.update(100);
+    await settle();
+    expect(store.writes).toBe(1);
+    // Nothing changed: nothing more is written.
+    autosave.update(200);
+    autosave.update(300);
+    await settle();
+    expect(store.writes).toBe(1);
+  });
+
+  it('mehrere Befehle im selben Tick sind eine Änderung: ein Schreibvorgang', async () => {
+    const { state, autosave, store } = setup();
+    autosave.update(0);
+    state.revision += 3;
+    autosave.update(100);
+    autosave.update(100);
+    await settle();
+    expect(store.writes).toBe(1);
+  });
+
+  it('wartet mit debounceMs, wenn man es verlangt', async () => {
+    const state = createInitialState(2);
+    const store = new MemoryStore();
+    const autosave = new Autosave(store, () => state, { debounceMs: 1500 });
     autosave.update(0);
     state.revision += 1;
     autosave.update(100);
     autosave.update(900);
     await settle();
     expect(store.writes).toBe(0);
-    // Another change keeps postponing it …
+    autosave.update(1700);
+    await settle();
+    expect(store.writes).toBe(1);
+  });
+
+  it('eine Serie von Bauaktionen während eines Schreibvorgangs ergibt genau einen Nachschlag, keinen Sturm', async () => {
+    const state = createInitialState(2);
+    const store = new SlowStore();
+    const autosave = new Autosave(store, () => state);
+    autosave.update(0);
     state.revision += 1;
-    autosave.update(1500);
-    autosave.update(2900);
+    autosave.update(100);
+    expect(store.writes).toHaveLength(1);
+    for (let i = 0; i < 20; i += 1) {
+      state.revision += 1;
+      autosave.update(200 + i * 100);
+    }
+    expect(store.writes).toHaveLength(1);
+    store.finish();
     await settle();
-    expect(store.writes).toBe(0);
-    // … until it was quiet long enough.
-    autosave.update(3100);
+    // The follow-up has the newest state of all the builds.
+    expect(store.writes).toHaveLength(2);
+    store.finish();
     await settle();
-    expect(store.writes).toBe(1);
-    autosave.update(3200);
+    expect(autosave.stats.saves).toBe(2);
+    expect((store.writes[1] as { revision: number }).revision).toBe(state.revision);
+    autosave.update(5000);
     await settle();
-    expect(store.writes).toBe(1);
+    expect(store.writes).toHaveLength(2);
+  });
+
+  it('saveNow und flush während eines Schreibvorgangs gehen nicht verloren (Import gleich nach einem Speichern)', async () => {
+    const state = createInitialState(2);
+    const store = new SlowStore();
+    const autosave = new Autosave(store, () => state);
+    autosave.update(0);
+    state.revision += 1;
+    autosave.update(100);
+    expect(store.writes).toHaveLength(1);
+    // A village from a file replaces the state while the write runs.
+    state.inventory['coins'] = 4242;
+    autosave.rebase(150);
+    const done = autosave.saveNow();
+    store.finish();
+    await settle();
+    expect(store.writes).toHaveLength(2);
+    expect((store.writes[1] as { inventory: Record<string, number> }).inventory['coins']).toBe(4242);
+    store.finish();
+    await done;
+    expect(autosave.stats.saves).toBe(2);
+    // flush while a write runs: the change after it is written as well.
+    state.revision += 1;
+    autosave.update(300);
+    state.tick += 5;
+    const flushed = autosave.flush();
+    store.finish();
+    await settle();
+    store.finish();
+    await flushed;
+    expect((store.writes[store.writes.length - 1] as { tick: number }).tick).toBe(state.tick);
   });
 
   it('flush speichert sofort, aber nur bei Änderungen', async () => {

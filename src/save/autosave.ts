@@ -6,7 +6,11 @@ import type { SaveStore } from './saveStore';
 export interface AutosaveOptions {
   /** Saves at least this often while the game runs (ms). Default: every minute. */
   readonly intervalMs?: number;
-  /** After a change of the village (building, demolishing …) it saves once things have been quiet for this long (ms). */
+  /**
+   * After a change of the village (building, demolishing …) it waits this long (ms) before saving. Default 0: the
+   * change is saved in the frame after the tick that applied it – a page that is closed hard right after building
+   * (tablet, closed tab) must not lose it. Several commands of one tick are one change.
+   */
   readonly debounceMs?: number;
 }
 
@@ -19,16 +23,18 @@ export interface AutosaveStats {
 }
 
 export const AUTOSAVE_INTERVAL_MS = 60_000;
-export const AUTOSAVE_DEBOUNCE_MS = 1500;
+export const AUTOSAVE_DEBOUNCE_MS = 0;
 
 /**
- * Saves the village now and then: every minute, a moment after something was
+ * Saves the village now and then: every minute, right after something was
  * built or changed, and when the page is left (`flush`). It has no timers of
  * its own – the scene calls {@link Autosave.update} once per frame with the
  * time – so it can be tested with made-up times.
  *
  * - Nothing is saved while nothing changed (a paused game stays as it is).
- * - A save in flight is never overlapped by a second one.
+ * - Never two writes at the same time: while one is running, a request (`update`, `flush`, `saveNow`) only
+ *   remembers "once more" – the follow-up write takes the state of that moment, so a change that happens during
+ *   a write (an import right after a save) is not lost, and a burst of builds is one follow-up, not a storm.
  * - A failed write is retried after a minute, never every frame, and never throws.
  * - The state that was loaded counts as saved (`update` remembers it on the first call).
  */
@@ -43,6 +49,8 @@ export class Autosave {
   private seenRevision = 0;
   private blockedUntil = Number.NEGATIVE_INFINITY;
   private inFlight: Promise<void> | undefined;
+  /** Someone asked for a write while one was running. */
+  private again: 'no' | 'ifChanged' | 'always' = 'no';
   private lastNow = 0;
   private saves = 0;
   private failures = 0;
@@ -72,13 +80,20 @@ export class Autosave {
       this.seenRevision = state.revision;
       this.lastChangeAt = nowMs;
     }
+    const changed = state.revision !== this.savedRevision;
+    // A running write picks up what changed meanwhile as one follow-up when it is done (see `run`).
+    if (this.inFlight) {
+      if (changed && this.again === 'no') {
+        this.again = 'ifChanged';
+      }
+      return;
+    }
     if (nowMs < this.blockedUntil) {
       return;
     }
-    const changed = state.revision !== this.savedRevision;
     const due = (changed && nowMs - this.lastChangeAt >= this.debounceMs) || (state.tick !== this.savedTick && nowMs - this.lastSaveAt >= this.intervalMs);
     if (due) {
-      void this.write(state, nowMs);
+      void this.write('ifChanged');
     }
   }
 
@@ -88,15 +103,15 @@ export class Autosave {
     if (!this.seen) {
       this.remember(state, this.lastNow);
     }
-    if (state.tick !== this.savedTick || state.revision !== this.savedRevision) {
-      return this.write(state, this.lastNow);
+    if (state.tick !== this.savedTick || state.revision !== this.savedRevision || this.inFlight) {
+      return this.write('ifChanged');
     }
-    return this.inFlight ?? Promise.resolve();
+    return Promise.resolve();
   }
 
   /** Saves right now, whatever changed (after a file was loaded). */
   saveNow(): Promise<void> {
-    return this.write(this.read(), this.lastNow);
+    return this.write('always');
   }
 
   /** The state was replaced from outside (a file was loaded): what is in the game now is the new starting point. */
@@ -113,36 +128,44 @@ export class Autosave {
     this.lastChangeAt = nowMs;
   }
 
-  private write(state: DeepReadonly<SimState>, nowMs: number): Promise<void> {
+  /** Starts a write, or – while one runs – asks for one more after it. The promise is done when everything asked for is written. */
+  private write(kind: 'ifChanged' | 'always'): Promise<void> {
     if (this.inFlight) {
-      // Wait for the running save, then look again: whatever changed meanwhile is saved by the next update.
+      this.again = kind === 'always' || this.again === 'always' ? 'always' : 'ifChanged';
       return this.inFlight;
     }
-    // The data is copied now, so what is saved is exactly this moment.
-    const data = toSaveData(state);
-    const { tick, revision } = state;
-    let saving: Promise<void>;
-    try {
-      saving = this.store.save(data);
-    } catch (error) {
-      saving = Promise.reject(error instanceof Error ? error : new Error('save failed'));
-    }
-    const done = saving
-      .then(() => {
-        this.saves += 1;
-        this.savedTick = tick;
-        this.savedRevision = revision;
-        this.lastSaveAt = nowMs;
-      })
-      .catch(() => {
+    const running = this.run(kind).finally(() => {
+      this.inFlight = undefined;
+    });
+    this.inFlight = running;
+    return running;
+  }
+
+  private async run(first: 'ifChanged' | 'always'): Promise<void> {
+    let kind: 'no' | 'ifChanged' | 'always' = first;
+    while (kind !== 'no') {
+      this.again = 'no';
+      // The data is copied now, so what is saved is exactly this moment.
+      const state = this.read();
+      const { tick, revision } = state;
+      if (kind === 'ifChanged' && tick === this.savedTick && revision === this.savedRevision) {
+        return;
+      }
+      const data = toSaveData(state);
+      const startedAt = this.lastNow;
+      try {
+        await this.store.save(data);
+      } catch {
         // Full disk, blocked storage …: try again later, quietly.
         this.failures += 1;
-        this.blockedUntil = nowMs + this.intervalMs;
-      })
-      .finally(() => {
-        this.inFlight = undefined;
-      });
-    this.inFlight = done;
-    return done;
+        this.blockedUntil = startedAt + this.intervalMs;
+        return;
+      }
+      this.saves += 1;
+      this.savedTick = tick;
+      this.savedRevision = revision;
+      this.lastSaveAt = startedAt;
+      kind = this.again;
+    }
   }
 }
