@@ -1723,6 +1723,7 @@ async function testShop({ page, check, shot, size, input, name, waitLong }) {
   // Ein Tipp neben das Feld schließt den Shop, ohne etwas anderes zu tun (T3).
   const tapBefore = village.lastTap;
   const buildingsBefore = village.buildings.length;
+  await sleep(500); // kurz nach dem Tipp auf den Reiter ignoriert die Welt Tipps (Doppeltipp-Schutz)
   await input.tap({ x: size.width * 0.5, y: size.height - 24 });
   village = await waitForVillage(page, (v) => v.shop === 'closed' && v.tool === 'view', 'der Shop nach dem Tipp daneben');
   check(village.lastTap === tapBefore && village.buildings.length === buildingsBefore && village.preview === 'none', 'Der Tipp neben den Shop hat auch etwas anderes ausgelöst');
