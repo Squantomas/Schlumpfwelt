@@ -333,23 +333,27 @@ describe('Autosave: ein Schreibvorgang, der misslingt, vergisst den Import nicht
     state.inventory['coins'] = 4242;
     autosave.rebase(150);
     const done = autosave.saveNow();
+    // The running write (of the old village) fails: the follow-up with the imported village starts at once and fails as well.
+    store.fail();
+    await settle();
+    expect(store.writes).toHaveLength(2);
     store.fail();
     await done;
-    expect(autosave.stats.failures).toBe(1);
+    expect(autosave.stats.failures).toBe(2);
     // Nothing is written during the pause …
     autosave.update(5_000);
     await settle();
-    expect(store.writes).toHaveLength(1);
+    expect(store.writes).toHaveLength(2);
     // … and after it the import is written although nothing else changed.
     autosave.update(100 + 60_000 + 1);
-    expect(store.writes).toHaveLength(2);
+    expect(store.writes).toHaveLength(3);
     store.finish();
     await settle();
-    expect((store.writes[1] as { inventory: Record<string, number> }).inventory['coins']).toBe(4242);
+    expect((store.writes[2] as { inventory: Record<string, number> }).inventory['coins']).toBe(4242);
     expect(autosave.stats.saves).toBe(1);
     autosave.update(200_000);
     await settle();
-    expect(store.writes).toHaveLength(2);
+    expect(store.writes).toHaveLength(3);
   });
 });
 
@@ -467,5 +471,59 @@ describe('Autosave: ein anderes Fenster hat übernommen (N1, N4)', () => {
     await settle();
     expect(store.writes).toHaveLength(2);
     expect(autosave.stats.saves).toBe(2);
+  });
+});
+
+describe('Autosave: ein Schreibvorgang des alten Dorfs nach einem Import (W3)', () => {
+  it('setzt „gespeichert“ nicht auf die höheren Zahlen des alten Dorfs: keine Schreibschleife', async () => {
+    const state = createInitialState(2);
+    const store = new SlowStore();
+    const autosave = new Autosave(store, () => state);
+    autosave.update(0);
+    // The old village: far on (tick, revision), its write is running.
+    state.tick = 5000;
+    state.revision = 300;
+    autosave.update(100);
+    expect(store.writes).toHaveLength(1);
+    // A village from a file replaces it (lower numbers) while that write runs.
+    state.tick = 20;
+    state.revision = 2;
+    autosave.rebase(150);
+    const imported = autosave.saveNow();
+    store.finish();
+    await settle();
+    // The follow-up writes the imported village once …
+    expect(store.writes).toHaveLength(2);
+    store.finish();
+    await imported;
+    await settle();
+    // … and then nothing more happens, frame after frame.
+    for (let frame = 0; frame < 50; frame += 1) {
+      autosave.update(200 + frame * 100);
+      await settle();
+      store.finish();
+    }
+    expect(store.writes).toHaveLength(2);
+    expect(autosave.stats.savedTick).toBe(20);
+  });
+
+  it('auch ohne saveNow: das alte Ergebnis kommt nach dem Import und verschiebt nichts', async () => {
+    const state = createInitialState(2);
+    const store = new SlowStore();
+    const autosave = new Autosave(store, () => state);
+    autosave.update(0);
+    state.tick = 9000;
+    state.revision = 500;
+    autosave.update(100);
+    state.tick = 10;
+    state.revision = 1;
+    autosave.rebase(150);
+    store.finish();
+    await settle();
+    for (let frame = 0; frame < 20; frame += 1) {
+      autosave.update(200 + frame * 100);
+      await settle();
+    }
+    expect(store.writes).toHaveLength(1);
   });
 });

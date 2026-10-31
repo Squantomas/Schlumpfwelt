@@ -44,6 +44,12 @@ export class Autosave {
   private seen = false;
   private savedTick = 0;
   private savedRevision = 0;
+  /**
+   * Counts the times the state was replaced from outside (`rebase`: a village from a file). A write that was started for an
+   * earlier generation must not set "what is saved" any more: its numbers belong to the old village (higher ticks), and the
+   * new village would look unsaved – and be written in every frame – until it overtakes them.
+   */
+  private generation = 0;
   private lastSaveAt = 0;
   private lastChangeAt = 0;
   private seenRevision = 0;
@@ -143,6 +149,7 @@ export class Autosave {
     const { tick, revision } = state;
     const data = toSaveData(state);
     const startedAt = this.lastNow;
+    const generation = this.generation;
     try {
       await this.store.save(data);
     } catch (error) {
@@ -155,7 +162,7 @@ export class Autosave {
       return;
     }
     this.saves += 1;
-    if (revision >= this.savedRevision && tick >= this.savedTick) {
+    if (generation === this.generation && revision >= this.savedRevision && tick >= this.savedTick) {
       this.savedTick = tick;
       this.savedRevision = revision;
       this.lastSaveAt = startedAt;
@@ -172,6 +179,7 @@ export class Autosave {
 
   /** The state was replaced from outside (a file was loaded): what is in the game now is the new starting point. */
   rebase(nowMs = this.lastNow): void {
+    this.generation += 1;
     this.remember(this.read(), nowMs);
   }
 
@@ -214,6 +222,7 @@ export class Autosave {
       }
       const data = toSaveData(state);
       const startedAt = this.lastNow;
+      const generation = this.generation;
       try {
         await this.store.save(data);
       } catch (error) {
@@ -225,18 +234,25 @@ export class Autosave {
         }
         // Full disk, blocked storage …: try again later, quietly – a write that was asked for (import) is not forgotten.
         this.failures += 1;
+        if (generation !== this.generation) {
+          // It was the old village: the new one is written by the follow-up that was asked for.
+          kind = this.again;
+          continue;
+        }
         this.blockedUntil = startedAt + this.intervalMs;
         this.owed ||= kind === 'always' || this.pending() === 'always';
         this.again = 'no';
         return;
       }
-      this.owed = false;
       this.saves += 1;
-      if (revision >= this.savedRevision && tick >= this.savedTick) {
-        this.savedTick = tick;
-        this.savedRevision = revision;
+      if (generation === this.generation) {
+        this.owed = false;
+        if (revision >= this.savedRevision && tick >= this.savedTick) {
+          this.savedTick = tick;
+          this.savedRevision = revision;
+        }
+        this.lastSaveAt = startedAt;
       }
-      this.lastSaveAt = startedAt;
       kind = this.again;
     }
   }
