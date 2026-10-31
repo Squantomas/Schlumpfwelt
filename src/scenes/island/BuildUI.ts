@@ -43,6 +43,8 @@ export interface UiSpot {
   readonly badge?: boolean;
   /** Toolbar buttons and shop tabs: the size of the word under the picture (0: only the picture). */
   readonly font?: number;
+  /** The shop line: height of the sentence as measured (CSS px). */
+  readonly textH?: number;
 }
 
 /** The words under the toolbar buttons and the shop tabs are at least this big (CSS px), else only the picture stays. */
@@ -512,7 +514,7 @@ export class BuildUI {
     // Something was unlocked: a friendly message (and the star on the shop button, which `refresh` redraws).
     const news = this.tool.takeAnnouncements();
     if (news.length > 0) {
-      this.board.announce(newItemsText(news), this.scene.time.now, NEWS_MS);
+      this.board.announce(newItemsText(news), NEWS_MS);
       this.lastMessage = undefined;
     }
     // The numbers pop when they change; cards that can (not) be paid for change with them.
@@ -549,7 +551,7 @@ export class BuildUI {
         delete spots['zoom-out'];
       }
       for (const [name, spot] of Object.entries(this.shop.spots(this.tool.item))) {
-        spots[name] = { x: spot.x, y: spot.y, enabled: true, w: spot.w, h: spot.h, ...(spot.state !== undefined ? { state: spot.state, dim: spot.state !== 'ok' } : {}), ...(spot.fresh !== undefined ? { fresh: spot.fresh } : {}), ...(spot.active !== undefined ? { active: spot.active } : {}), ...(spot.font !== undefined ? { font: spot.font } : {}) };
+        spots[name] = { x: spot.x, y: spot.y, enabled: true, w: spot.w, h: spot.h, ...(spot.state !== undefined ? { state: spot.state, dim: spot.state !== 'ok' } : {}), ...(spot.fresh !== undefined ? { fresh: spot.fresh } : {}), ...(spot.active !== undefined ? { active: spot.active } : {}), ...(spot.font !== undefined ? { font: spot.font } : {}), ...(spot.textH !== undefined ? { textH: spot.textH } : {}) };
       }
       const stockRect = this.stock.rect;
       spots['stock'] = { x: stockRect.x + stockRect.width / 2, y: stockRect.y + stockRect.height / 2, enabled: true, w: stockRect.width, h: stockRect.height };

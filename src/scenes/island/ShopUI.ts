@@ -128,6 +128,8 @@ export interface ShopSpot {
   readonly active?: boolean;
   /** Tabs: the size of the word under the picture (0: only the picture). */
   readonly font?: number;
+  /** The line: height of the sentence as measured (CSS px). */
+  readonly textH?: number;
 }
 
 /**
@@ -377,8 +379,9 @@ export class ShopUI {
 
   /**
    * The fixed line at the bottom of the panel: the sentence of a locked card, or – while nothing was tapped – a calm standing
-   * sentence. At least 12 px: a long sentence gets two lines where the line is high enough, and every sentence fits one
-   * line at 12 px on the narrowest screen (a test checks their length).
+   * sentence. At least 12 px: the letters get smaller (down to 12 px) until the measured text fits into the line; the
+   * sentences are short enough to fit one line at 12 px on the narrowest line (the smoke test measures the height of
+   * every locked sentence on 480×320, 568×320, 320×568 and 360×640).
    */
   private drawLine(): void {
     const layout = this.layoutData;
@@ -395,9 +398,14 @@ export class ShopUI {
       this.tipPanel.lineStyle(3, COLORS.markerRim, 1).strokeRoundedRect(x, y, width, height, radius);
     }
     const maxW = width - 20;
-    const size = clamp(height * 0.42, MIN_LINE_FONT, 20);
+    let size = clamp(height * 0.42, MIN_LINE_FONT, 20);
     this.tipLabel.setWordWrapWidth(maxW).setText(filled ? this.tip : t('shop.lineDefault')).setAlpha(filled ? 1 : 0.85);
     setLabelSize(this.tipLabel, size, maxW);
+    // The text as measured (after wrapping) must fit into the line: smaller letters until it does, never under 12 px.
+    while (this.tipLabel.height > height - 4 && size > MIN_LINE_FONT) {
+      size -= 1;
+      setLabelSize(this.tipLabel, size, maxW);
+    }
     this.tipLabel.setPosition(x + width / 2, y + height / 2);
   }
 
@@ -415,7 +423,7 @@ export class ShopUI {
     }
     const center = (rect: Rect): { x: number; y: number; w: number; h: number } => ({ x: rect.x + rect.width / 2, y: rect.y + rect.height / 2, w: rect.width, h: rect.height });
     spots['shop'] = center(layout.rect);
-    spots['shop-line'] = center(layout.line);
+    spots['shop-line'] = { ...center(layout.line), textH: this.tipLabel.height };
     SHOP_CATEGORIES.forEach((category, index) => {
       const rect = layout.tabs[index];
       if (rect) {

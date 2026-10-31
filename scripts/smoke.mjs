@@ -1611,7 +1611,7 @@ async function testShop({ page, check, shot, size, input, name, waitLong }) {
   // --- Shop öffnen: vier Reiter, ✕, Lagerleiste bleibt, Zoom und Werkzeugleiste sind verdeckt ---
   step('Shop öffnen und Reiter wechseln');
   village = await openShop();
-  // Der Shop öffnet auf dem Reiter, der zuletzt gezeigt wurde (hier: von den Prüfungen für kleine Bildschirme).
+  // Der Shop öffnet auf dem Reiter, der zuletzt gezeigt wurde.
   village = await openTab('houses');
   check(village.shop === 'houses:1/1', `Shop: ${village.shop}, erwartet „houses:1/1“ (alles auf einer Seite)`);
   for (const tab of Object.keys(SHOP_ITEMS)) check(`tab-${tab}` in village.ui, `Shop: Reiter ${tab} fehlt`);
@@ -1934,7 +1934,7 @@ async function testShop({ page, check, shot, size, input, name, waitLong }) {
 /** Shop (M4) auf kleinen Bildschirmen: jeder Reiter passt, keine Überlappung, Karten groß genug, mehr als 1 Karte pro Seite. */
 async function testShopSmall({ page, check, shot, size, input, name }) {
   const { step, openShop, openTab, tapUi } = buildHelpers({ page, check, size, input, name });
-  for (const [w, h] of [[320, 568], [568, 320], [640, 360]]) {
+  for (const [w, h] of [[320, 568], [568, 320], [640, 360], [480, 320], [360, 640]]) {
     step(`Shop auf ${w}×${h}`);
     await page.setViewportSize({ width: w, height: h });
     await sleep(1500);
@@ -1967,6 +1967,29 @@ async function testShopSmall({ page, check, shot, size, input, name }) {
       }
       check(seen.size === 8, `${w}×${h}: beim Blättern sieht man ${seen.size} von 8 Deko-Karten`);
     }
+    // Jeder Sperr-Satz passt in die Zeile: die gemessene Höhe des Textes ist höchstens so hoch wie die Zeile (B1).
+    let tallest = 0;
+    let lineHeight = 0;
+    for (const tab of ['houses', 'deco', 'production', 'island']) {
+      v = await openTab(tab);
+      const tabPages = Number(v.shop.split('/')[1]);
+      for (let pageIndex = 0; pageIndex < tabPages; pageIndex += 1) {
+        for (const spot of Object.keys(v.ui).filter((name2) => name2.startsWith('item-') && v.ui[name2].state === 'locked')) {
+          await tapUi(spot);
+          await sleep(500); // Zwei Karten können denselben Satz haben: kurz warten statt auf eine Änderung
+          v = await waitForVillage(page, (state) => state.tip !== '' && state.ui['shop-line']?.textH > 0, `der Satz auf ${spot}`);
+          const line = v.ui['shop-line'];
+          tallest = Math.max(tallest, line.textH);
+          lineHeight = line.h;
+          check(line.textH <= line.h + 0.5, `${w}×${h}: Satz „${v.tip}“ ist ${line.textH.toFixed(0)} px hoch, die Zeile nur ${line.h} px`);
+        }
+        if (pageIndex + 1 < tabPages) {
+          await tapUi('page-next');
+          v = await waitForVillage(page, (state) => state.shop === `${tab}:${pageIndex + 2}/${tabPages}`, `die nächste Seite in ${tab}`);
+        }
+      }
+    }
+    console.log(`  [${name}] ${w}×${h}: höchster Sperr-Satz ${tallest.toFixed(0)} px in einer Zeile von ${lineHeight} px`);
     await tapUi('shop-close');
     await waitForVillage(page, (state) => state.shop === 'closed', `der geschlossene Shop bei ${w}×${h}`);
   }
@@ -2122,8 +2145,9 @@ async function testProfile(browser, profile) {
     try {
       // Frische Insel für den Shop (das Bauen und Wirtschaften oben hat Geld ausgegeben und Freischaltungen erreicht).
       if (!M4_ONLY) await enterIsland(page, profile, waitForScene);
-      await testShopSmall({ page, check, shot, size, input, name: profile.name });
+      // Erst der Shop mit dem frischen Start (verdiente Taler, Sperren), dann die kleinen Schirme (sie brauchen Zeit).
       await testShop({ page, check, shot, size, input, name: profile.name, waitLong: profile.name === 'tablet' });
+      await testShopSmall({ page, check, shot, size, input, name: profile.name });
     } catch (error) {
       problems.push(`Shop: ${error.message}`);
       await shot(`${profile.name}-shop-fehler`).catch(() => {});

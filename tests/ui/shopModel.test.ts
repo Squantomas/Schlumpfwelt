@@ -60,10 +60,10 @@ describe('shopCards', () => {
 
 describe('Sätze und Symbole für gesperrte Karten', () => {
   it('nennen Gebäude, Häuser und Taler in kurzen Sätzen', () => {
-    expect(unlockSentenceText({ kind: 'count', building: 'lumberjack', count: 1 })).toBe('Baue 1× Holzfällerhütte, dann ist das frei.');
-    expect(unlockSentenceText({ kind: 'houses', count: 2 })).toBe('Baue 2 Häuser, dann ist das frei.');
-    expect(unlockSentenceText({ kind: 'houses', count: 1 })).toBe('Baue ein Haus, dann ist das frei.');
-    expect(unlockSentenceText({ kind: 'earned', coins: 1250 })).toBe('Verdiene 1.250 Taler auf dem Markt, dann ist das frei.');
+    expect(unlockSentenceText({ kind: 'count', building: 'lumberjack', count: 1 })).toBe('Baue 1× Holzfällerhütte, dann ist es frei.');
+    expect(unlockSentenceText({ kind: 'houses', count: 2 })).toBe('Baue 2 Häuser, dann ist es frei.');
+    expect(unlockSentenceText({ kind: 'houses', count: 1 })).toBe('Baue ein Haus, dann ist es frei.');
+    expect(unlockSentenceText({ kind: 'earned', coins: 1250 })).toBe('Verdiene 1.250 Taler am Markt, dann ist es frei.');
   });
 
   it('jede Bedingung der Daten ergibt einen Satz, der in die Hinweisleiste eines Handys passt (höchstens 100 Zeichen)', () => {
@@ -79,16 +79,16 @@ describe('Sätze und Symbole für gesperrte Karten', () => {
     }
   });
 
-  it('jeder Satz für eine gesperrte Karte passt in einer Zeile bei 12 px in die Zeile des schmalsten Handys quer (höchstens 56 Zeichen)', () => {
+  it('jeder Satz für eine gesperrte Karte ist kurz genug für eine Zeile bei 12 px in der Zeile des schmalsten Handys quer (gemessen 5,85 px je Zeichen: höchstens 48 Zeichen bei 296 px; die Höhe misst der Smoke)', () => {
     for (const category of SHOP_CATEGORIES) {
       for (const type of shopItems(category)) {
         const unlock = unlockOf(type.id);
         if (unlock) {
-          expect(unlockSentenceText(unlock).length, type.id).toBeLessThanOrEqual(56);
+          expect(unlockSentenceText(unlock).length, type.id).toBeLessThanOrEqual(48);
         }
       }
     }
-    expect(t('shop.lineDefault').length).toBeLessThanOrEqual(56);
+    expect(t('shop.lineDefault').length).toBeLessThanOrEqual(48);
   });
 
   it('zeigen als Symbol das Gebäude, ein Haus oder Markt und Taler', () => {

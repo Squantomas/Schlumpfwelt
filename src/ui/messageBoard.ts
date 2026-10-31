@@ -7,7 +7,8 @@
  */
 export class MessageBoard {
   private explanation: string | undefined;
-  private news: { readonly text: string; readonly until: number } | undefined;
+  /** `until` is set when the news is first really shown: a preview that keeps it back does not use up its time. */
+  private news: { readonly text: string; readonly durationMs: number; until: number | undefined } | undefined;
 
   /** An explanation that stays until {@link clearExplanation}. */
   explain(text: string): void {
@@ -19,18 +20,21 @@ export class MessageBoard {
     this.explanation = undefined;
   }
 
-  /** News that shows for `durationMs` from `now`. */
-  announce(text: string, now: number, durationMs: number): void {
-    this.news = { text, until: now + durationMs };
+  /** News that shows for `durationMs`, counted from the first time it is really shown. */
+  announce(text: string, durationMs: number): void {
+    this.news = { text, durationMs, until: undefined };
   }
 
   /**
    * What the hint bar shows at time `now`: news while it lasts, else the explanation, else nothing. `withNews = false`
-   * keeps the news back (its time still runs): while a preview is on, its own hint ("Du bekommst 5 Taler zurück. Dann ✓.") matters more.
+   * keeps the news back (its time starts only when it is shown): while a preview is on, its own hint ("Du bekommst 5 Taler zurück. Dann ✓.") matters more.
    */
   current(now: number, withNews = true): string | undefined {
-    if (withNews && this.news && now < this.news.until) {
-      return this.news.text;
+    if (withNews && this.news) {
+      this.news.until ??= now + this.news.durationMs;
+      if (now < this.news.until) {
+        return this.news.text;
+      }
     }
     return this.explanation;
   }
