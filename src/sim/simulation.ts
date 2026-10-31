@@ -2,6 +2,7 @@ import { FixedStepClock } from './clock';
 import { applyCommand, type Command } from './commands';
 import type { DeepReadonly } from './readonly';
 import { refreshStatuses, tickProduction } from './production';
+import { tickResidents } from './residents';
 import { createInitialState, type SimState } from './state';
 import { checkUnlocks } from './unlocks';
 
@@ -104,6 +105,8 @@ export class Simulation {
     }
     this.current.tick += 1;
     tickProduction(this.current);
+    // The residents only walk and show what they carry: the store is already settled by the production.
+    tickResidents(this.current);
     checkUnlocks(this.current);
   }
 }

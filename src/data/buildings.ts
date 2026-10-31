@@ -26,9 +26,15 @@ import type { Terrain } from '../sim/world';
  * `look` only holds parameters for the placeholder graphics (shape name,
  * palette name from `style.ts`, height above the footprint in world pixels);
  * real graphics replace the placeholders in M8.
+ *
+ * M6: a house has room for `capacity` residents; a production building names
+ * the job of its worker (`jobKey`, "Holzfäller"). The shop item of category
+ * `resident` (in the tab "Häuser") is not built on the map: it invites a new
+ * resident, who arrives by boat (see `src/sim/residents.ts`). Its `cost` is
+ * the price of the invitation.
  */
 
-export type BuildingCategory = 'path' | 'house' | 'deco' | 'production' | 'island';
+export type BuildingCategory = 'path' | 'house' | 'deco' | 'production' | 'island' | 'resident';
 
 /** The tabs of the shop, in the order they are shown. */
 export const SHOP_CATEGORIES = ['houses', 'deco', 'production', 'island'] as const;
@@ -89,6 +95,10 @@ export interface BuildingType {
   readonly unlock?: UnlockDef;
   /** Island category only: the change of the map. */
   readonly island?: { readonly action: IslandAction };
+  /** Houses only: how many residents live in it. */
+  readonly capacity?: number;
+  /** Production buildings only: the text key of the job of the resident who works there ("Holzfäller"). */
+  readonly jobKey?: TextKey;
   readonly look: {
     readonly shape: string;
     readonly palette?: string;
@@ -122,6 +132,7 @@ export const BUILDING_SHAPES = [
   'islandRock',
   'islandBeach',
   'islandMeadow',
+  'invite',
 ] as const;
 
 export const BUILDING_TYPES: readonly BuildingType[] = buildingsJson.types as readonly unknown[] as readonly BuildingType[];
@@ -180,6 +191,16 @@ export function unlockOf(typeId: string): UnlockDef | undefined {
       return undefined;
   }
 }
+
+/** How many residents a house of this type takes (0 for everything that is not a house). */
+export function capacityOf(typeId: string): number {
+  const type = byId.get(typeId);
+  const capacity = type?.category === 'house' ? type.capacity : undefined;
+  return typeof capacity === 'number' && Number.isInteger(capacity) && capacity > 0 ? capacity : 0;
+}
+
+/** The shop item that invites a resident (category `resident`). */
+export const INVITE_TYPE_ID = 'invite';
 
 /** The ids of all types that have to be unlocked, in the order of the file. */
 export const LOCKED_TYPE_IDS: readonly string[] = BUILDING_TYPES.filter((type) => unlockOf(type.id) !== undefined).map((type) => type.id);

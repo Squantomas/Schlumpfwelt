@@ -12,6 +12,7 @@ import { generateIsland } from './islandGen';
 import type { PlantedTile } from './island';
 import { refreshStatuses } from './production';
 import { normalizeSeed } from './random';
+import { residentSeed, settleResidents, type Boat, type Resident } from './residents';
 import { checkUnlocks } from './unlocks';
 import type { World } from './world';
 
@@ -50,8 +51,16 @@ export interface SimState {
    * Trees and rocks the island grew by itself stay.
    */
   planted: PlantedTile[];
+  /** The residents (M6), in the order they came (see `residents.ts`). */
+  residents: Resident[];
+  /** Id for the next resident; ids are never reused. */
+  nextResidentId: number;
+  /** The boats that bring new residents (and sail away again). */
+  boats: Boat[];
+  /** The whole state of the residents' random generator (names, hats, strolls). */
+  residentRng: number;
   /**
-   * Counts every change of buildings or paths. Scenes compare it with the
+   * Counts every change of buildings or paths (and invitations). Scenes compare it with the
    * value they last drew and only redraw when it differs.
    */
   revision: number;
@@ -76,9 +85,15 @@ export function createInitialState(seed: number = DEFAULT_SEED): SimState {
     earnedCoins: 0,
     unlocked: [],
     planted: [],
+    residents: [],
+    nextResidentId: 1,
+    boats: [],
+    residentRng: residentSeed(normalized),
     revision: 0,
   };
   buildStartVillage(state);
+  // The workers of the start village live there already (no boat): the gardener and the trader.
+  settleResidents(state, 'land');
   checkUnlocks(state);
   return state;
 }

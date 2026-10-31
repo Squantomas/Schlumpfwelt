@@ -6,9 +6,14 @@
  *
  * Format and versions:
  * - `format` marks our files (`SAVE_FORMAT`), `version` is the schema version.
- * - Version 2 (current) holds everything that makes up a village: the seed,
+ * - Version 3 (current, M6) adds the residents: who they are, where they live
+ *   and work, where they are and where they go (with their way), the boats on
+ *   the water, the next resident id and the residents' random generator.
+ * - Version 2 holds everything else that makes up a village: the seed,
  *   the terrain (it changes since M4: trees, rocks, beaches), buildings, paths,
- *   store, production, unlocks, earned coins, planted trees and rocks.
+ *   store, production, unlocks, earned coins, planted trees and rocks. A
+ *   village of version 2 gets its residents when it is loaded: one worker
+ *   per production building, already at work (`migrateV2ToV3`).
  * - Version 1 is the state before M4, where the island was always the one
  *   the seed generates (no terrain, no planted tiles, no unlocks). No build
  *   ever shipped it; it stays as the first link of the chain of migrations
@@ -35,6 +40,8 @@ import { normalizePlanted, type PlantedTile } from './island';
 import { refreshStatuses } from './production';
 import { normalizeSeed } from './random';
 import type { DeepReadonly } from './readonly';
+import { readResidents } from './residentSave';
+import { residentSeed, type Boat, type Resident } from './residents';
 import type { SimState } from './state';
 import { checkUnlocks, normalizeUnlocked } from './unlocks';
 import { TERRAINS, createWorld, inBounds, isLand, type Terrain, type World } from './world';
@@ -43,7 +50,7 @@ import { TERRAINS, createWorld, inBounds, isLand, type Terrain, type World } fro
 export const SAVE_FORMAT = 'village-save';
 
 /** The schema version `toSaveData` writes. Raise it with every change of the format and add a migration. */
-export const SAVE_VERSION = 2;
+export const SAVE_VERSION = 3;
 
 /**
  * Limits against absurd files (a loaded village must never make the game stand still): a map side in tiles is at
@@ -82,6 +89,10 @@ export interface SaveData {
   earnedCoins: number;
   unlocked: string[];
   planted: PlantedTile[];
+  residents: Resident[];
+  nextResidentId: number;
+  boats: Boat[];
+  residentRng: number;
 }
 
 /** The state as a save. Copies everything, so the result does not change when the game goes on. */
@@ -101,6 +112,26 @@ export function toSaveData(state: DeepReadonly<SimState>): SaveData {
     earnedCoins: state.earnedCoins,
     unlocked: [...state.unlocked],
     planted: state.planted.map((p) => ({ index: p.index, type: p.type })),
+    residents: state.residents.map((r) => ({
+      id: r.id,
+      name: r.name,
+      hat: r.hat,
+      home: r.home,
+      job: r.job,
+      at: r.at,
+      route: [...r.route],
+      step: r.step,
+      doing: r.doing,
+      goal: r.goal,
+      place: r.place,
+      timer: r.timer,
+      carrying: r.carrying,
+      seen: r.seen,
+      trips: r.trips,
+    })),
+    nextResidentId: state.nextResidentId,
+    boats: state.boats.map((b) => ({ id: b.id, at: b.at, route: [...b.route], step: b.step, passenger: b.passenger, shore: b.shore })),
+    residentRng: state.residentRng,
   };
 }
 
@@ -171,8 +202,24 @@ export function migrateV1ToV2(data: Readonly<SaveRecord>): SaveRecord {
   };
 }
 
+/**
+ * Version 2 → 3 (M6): there were no residents yet. The village starts without any; loading then gives every
+ * production building its worker, standing at work (not by boat), and every worker a home where there is room –
+ * so the economy goes on exactly as before.
+ */
+export function migrateV2ToV3(data: Readonly<SaveRecord>): SaveRecord {
+  return {
+    ...data,
+    version: 3,
+    residents: [],
+    boats: [],
+    nextResidentId: 1,
+    residentRng: residentSeed(normalizeSeed(typeof data['seed'] === 'number' ? data['seed'] : 0)),
+  };
+}
+
 /** The steps by the version they start at: `MIGRATIONS[1]` leads from version 1 to 2. */
-export const MIGRATIONS: Readonly<Record<number, Migration>> = { 1: migrateV1ToV2 };
+export const MIGRATIONS: Readonly<Record<number, Migration>> = { 1: migrateV1ToV2, 2: migrateV2ToV3 };
 
 /**
  * Applies the steps one after the other from `from` up to `target`. Returns
@@ -220,6 +267,10 @@ function stateFromCurrent(data: Readonly<SaveRecord>): SimState | undefined {
     earnedCoins: Math.min(MAX_AMOUNT, wholeNumber(data['earnedCoins'], 0)),
     unlocked: normalizeUnlocked(data['unlocked']),
     planted: normalizePlanted(data['planted'], world),
+    residents: [],
+    nextResidentId: 1,
+    boats: [],
+    residentRng: 0,
     revision: wholeNumber(data['revision'], 0),
   };
 
@@ -235,6 +286,7 @@ function stateFromCurrent(data: Readonly<SaveRecord>): SimState | undefined {
   const saved = wholeNumber(data['nextBuildingId'], 1);
   state.nextBuildingId = saved > MAX_ID - MAX_BUILDINGS ? lowest : Math.max(saved, lowest);
   state.production = readProduction(data['production'], state.buildings);
+  readResidents(data, state);
 
   refreshStatuses(state);
   checkUnlocks(state);

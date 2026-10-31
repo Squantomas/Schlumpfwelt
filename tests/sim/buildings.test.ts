@@ -234,7 +234,7 @@ describe('Bautypen (buildings.json)', () => {
 
   it('erlaubt Gebäude nur auf Wiese, Wege auf Wiese und Strand, und Inselartikel auf dem Boden, den sie verändern', () => {
     for (const type of BUILDING_TYPES) {
-      if (type.category === 'island') {
+      if (type.category === 'island' || type.category === 'resident') {
         continue;
       }
       expect(type.terrains).toEqual(type.category === 'path' ? ['grass', 'sand'] : ['grass']);

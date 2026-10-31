@@ -3,6 +3,7 @@ import { BUILDING_TYPES, type BuildingType } from '../../data/buildings';
 import { COLORS, HOUSE_PALETTES, FLOWER_PETALS, TILE_SIZE, cssColor, cssRgba } from '../../ui/style';
 import { PAD, circle, ellipse, make, roundedBox, type Draw } from './objectTextures';
 import { PRODUCTION_DRAWERS } from './productionTextures';
+import { drawInvite } from './residentTextures';
 
 /**
  * Placeholder pictures for houses, decoration, paths and the little signs
@@ -68,6 +69,7 @@ const DRAWERS: Readonly<Record<string, (type: BuildingType) => Draw>> = {
   islandRock: () => drawIslandRock,
   islandBeach: () => drawIslandBeach,
   islandMeadow: () => drawIslandMeadow,
+  invite: () => drawInvite,
 };
 
 /** The shapes (`look.shape`) that have a placeholder picture; every shape of `buildings.json` except the path needs one. */
