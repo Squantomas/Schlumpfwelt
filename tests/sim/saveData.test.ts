@@ -478,3 +478,82 @@ describe('Spielstand: Versionen und Migration', () => {
     expect(state.nextBuildingId).toBeGreaterThan(Math.max(...idsBefore));
   });
 });
+
+describe('Spielstand: Obergrenzen gegen absurde Dateien (R6, R7)', () => {
+  const base = (): ReturnType<typeof toSaveData> => toSaveData(createInitialState(4));
+  const grassWorld = (side: number): { width: number; height: number; terrain: string } => ({ width: side, height: side, terrain: 'g'.repeat(side * side) });
+
+  it('R6: riesige oder gebrochene Zahlen werden begrenzt, riesige Ids fallen weg – keine doppelten Ids', () => {
+    const data = base();
+    data.buildings.push({ id: 1e300, type: 'bush', x: 30, y: 30 }, { id: 1e300 + 1, type: 'bush', x: 31, y: 30 }, { id: 2 ** 31, type: 'bush', x: 32, y: 30 });
+    data.nextBuildingId = 1e300;
+    data.tick = 1e300;
+    data.revision = Number.MAX_VALUE;
+    data.earnedCoins = 1e300;
+    const result = fromSaveData(data);
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    const ids = result.state.buildings.map((b) => b.id);
+    expect(new Set(ids).size).toBe(ids.length);
+    expect(Math.max(...ids)).toBeLessThan(2 ** 31);
+    expect(result.state.nextBuildingId).toBeLessThanOrEqual(2 ** 31);
+    expect(result.state.nextBuildingId).toBeGreaterThan(Math.max(...ids));
+    expect(Number.isSafeInteger(result.state.tick)).toBe(true);
+    expect(Number.isSafeInteger(result.state.revision)).toBe(true);
+    expect(result.state.earnedCoins).toBe(MAX_AMOUNT);
+  });
+
+  it('R7: eine Karte, die mehr als doppelt so groß ist wie die Insel, ist kaputt; die doppelte Größe geht noch', () => {
+    const big = base();
+    big.world = grassWorld(97);
+    big.buildings = [];
+    big.paths = [];
+    big.production = [];
+    big.planted = [];
+    expect(fromSaveData(big)).toEqual({ ok: false, reason: 'broken' });
+    const ok = base();
+    ok.world = grassWorld(96);
+    ok.buildings = [];
+    ok.paths = [];
+    ok.production = [];
+    ok.planted = [];
+    expect(fromSaveData(ok).ok).toBe(true);
+  });
+
+  it('R7: ein riesiges Dorf (Tausende Bäckereien) wird auf eine spielbare Größe gekürzt und lässt das Spiel nicht stehen', () => {
+    const data = base();
+    data.world = grassWorld(96);
+    data.buildings = Array.from({ length: 2000 }, (_, i) => ({ id: i + 1, type: 'bakery', x: (i % 48) * 2, y: Math.floor(i / 48) * 2 }));
+    data.production = [];
+    data.paths = [];
+    data.planted = [];
+    const result = fromSaveData(data);
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.state.buildings.length).toBeLessThanOrEqual(1000);
+    expect(result.state.production.length).toBeLessThanOrEqual(200);
+    expect(result.state.production).toHaveLength(result.state.buildings.filter((b) => b.type === 'bakery').length);
+    const sim = new Simulation(result.state);
+    const started = Date.now();
+    for (let i = 0; i < 20; i += 1) {
+      sim.update(sim.tickMs);
+    }
+    // 20 ticks, even on a slow machine, are far from "the game stands still" (a tick has 100 ms).
+    expect(Date.now() - started).toBeLessThan(2000);
+  });
+
+  it('R7: sehr viele Gebäude in der Datei werden auf 1000 gekürzt', () => {
+    const data = base();
+    data.world = grassWorld(96);
+    data.buildings = Array.from({ length: 3000 }, (_, i) => ({ id: i + 1, type: 'flower', x: i % 96, y: Math.floor(i / 96) }));
+    data.production = [];
+    data.paths = [];
+    data.planted = [];
+    const result = fromSaveData(data);
+    expect(result.ok && result.state.buildings.length).toBe(1000);
+  });
+});
