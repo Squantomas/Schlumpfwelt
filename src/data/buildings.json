@@ -64,7 +64,7 @@
       "needsPath": true,
       "cost": { "coins": 70, "wood": 10 },
       "shop": { "category": "houses" },
-      "unlock": { "kind": "earned", "coins": 150 },
+      "unlock": { "kind": "earned", "coins": 200 },
       "look": { "shape": "gardenHouse", "palette": "pink", "rise": 84 }
     },
     {
@@ -133,7 +133,7 @@
       "needsPath": false,
       "cost": { "coins": 40, "stone": 5 },
       "shop": { "category": "deco" },
-      "unlock": { "kind": "earned", "coins": 250 },
+      "unlock": { "kind": "earned", "coins": 300 },
       "look": { "shape": "fountain", "rise": 40 }
     },
     {
@@ -181,7 +181,7 @@
       "needsPath": true,
       "cost": { "coins": 10, "wood": 2 },
       "shop": { "category": "production" },
-      "production": { "intervalTicks": 50, "outputs": { "berries": 1 } },
+      "production": { "intervalTicks": 35, "outputs": { "berries": 1 } },
       "look": { "shape": "berryGarden", "rise": 38 }
     },
     {

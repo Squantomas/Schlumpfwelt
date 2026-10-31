@@ -776,7 +776,9 @@ describe('Tipp aufs Dach (Regression)', () => {
     run(state, { type: 'placeBuilding', buildingType: 'house-red', x: 5, y: 5 });
     tool.selectTool('demolish');
     tool.tap(roofOverEmpty.tile, roofOverEmpty.world);
-    expect(tool.preview()).toMatchObject({ kind: 'demolish', tiles: expect.arrayContaining([{ x: 5, y: 5 }]) });
+    const preview = tool.preview();
+    expect(preview.kind).toBe('demolish');
+    expect(preview.kind === 'demolish' && preview.tiles.some((tile) => tile.x === 5 && tile.y === 5)).toBe(true);
   });
 
   it('reißt den Weg ab, wenn die Kachel unter dem Finger ein Weg ist (auch unter dem Dach)', () => {

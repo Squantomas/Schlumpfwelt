@@ -106,8 +106,16 @@ describe('Meldung „Neu im Shop“', () => {
     expect(t('shop.newItem', { list: 'X' })).toBe('Neu im Shop: X!');
   });
 
+  it('weist bei der Schreinerei darauf hin, dass Möbel viele Taler bringen (T2)', () => {
+    expect(newItemsText(['quarry', 'carpenter'])).toBe('Neu im Shop: Steinbruch und Schreinerei! Möbel bringen viele Taler.');
+    expect(newItemsText(['bakery'])).toBe('Neu im Shop: Bäckerei!');
+    expect(newItemsText(['bench'])).not.toMatch(/Taler/);
+  });
+
   it('bleibt auch mit den drei längsten Namen in der Hinweisleiste eines Handys (höchstens 100 Zeichen)', () => {
     const longest = BUILDING_TYPES.map((type) => type.id).sort((a, b) => t(buildingType(b)?.nameKey ?? 'build.path').length - t(buildingType(a)?.nameKey ?? 'build.path').length);
     expect(newItemsText(longest.slice(0, 3)).length).toBeLessThanOrEqual(100);
+    // Mit dem Zusatzsatz zu den Möbeln (drei lange Namen und die Schreinerei) höchstens 110 Zeichen: vier Zeilen auf dem schmalsten Handy.
+    expect(newItemsText([...longest.slice(0, 2), 'carpenter']).length).toBeLessThanOrEqual(110);
   });
 });

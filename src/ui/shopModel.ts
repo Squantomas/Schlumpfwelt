@@ -1,8 +1,10 @@
 import { buildingType, shopItems, type ShopCategory, type UnlockDef } from '../data/buildings';
+import { VALUABLE_PRICE, goodDef } from '../data/goods';
 import { t, type TextKey, type TextParams } from '../data/texts';
-import { costOf, missingFor } from '../sim/economy';
+import { costOf, missingFor, productionOf } from '../sim/economy';
 import type { DeepReadonly } from '../sim/readonly';
 import type { SimState } from '../sim/state';
+import { itemName } from './costText';
 import { lockOf, type UnlockProgress } from '../sim/unlocks';
 
 /**
@@ -91,7 +93,24 @@ export function nameList(typeIds: readonly string[]): string {
 /** At most this many names are named in the "new in the shop" message (it must fit the hint bar of a small phone). */
 const MAX_NAMED = 3;
 
-/** The text of the message when things were unlocked, e.g. "Neu im Shop: Bank und Laterne!". Names at most three. */
+/** The good that one of the new buildings makes and that brings many coins (furniture), if any. */
+export function valuableGoodOf(typeIds: readonly string[]): string | undefined {
+  for (const id of typeIds) {
+    for (const good of Object.keys(productionOf(id)?.outputs ?? {})) {
+      if ((goodDef(good)?.price ?? 0) >= VALUABLE_PRICE) {
+        return good;
+      }
+    }
+  }
+  return undefined;
+}
+
+/**
+ * The text of the message when things were unlocked, e.g. "Neu im Shop: Bank und Laterne!". Names at most three.
+ * If a new building makes something that brings many coins, a second sentence says so ("Möbel bringen viele Taler.").
+ */
 export function newItemsText(typeIds: readonly string[]): string {
-  return t('shop.newItem', { list: nameList(typeIds.slice(0, MAX_NAMED)) });
+  const base = t('shop.newItem', { list: nameList(typeIds.slice(0, MAX_NAMED)) });
+  const good = valuableGoodOf(typeIds);
+  return good === undefined ? base : `${base} ${t('shop.newValuable', { good: itemName(good) })}`;
 }

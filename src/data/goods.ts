@@ -76,3 +76,6 @@ export function itemNames(id: string): { readonly one: TextKey; readonly many: T
 export function sellableGoods(): readonly GoodDef[] {
   return GOODS.filter((good) => good.price !== undefined);
 }
+
+/** From this price on a good "brings many coins": the message "Neu im Shop" points it out (furniture). */
+export const VALUABLE_PRICE: number = goodsJson.valuablePrice;
