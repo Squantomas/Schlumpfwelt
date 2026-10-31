@@ -6,11 +6,11 @@ import type { SaveStore } from './saveStore';
 /**
  * How the game starts, from the address and from what is stored.
  *
- * Rule for `?seed=N` (tests, sharing a fixed island): such a start neither
- * loads nor saves – every test gets its fresh island and no old village
- * leaks into the next test. Add `&save=1` to load and save as usual (an
- * existing save wins over the seed; the seed only picks the island of a
- * brand new village).
+ * - Without parameters, and with `?seed=N` alone, the game loads and saves as usual: a child who plays through
+ *   a link with a seed must not lose the village. An existing save wins over the seed; the seed only picks the
+ *   island of a brand new village.
+ * - `&nosave=1` (tests: every test gets its fresh island and no old village leaks into the next one) neither
+ *   loads nor saves.
  */
 export interface StartParams {
   /** The island picked in the address, if any. */
@@ -24,7 +24,7 @@ export function parseStartParams(search: string): StartParams {
   const text = params.get('seed');
   const parsed = text === null || text.trim() === '' ? Number.NaN : Number(text);
   const seed = Number.isInteger(parsed) && parsed >= 0 ? parsed : undefined;
-  return { seed, persist: seed === undefined || params.get('save') === '1' };
+  return { seed, persist: params.get('nosave') !== '1' };
 }
 
 /** What happened when the saved village was looked for. */

@@ -15,24 +15,24 @@ describe('Startadresse', () => {
   it.each([
     ['', undefined, true],
     ['?foo=1', undefined, true],
-    ['?seed=1', 1, false],
-    ['?seed=12345', 12345, false],
-    ['?seed=1&save=1', 1, true],
-    ['?save=1', undefined, true],
+    ['?seed=1', 1, true],
+    ['?seed=12345', 12345, true],
+    ['?seed=1&nosave=1', 1, false],
+    ['?nosave=1', undefined, false],
+    ['?seed=1&nosave=0', 1, true],
     ['?seed=abc', undefined, true],
     ['?seed=', undefined, true],
     ['?seed=-3', undefined, true],
     ['?seed=2.5', undefined, true],
-    ['?seed=3&save=0', 3, false],
   ])('%s → Seed %s, speichern: %s', (search, seed, persist) => {
     expect(parseStartParams(search)).toEqual({ seed, persist });
   });
 });
 
 describe('Start: Laden beim Start', () => {
-  it('mit ?seed=N wird weder geladen noch gespeichert', async () => {
+  it('mit &nosave=1 wird weder geladen noch gespeichert', async () => {
     const store = idbLike(toSaveData(createInitialState(99)));
-    const start = await prepareStart(parseStartParams('?seed=1'), store, random);
+    const start = await prepareStart(parseStartParams('?seed=1&nosave=1'), store, random);
     expect(start.kind).toBe('new');
     expect(start.state.seed).toBe(1);
     expect(start.autosave).toBe(false);
@@ -46,8 +46,8 @@ describe('Start: Laden beim Start', () => {
     expect(start.notice).toBeUndefined();
   });
 
-  it('?seed=N&save=1 ohne Spielstand: genau diese Insel', async () => {
-    const start = await prepareStart(parseStartParams('?seed=7&save=1'), idbLike(), random);
+  it('?seed=N ohne Spielstand: genau diese Insel, gespeichert wird normal (R5)', async () => {
+    const start = await prepareStart(parseStartParams('?seed=7'), idbLike(), random);
     expect(start.state.seed).toBe(7);
     expect(start.autosave).toBe(true);
   });
@@ -56,7 +56,7 @@ describe('Start: Laden beim Start', () => {
     const saved = createInitialState(99);
     saved.inventory['coins'] = 777;
     saved.tick = 1234;
-    const start = await prepareStart(parseStartParams('?seed=7&save=1'), idbLike(toSaveData(saved)), random);
+    const start = await prepareStart(parseStartParams('?seed=7'), idbLike(toSaveData(saved)), random);
     expect(start.kind).toBe('loaded');
     expect(start.state.seed).toBe(99);
     expect(start.state.inventory['coins']).toBe(777);

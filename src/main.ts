@@ -38,7 +38,7 @@ function randomSeed(): number {
 }
 
 async function start(root: HTMLElement): Promise<void> {
-  // `?seed=N` (tests) neither loads nor saves unless `&save=1` is added (see `src/save/startup.ts`).
+  // `?nosave=1` (tests) neither loads nor saves; `?seed=N` alone only picks the island of a new village (see `src/save/startup.ts`).
   const params = parseStartParams(window.location.search);
   // One window saves: a second one (web app and browser tab) plays on without saving, so it can not overwrite the first.
   const lock = params.persist ? await acquireSaveLock() : 'granted';

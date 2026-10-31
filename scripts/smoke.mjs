@@ -11,7 +11,7 @@
  *   npm run smoke -- --m5-only                   # nur die Prüfungen zu Speichern und Web-App (M5)
  *   npm run smoke -- --profile tablet            # nur Tablet bzw. nur Desktop
  *
- * Öffnet das Spiel (feste Insel `?seed=1`) als Tablet (1024×768, Touch,
+ * Öffnet das Spiel (feste Insel `?seed=1&nosave=1`) als Tablet (1024×768, Touch,
  * devicePixelRatio 2, quer und hochkant) und als Desktop (1280×800, Maus),
  * tippt „Tippen zum Spielen“ an und prüft die Kamera der Insel:
  *   - Tablet: Ziehen und Zwei-Finger-Pinch per CDP `Input.dispatchTouchEvent`
@@ -38,8 +38,8 @@
  * (Kosten des Boden-Neumalens) kommen dazu. Die M4-Prüfungen: Shop öffnen, Reiter wechseln, gesperrte Karten mit
  * Schloss, Freischaltung (Holzfäller → Schreinerei und Steinbruch, Meldung „Neu im Shop“, Stern), Artikel aus dem Shop
  * setzen, Baum pflanzen und wieder abreißen, Land aufschütten, kleine Bildschirme.
- * Seit M5 (Speichern): Das Spiel wird mit `?seed=1` geöffnet, das weder lädt noch speichert; die Speicher-Prüfungen nutzen
- * `?seed=1&save=1` und die echte IndexedDB: Autosave nach dem Bauen (Haus, Blume, Baum, Weg), Neuladen (Gebäude, Wege,
+ * Seit M5 (Speichern): Das Spiel wird mit `?seed=1&nosave=1` geöffnet, das weder lädt noch speichert; die Speicher-Prüfungen nutzen
+ * `?seed=1` (speichert normal) und die echte IndexedDB: Autosave nach dem Bauen (Haus, Blume, Baum, Weg), Neuladen (Gebäude, Wege,
  * Gelände, Lager, Zeit, Freischaltungen wie vorher, keine „Neu im Shop“-Meldung), das Zahnrad-Menü (`menu`, `menu-save`,
  * `menu-load`, `menu-close`, `menu-confirm`, `menu-cancel` in `data-ui`, `data-menu` = `closed|menu|menu:<Satz>|confirm`),
  * Export als Download, Import über den Dateiwähler mit ✓/✕ (Szene startet neu, keine Texturwarnungen), unbrauchbare
@@ -66,7 +66,7 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const PORT = 4173;
 const URL = `http://localhost:${PORT}/Schlumpfwelt/`;
 /** Feste Insel, damit Screenshots und Prüfungen reproduzierbar sind. */
-const GAME_URL = `${URL}?seed=1`;
+const GAME_URL = `${URL}?seed=1&nosave=1`;
 const M2_ONLY = process.argv.includes('--m2-only');
 const M3_ONLY = process.argv.includes('--m3-only');
 const M4_ONLY = process.argv.includes('--m4-only');
@@ -2023,8 +2023,8 @@ async function testShopSmall({ page, check, shot, size, input, name }) {
 // M5 – Speichern und Web-App
 // ---------------------------------------------------------------------------------------------------------------------
 
-/** Mit `&save=1` lädt und speichert das Spiel auch bei fester Insel (sonst nicht, siehe `src/save/startup.ts`). */
-const SAVE_URL = `${URL}?seed=1&save=1`;
+/** Ohne `&nosave=1` lädt und speichert das Spiel auch bei fester Insel (siehe `src/save/startup.ts`). */
+const SAVE_URL = `${URL}?seed=1`;
 const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 
 /** Der Spielstand in der echten IndexedDB der Seite (`null`, wenn keiner da ist). */
@@ -2151,7 +2151,7 @@ async function testSaving({ browser, page, check, shot, size, input, name, profi
   };
 
   // --- Neues Dorf: der Speicher ist die echte IndexedDB ---
-  step('Speichern: neues Dorf mit ?seed=1&save=1');
+  step('Speichern: neues Dorf mit ?seed=1 (speichert normal)');
   await enterIsland(page, profile, waitForScene, SAVE_URL);
   let village = await waitForSave((v) => v.buildings.length > 0, 'das neue Dorf mit Speicher-Marker');
   check(village.save.store === 'indexedDb' && village.save.autosave === true && village.save.start === 'new', `Start: Speicher ${JSON.stringify(village.save)}, erwartet IndexedDB, Autosave an, neu`);
@@ -2386,19 +2386,19 @@ async function testSaving({ browser, page, check, shot, size, input, name, profi
   const still = await readRecord(page);
   check(still && still.version === 99 && still.note === 'neuer', 'Der Spielstand aus der neueren Version wurde überschrieben');
 
-  // --- ?seed=1 ohne &save=1: weder laden noch speichern ---
-  step('Adressregel: ?seed=1 lädt und speichert nicht');
+  // --- ?seed=1&nosave=1: weder laden noch speichern ---
+  step('Adressregel: &nosave=1 lädt und speichert nicht');
   await page.goto(GAME_URL, { waitUntil: 'load' });
   await waitForScene('boot');
   await page.waitForTimeout(500);
   if (profile.context.hasTouch) await page.touchscreen.tap(size.width / 2, size.height * 0.54);
   else await page.mouse.click(size.width / 2, size.height * 0.54);
   await waitForScene('island');
-  village = await waitForSave((v) => v.buildings.length > 0, 'das frische Dorf bei ?seed=1');
-  check(village.save.start === 'new' && village.save.autosave === false && village.save.startTick === 0, `?seed=1: ${JSON.stringify(village.save)}, erwartet neu ohne Autosave`);
-  check(village.buildings.length === 6, `?seed=1: ${village.buildings.length} Gebäude statt dem Startdorf`);
+  village = await waitForSave((v) => v.buildings.length > 0, 'das frische Dorf bei &nosave=1');
+  check(village.save.start === 'new' && village.save.autosave === false && village.save.startTick === 0, `&nosave=1: ${JSON.stringify(village.save)}, erwartet neu ohne Autosave`);
+  check(village.buildings.length === 6, `&nosave=1: ${village.buildings.length} Gebäude statt dem Startdorf`);
   await sleep(1500);
-  check((await readRecord(page))?.version === 99, '?seed=1 hat den Spielstand überschrieben');
+  check((await readRecord(page))?.version === 99, '&nosave=1 hat den Spielstand überschrieben');
 
   // --- Browser ohne IndexedDB: das Spiel läuft, ohne Fehler ---
   step('Browser ohne IndexedDB');
@@ -2416,7 +2416,7 @@ async function testSaving({ browser, page, check, shot, size, input, name, profi
     if (message.type() === 'error') loneProblems.push(`Konsolenfehler: ${message.text()}`);
   });
   lone.on('pageerror', (error) => loneProblems.push(`Seitenfehler: ${error.message}`));
-  await lone.goto(`${URL}?save=1`, { waitUntil: 'load' });
+  await lone.goto(URL, { waitUntil: 'load' });
   await lone.waitForSelector('html[data-scene="boot"]', { state: 'attached', timeout: 10_000 });
   await lone.waitForTimeout(500);
   if (profile.context.hasTouch) await lone.touchscreen.tap(size.width / 2, size.height * 0.54);

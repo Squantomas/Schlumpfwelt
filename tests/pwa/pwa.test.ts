@@ -166,7 +166,7 @@ describe('Service Worker', () => {
   it('antwortet aus dem Cache, auch wenn die Adresse einen Suchteil hat – ohne Netz', async () => {
     const world = makeWorld(files, false);
     await world.fire('install');
-    const page = await world.fire('fetch', request('https://example.org/Schlumpfwelt/?seed=1&save=1', { mode: 'navigate' }));
+    const page = await world.fire('fetch', request('https://example.org/Schlumpfwelt/?seed=1&nosave=1', { mode: 'navigate' }));
     expect(page.answered).toBe('Datei https://example.org/Schlumpfwelt/');
     const script = await world.fire('fetch', request('https://example.org/Schlumpfwelt/assets/index-abc.js'));
     expect(script.answered).toBe('Datei https://example.org/Schlumpfwelt/assets/index-abc.js');
