@@ -55,8 +55,9 @@ self.addEventListener('fetch', (event) => {
 
 async function answer(request, scope) {
   const cache = await caches.open(CACHE);
-  // `?seed=1&save=1` and the like do not make another file.
-  const cached = await cache.match(request, { ignoreSearch: true });
+  // `?seed=1&save=1` and the like do not make another file. `ignoreVary`: a server that answers with `Vary: Origin`
+  // (the preview server does) would otherwise never match the copy that was fetched by the install step.
+  const cached = await cache.match(request, { ignoreSearch: true, ignoreVary: true });
   if (cached) {
     return cached;
   }
@@ -65,7 +66,7 @@ async function answer(request, scope) {
   } catch (error) {
     // Offline and not in the cache: a page request gets the game itself.
     if (request.mode === 'navigate') {
-      const index = await cache.match(new URL('index.html', scope).href);
+      const index = await cache.match(new URL('index.html', scope).href, { ignoreVary: true });
       if (index) {
         return index;
       }

@@ -4,10 +4,11 @@
  *
  *   npm run smoke                                # baut, startet `vite preview`, testet, räumt auf
  *   npm run smoke -- --no-build                  # vorhandenes dist/ verwenden
- *   npm run smoke -- --out docs/screenshots/m5   # anderer Screenshot-Ordner (Standard: m4)
+ *   npm run smoke -- --out docs/screenshots/m6   # anderer Screenshot-Ordner (Standard: m5)
  *   npm run smoke -- --m2-only                   # nur die Bau-Prüfungen (M2), ohne Kamera, Wirtschaft und Shop (schnell)
  *   npm run smoke -- --m3-only                   # nur die Wirtschafts-Prüfungen (M3), ohne Kamera, Bauen und Shop
  *   npm run smoke -- --m4-only                   # nur die Shop-Prüfungen (M4): Reiter, Schlösser, Freischaltung, Insel (etwa 5 Minuten)
+ *   npm run smoke -- --m5-only                   # nur die Prüfungen zu Speichern und Web-App (M5)
  *   npm run smoke -- --profile tablet            # nur Tablet bzw. nur Desktop
  *
  * Öffnet das Spiel (feste Insel `?seed=1`) als Tablet (1024×768, Touch,
@@ -37,6 +38,16 @@
  * (Kosten des Boden-Neumalens) kommen dazu. Die M4-Prüfungen: Shop öffnen, Reiter wechseln, gesperrte Karten mit
  * Schloss, Freischaltung (Holzfäller → Schreinerei und Steinbruch, Meldung „Neu im Shop“, Stern), Artikel aus dem Shop
  * setzen, Baum pflanzen und wieder abreißen, Land aufschütten, kleine Bildschirme.
+ * Seit M5 (Speichern): Das Spiel wird mit `?seed=1` geöffnet, das weder lädt noch speichert; die Speicher-Prüfungen nutzen
+ * `?seed=1&save=1` und die echte IndexedDB: Autosave nach dem Bauen (Haus, Blume, Baum, Weg), Neuladen (Gebäude, Wege,
+ * Gelände, Lager, Zeit, Freischaltungen wie vorher, keine „Neu im Shop“-Meldung), das Zahnrad-Menü (`menu`, `menu-save`,
+ * `menu-load`, `menu-close`, `menu-confirm`, `menu-cancel` in `data-ui`, `data-menu` = `closed|menu|menu:<Satz>|confirm`),
+ * Export als Download, Import über den Dateiwähler mit ✓/✕ (Szene startet neu, keine Texturwarnungen), unbrauchbare
+ * Dateien, kleine Bildschirme, kaputter und neuerer Spielstand beim Start, Browser ohne IndexedDB. `data-save` ist ein
+ * JSON mit `store`, `autosave`, `start` (`new|loaded|unreadable|tooNew|storageFailed`), `startTick`, `startStock`, `saves`,
+ * `failures`, `savedTick`. Web-App: Manifest (Name, `standalone`, Adressen relativ zu `/Schlumpfwelt/`, Symbole mit der
+ * richtigen Größe), Service Worker aktiv mit Cache, nach dem Neuladen gesteuert, und das Spiel startet offline
+ * (`context.setOffline`).
  * Exitcode ≠ 0 bei Konsolenfehlern, Seitenfehlern, fehlgeschlagenen Requests,
  * fehlgeschlagenen Kamera-Prüfungen oder wenn das Spiel nicht in die
  * Insel-Szene wechselt.
@@ -45,7 +56,7 @@
  * global vorinstallierte Paket (NODE_PATH oder `npm root -g`).
  */
 import { execSync, spawn, spawnSync } from 'node:child_process';
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import { createRequire } from 'node:module';
 import path from 'node:path';
@@ -59,21 +70,22 @@ const GAME_URL = `${URL}?seed=1`;
 const M2_ONLY = process.argv.includes('--m2-only');
 const M3_ONLY = process.argv.includes('--m3-only');
 const M4_ONLY = process.argv.includes('--m4-only');
+const M5_ONLY = process.argv.includes('--m5-only');
 /** `--profile tablet|desktop`: nur dieses Gerät testen (zum Entwickeln). */
 const ONLY_PROFILE = argValue('--profile');
-const SCREENSHOT_DIR = path.resolve(ROOT, argValue('--out') ?? path.join('docs', 'screenshots', 'm4'));
+const SCREENSHOT_DIR = path.resolve(ROOT, argValue('--out') ?? path.join('docs', 'screenshots', 'm5'));
 /** Alle übrigen Screenshots (Kamera-Prüfungen früherer Meilensteine, Zwischenschritte) landen hier, nicht im Repo. */
 const TEMP_SCREENSHOT_DIR = path.join(os.tmpdir(), 'schlumpfwelt-smoke');
-/** Nur diese Bilder gehören in `docs/screenshots/mN/` – die Screenshots dieses Meilensteins (M4: Shop). */
+/** Nur diese Bilder gehören in `docs/screenshots/mN/` – die Screenshots dieses Meilensteins (M5: Speichern und Web-App). */
 const KEEP_SCREENSHOTS = new Set([
-  'tablet-shop-haeuser',
-  'tablet-shop-deko-gesperrt',
-  'tablet-shop-insel',
-  'tablet-neu-im-shop',
-  'tablet-baum-gepflanzt',
-  'tablet-land-aufgeschuettet',
-  'tablet-shop-handy-hochkant',
-  'tablet-shop-handy-quer',
+  'tablet-zahnrad',
+  'tablet-menu',
+  'tablet-menu-frage',
+  'tablet-menu-fehler',
+  'tablet-geladen',
+  'tablet-menu-handy-quer',
+  'tablet-menu-handy-hochkant',
+  'tablet-offline',
 ]);
 
 /** Kachelgröße und Wasser-Rand der Kamera (siehe `TILE_SIZE` und `camera.json`). */
@@ -652,7 +664,7 @@ const SHOP_TAB = {
   meadow: 'island',
 };
 
-/** Bau-Zustand aus `<html data-tool|variant|preview|hint|markers|buildings|paths|terrain|ui|stock|producers|card|shop|tip|unlocked|earned|planted|repaint>`. */
+/** Bau-Zustand aus `<html data-tool|variant|preview|hint|markers|buildings|paths|terrain|ui|stock|producers|card|shop|tip|unlocked|earned|planted|repaint|menu|menu-spots|save>`. */
 async function readVillage(page) {
   return page.evaluate(() => {
     const d = document.documentElement.dataset;
@@ -665,7 +677,10 @@ async function readVillage(page) {
       buildings: JSON.parse(d.buildings ?? '[]').map(([id, type, x, y, connected]) => ({ id, type, x, y, connected: connected === 1 })),
       paths: (d.paths ?? '').split(';').filter(Boolean).map((tile) => tile.split(',').map(Number)),
       terrain: d.terrain ?? '',
-      ui: JSON.parse(d.ui ?? '{}'),
+      // Die Knöpfe der Leisten und – solange das Menü offen ist – die des Menüs (`menu-save`, `menu-load`, …).
+      ui: { ...JSON.parse(d.ui ?? '{}'), ...JSON.parse(d.menuSpots ?? '{}') },
+      menu: d.menu ?? 'closed',
+      save: JSON.parse(d.save ?? '{}'),
       lastTap: d.lastTap,
       stock: JSON.parse(d.stock ?? '{}'),
       producers: JSON.parse(d.producers ?? '[]').map(([id, status, delivered]) => ({ id, status, delivered })),
@@ -1998,9 +2013,516 @@ async function testShopSmall({ page, check, shot, size, input, name }) {
 }
 
 
-/** Startet das Spiel (Tippen zum Spielen) und wartet auf die Insel. */
-async function enterIsland(page, profile, waitForScene) {
+// ---------------------------------------------------------------------------------------------------------------------
+// M5 – Speichern und Web-App
+// ---------------------------------------------------------------------------------------------------------------------
+
+/** Mit `&save=1` lädt und speichert das Spiel auch bei fester Insel (sonst nicht, siehe `src/save/startup.ts`). */
+const SAVE_URL = `${URL}?seed=1&save=1`;
+const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+
+/** Der Spielstand in der echten IndexedDB der Seite (`null`, wenn keiner da ist). */
+async function readRecord(page) {
+  return page.evaluate(
+    () =>
+      new Promise((resolve, reject) => {
+        const open = indexedDB.open('village-game');
+        open.onerror = () => reject(open.error);
+        open.onsuccess = () => {
+          const db = open.result;
+          if (!db.objectStoreNames.contains('saves')) {
+            db.close();
+            resolve(null);
+            return;
+          }
+          const request = db.transaction('saves').objectStore('saves').get('main');
+          request.onsuccess = () => {
+            db.close();
+            resolve(request.result ?? null);
+          };
+          request.onerror = () => reject(request.error);
+        };
+      }),
+  );
+}
+
+/** Schreibt einen Spielstand (oder einen kaputten) in die IndexedDB der Seite. */
+async function writeRecord(page, value) {
+  await page.evaluate(
+    (data) =>
+      new Promise((resolve, reject) => {
+        const open = indexedDB.open('village-game', 1);
+        open.onupgradeneeded = () => open.result.createObjectStore('saves');
+        open.onerror = () => reject(open.error);
+        open.onsuccess = () => {
+          const db = open.result;
+          const transaction = db.transaction('saves', 'readwrite');
+          transaction.objectStore('saves').put(data, 'main');
+          transaction.oncomplete = () => {
+            db.close();
+            resolve();
+          };
+          transaction.onerror = () => reject(transaction.error);
+        };
+      }),
+    value,
+  );
+}
+
+/**
+ * Ändert den Spielstand von außen: erst auf eine Seite derselben Adresse wechseln, die nicht das Spiel ist (das Spiel
+ * würde beim Verlassen noch einmal speichern und die Änderung überschreiben), dann in die IndexedDB schreiben.
+ */
+async function setRecordFromOutside(page, value) {
+  await page.goto(`${URL}manifest.webmanifest`, { waitUntil: 'load' });
+  await writeRecord(page, value);
+}
+
+/** Wartet, bis der Spielstand in der IndexedDB `predicate` erfüllt (der Autosave läuft kurz nach dem Bauen). */
+async function waitForRecord(page, predicate, what, timeoutMs = 15_000) {
+  const deadline = Date.now() + timeoutMs;
+  let record = null;
+  while (Date.now() < deadline) {
+    record = await readRecord(page);
+    if (record && predicate(record)) return record;
+    await sleep(250);
+  }
+  throw new Error(`Zeitüberschreitung beim Warten auf ${what} in der IndexedDB (Stand: ${record ? `Version ${record.version}, ${record.buildings?.length} Gebäude, ${record.paths?.length} Wege` : 'leer'})`);
+}
+
+/** Die Teile eines Dorfs, die sich von allein nicht ändern, zum Vergleichen vor und nach dem Laden. */
+const staticPartsOfVillage = (v) => ({
+  buildings: v.buildings.map((b) => [b.id, b.type, b.x, b.y]),
+  paths: [...v.paths].sort((a, b) => a[1] * MAP_TILES + a[0] - (b[1] * MAP_TILES + b[0])),
+  terrain: v.terrain,
+  planted: v.planted,
+});
+const staticPartsOfRecord = (r) => ({
+  buildings: r.buildings.map((b) => [b.id, b.type, b.x, b.y]),
+  paths: r.paths.map((index) => [index % MAP_TILES, Math.floor(index / MAP_TILES)]),
+  terrain: r.world.terrain,
+  planted: r.planted.length,
+});
+
+/** Beim Neustart der Szene (Datei geladen) dürfen keine Phaser-Warnungen über fehlende Texturen kommen. */
+function collectTextureWarnings(page) {
+  const warnings = [];
+  const handler = (message) => {
+    if (message.type() === 'warning' || message.type() === 'error') warnings.push(message.text());
+  };
+  page.on('console', handler);
+  return { warnings, stop: () => page.off('console', handler) };
+}
+
+/**
+ * Speichern (M5): Autosave in die echte IndexedDB, Laden beim Start, Export und Import als Datei, kaputter und
+ * neuerer Spielstand, die Adressregel für `?seed=N`, Browser ohne IndexedDB.
+ */
+async function testSaving({ browser, page, check, shot, size, input, name, profile, waitForScene, problems }) {
+  const { step, cameraAtRest, tapUi, tapTile, selectTool, openShop, pickItem, exitTool, confirm } = buildHelpers({ page, check, size, input, name });
+  const count = (village, type) => village.buildings.filter((b) => b.type === type).length;
+  const waitForSave = (predicate, what, timeoutMs = 10_000) => waitForVillage(page, (v) => v.save.store !== undefined && predicate(v), what, timeoutMs);
+  /** Zwei Mal herauszoomen: Überblick wie in den Bau-Prüfungen (die Kacheln sind sonst mindestens 32 px groß). */
+  const overview = async () => {
+    const v = await readVillage(page);
+    for (let i = 0; i < 2; i += 1) {
+      await input.tap(v.ui['zoom-out']);
+      await sleep(300);
+    }
+    await cameraAtRest();
+  };
+  /** Setzt einen 1×1-Artikel auf eine freie Wiese nahe `near` (Anteile des Bildschirms) und wartet auf ✓. */
+  const placeSmall = async (typeId, near, what, ready) => {
+    await pickItem(typeId);
+    const v0 = await readVillage(page);
+    const spot = findFreeArea(v0, await cameraAtRest(), size, 1, 1, { near: { x: size.width * near[0], y: size.height * near[1] } });
+    check(spot !== undefined, `Kein freier Platz für ${what}`);
+    if (!spot) throw new Error(`kein Platz für ${what}`);
+    await tapTile(spot);
+    await waitForVillage(page, (v) => v.preview === 'place:ok', `grüne Vorschau für ${what}`);
+    const done = await confirm((v) => ready(v, v0), what);
+    return { spot, village: done };
+  };
+
+  // --- Neues Dorf: der Speicher ist die echte IndexedDB ---
+  step('Speichern: neues Dorf mit ?seed=1&save=1');
+  await enterIsland(page, profile, waitForScene, SAVE_URL);
+  let village = await waitForSave((v) => v.buildings.length > 0, 'das neue Dorf mit Speicher-Marker');
+  check(village.save.store === 'indexedDb' && village.save.autosave === true && village.save.start === 'new', `Start: Speicher ${JSON.stringify(village.save)}, erwartet IndexedDB, Autosave an, neu`);
+  check(village.hint === '', `Start: unerwarteter Hinweis „${village.hint}“`);
+  check('menu' in village.ui && village.ui.menu.w >= 48 && village.ui.menu.h >= 48, `Zahnrad fehlt oder ist kleiner als 48 px (${JSON.stringify(village.ui.menu)})`);
+  await overview();
+  village = await readVillage(page);
+  check(!village.hint.includes('Neu im Shop'), 'Start: „Neu im Shop“ ohne Grund');
+  await shot(`${name}-zahnrad`);
+
+  // --- Bauen: Haus (schaltet Neues frei), Blume, Baum (verändert das Gelände), Weg ---
+  step('Speichern: Haus, Blume, Baum und Weg bauen');
+  await pickItem('house-red');
+  let cam = await cameraAtRest();
+  const houseArea = findFreeArea(village, cam, size, 2, 2, { near: { x: size.width * 0.3, y: size.height * 0.35 } });
+  check(houseArea !== undefined, 'Kein freier Platz für das Haus');
+  if (!houseArea) return;
+  await tapTile({ x: houseArea.x, y: houseArea.y + 1 });
+  await waitForVillage(page, (v) => v.preview === 'place:ok', 'grüne Vorschau fürs Haus');
+  const housesBefore = village.buildings.length;
+  village = await confirm((v) => v.buildings.length === housesBefore + 1, 'das neue Haus');
+  check(village.unlocked.length > 0, 'Das zweite Haus hat nichts freigeschaltet (erwartet: Beet und großes Haus)');
+
+  await placeSmall('flower', [0.5, 0.3], 'die Blume', (v, v0) => count(v, 'flower') === count(v0, 'flower') + 1);
+  const planted = await placeSmall('tree', [0.62, 0.36], 'den Baum', (v) => v.planted === 1);
+  check(planted.village.terrain[planted.spot.y * MAP_TILES + planted.spot.x] === 'f', 'Baum: die Kachel ist kein Wald');
+  await exitTool();
+  village = await readVillage(page);
+  cam = await cameraAtRest();
+  const pathArea = findFreeArea(village, cam, size, 3, 1, { near: { x: size.width * 0.4, y: size.height * 0.5 } });
+  check(pathArea !== undefined, 'Kein freier Platz für den Weg');
+  if (!pathArea) return;
+  await selectTool('path');
+  await tapTile({ x: pathArea.x, y: pathArea.y });
+  await tapTile({ x: pathArea.x + 2, y: pathArea.y });
+  const pathsBefore = village.paths.length;
+  await confirm((v) => v.paths.length === pathsBefore + 3, 'drei neue Wegkacheln');
+  await exitTool();
+  const before = await readVillage(page);
+  check(before.planted === 1 && before.unlocked.length > 0, 'Vor dem Speichern fehlen Baum oder Freischaltung');
+
+  // --- Autosave: kurz nach dem Bauen steht alles in der echten IndexedDB ---
+  step('Speichern: Autosave schreibt in die IndexedDB');
+  const record = await waitForRecord(
+    page,
+    (r) => r.paths?.length === before.paths.length && r.planted?.length === 1 && r.buildings?.length === before.buildings.length,
+    'den gespeicherten Stand',
+  );
+  check(record.format === 'village-save' && record.version === 2, `Spielstand: Format ${record.format}, Version ${record.version}`);
+  check(same(staticPartsOfRecord(record), { ...staticPartsOfVillage(before), planted: 1 }), 'Spielstand in der IndexedDB stimmt nicht mit dem Dorf überein (Gebäude, Wege, Gelände, Bäume)');
+  check(same(record.unlocked, before.unlocked), `Spielstand: Freischaltungen ${JSON.stringify(record.unlocked)} statt ${JSON.stringify(before.unlocked)}`);
+  check(record.world.terrain.length === MAP_TILES * MAP_TILES && /^[wsgfr]+$/.test(record.world.terrain), 'Spielstand: Gelände ist kein Text aus w, s, g, f, r');
+  check(record.world.terrain[planted.spot.y * MAP_TILES + planted.spot.x] === 'f', 'Spielstand: der gepflanzte Baum steht nicht im Gelände');
+  check((await readVillage(page)).save.saves >= 1, 'Spiel meldet keinen Autosave');
+
+  // --- Neu laden: dasselbe Dorf, dieselbe Zeit, keine falsche Meldung ---
+  step('Speichern: Seite neu laden, Dorf ist wieder da');
+  await enterIsland(page, profile, waitForScene, SAVE_URL);
+  village = await waitForSave((v) => v.buildings.length > 0, 'das geladene Dorf');
+  check(village.save.start === 'loaded' && village.save.autosave === true, `Neustart: ${JSON.stringify(village.save)}, erwartet „loaded“`);
+  const afterReload = await readRecord(page);
+  check(same(staticPartsOfVillage(village), staticPartsOfVillage(before)), 'Nach dem Laden stimmen Gebäude, Wege, Gelände oder Bäume nicht mit dem Stand vorher überein');
+  check(same(village.unlocked, before.unlocked), `Nach dem Laden: Freischaltungen ${JSON.stringify(village.unlocked)} statt ${JSON.stringify(before.unlocked)}`);
+  check(afterReload && village.save.startTick === afterReload.tick && same(village.save.startStock, afterReload.inventory), `Nach dem Laden: Zeit und Lager (${village.save.startTick}, ${JSON.stringify(village.save.startStock)}) sind nicht die des Spielstands`);
+  check(village.save.startTick > 0, 'Nach dem Laden beginnt die Zeit wieder bei 0');
+  check(village.save.startTick - record.tick < 600, `Nach dem Laden: ${village.save.startTick - record.tick} Ticks (über 60 s) mehr als im ersten Spielstand – Zeit wurde nachgeholt?`);
+  await sleep(1500);
+  village = await readVillage(page);
+  check(!village.hint.includes('Neu im Shop') && village.hint === '', `Nach dem Laden: Meldung „${village.hint}“ (erwartet keine)`);
+  check(village.ui['tool-shop'].badge === false, 'Nach dem Laden trägt der Shop-Knopf einen Stern');
+  await shot(`${name}-geladen`);
+  await openShop();
+  village = await readVillage(page);
+  check(!Object.values(village.ui).some((spot) => spot.fresh === true), 'Nach dem Laden tragen Shop-Karten einen Stern („neu“)');
+  await tapUi('shop-close');
+  await waitForVillage(page, (v) => v.shop === 'closed' && v.tool === 'view', 'der geschlossene Shop');
+
+  // --- Das Zahnrad: Menü, Export als Datei ---
+  step('Menü: Zahnrad öffnet das Menü, Datei sichern');
+  await tapUi('menu');
+  village = await waitForVillage(page, (v) => v.menu === 'menu' && 'menu-save' in v.ui && 'menu-load' in v.ui, 'das offene Menü');
+  for (const spot of ['menu-save', 'menu-load', 'menu-close']) {
+    check(village.ui[spot].w >= 48 && village.ui[spot].h >= 48, `Menü: ${spot} ist nur ${village.ui[spot].w}×${village.ui[spot].h} px groß`);
+  }
+  const panel = village.ui['menu-panel'];
+  check(panel.x - panel.w / 2 >= 0 && panel.x + panel.w / 2 <= size.width && panel.y - panel.h / 2 >= 0 && panel.y + panel.h / 2 <= size.height, 'Menü: das Feld ragt aus dem Bild');
+  await sleep(500);
+  await shot(`${name}-menu`);
+  // Das Menü deckt die Insel und die Leiste zu: ein Tipp auf die Stelle des Weg-Knopfs schaltet nichts.
+  await input.tap({ x: village.ui['tool-path'].x, y: village.ui['tool-path'].y });
+  await sleep(500);
+  village = await readVillage(page);
+  check(village.tool === 'view' && village.menu === 'menu', `Menü offen: ein Tipp auf die Werkzeugleiste hat Werkzeug „${village.tool}“ gewählt oder das Menü geschlossen`);
+  const [download] = await Promise.all([page.waitForEvent('download', { timeout: 10_000 }), tapUi('menu-save')]);
+  check(/^[a-z0-9-]+-\d{4}-\d{2}-\d{2}\.json$/.test(download.suggestedFilename()), `Dateiname „${download.suggestedFilename()}“`);
+  const exported = await readFile(await download.path(), 'utf8');
+  const exportedData = JSON.parse(exported);
+  check(exportedData.format === 'village-save' && exportedData.version === 2, 'Export: Format oder Version stimmt nicht');
+  await waitForVillage(page, (v) => v.menu === 'menu:menu.fileSaved', 'der Satz „Datei fertig“');
+  check(same(staticPartsOfRecord(exportedData), staticPartsOfVillage(await readVillage(page))), 'Export: Datei stimmt nicht mit dem Dorf überein');
+  await tapUi('menu-close');
+  await waitForVillage(page, (v) => v.menu === 'closed', 'das geschlossene Menü');
+
+  // --- Import: erst nach ✓, ✕ bricht ab ---
+  step('Menü: Datei laden – ✕ bricht ab, ✓ ersetzt das Dorf');
+  await placeSmall('bush', [0.35, 0.62], 'den Busch', (v, v0) => count(v, 'bush') === count(v0, 'bush') + 1);
+  await exitTool();
+  const changed = await readVillage(page);
+  check(changed.buildings.length === before.buildings.length + 1, 'Der Busch fehlt');
+
+  const chooseFile = async (content, mimeType = 'application/json') => {
+    await tapUi('menu');
+    await waitForVillage(page, (v) => v.menu === 'menu' && 'menu-load' in v.ui, 'das offene Menü');
+    const [chooser] = await Promise.all([page.waitForEvent('filechooser', { timeout: 10_000 }), tapUi('menu-load')]);
+    await chooser.setFiles({ name: 'dorf.json', mimeType, buffer: Buffer.isBuffer(content) ? content : Buffer.from(content) });
+  };
+  await chooseFile(exported);
+  village = await waitForVillage(page, (v) => v.menu === 'confirm' && 'menu-confirm' in v.ui && 'menu-cancel' in v.ui, 'die Frage „Dorf ersetzen?“');
+  check(village.ui['menu-confirm'].w >= 64 && village.ui['menu-cancel'].w >= 64, 'Frage: ✓ oder ✕ kleiner als 64 px');
+  check(count(village, 'bush') === count(changed, 'bush'), 'Frage: das Dorf wurde schon ersetzt, bevor ✓ gedrückt wurde');
+  await sleep(400);
+  await shot(`${name}-menu-frage`);
+  await tapUi('menu-cancel');
+  village = await waitForVillage(page, (v) => v.menu === 'menu', 'das Menü nach ✕');
+  check(same(staticPartsOfVillage(village), staticPartsOfVillage(changed)), '✕ hat das Dorf verändert');
+
+  const textures = collectTextureWarnings(page);
+  await tapUi('menu-close');
+  await chooseFile(exported);
+  await waitForVillage(page, (v) => v.menu === 'confirm', 'die Frage noch einmal');
+  await tapUi('menu-confirm');
+  await waitForVillage(page, (v) => v.menu === 'closed' && same(staticPartsOfVillage(v), staticPartsOfVillage(before)), 'das ersetzte Dorf (ohne den Busch)', 15_000);
+  await sleep(1500);
+  textures.stop();
+  check(textures.warnings.length === 0, `Neustart der Szene: Warnungen oder Fehler in der Konsole: ${textures.warnings.join(' | ')}`);
+  village = await readVillage(page);
+  check(village.hint === 'Dein Dorf aus der Datei ist da!', `Nach dem Import: Hinweis „${village.hint}“`);
+  check(!('menu-save' in village.ui) && village.menu === 'closed', 'Nach dem Import ist das Menü noch zu sehen');
+  check('tool-shop' in village.ui && 'menu' in village.ui, 'Nach dem Import fehlen Werkzeugleiste oder Zahnrad');
+  await shot(`${name}-importiert`);
+  // Die Insel lebt: der Shop lässt sich öffnen und schließen.
+  await openShop();
+  await tapUi('shop-close');
+  await waitForVillage(page, (v) => v.shop === 'closed', 'der Shop nach dem Import');
+  await waitForRecord(page, (r) => same(staticPartsOfRecord(r), { ...staticPartsOfVillage(before), planted: 1 }), 'der importierte Stand in der IndexedDB');
+
+  // --- Dateien, die nicht passen: freundlicher Satz, nichts ändert sich ---
+  step('Menü: unbrauchbare Dateien');
+  const without = (key) => {
+    const copy = JSON.parse(exported);
+    delete copy[key];
+    return JSON.stringify(copy);
+  };
+  const bad = [
+    ['Text statt JSON', 'das ist kein Spielstand', 'menu.errorNotSave'],
+    ['fremdes JSON', '{"name":"Max","punkte":3}', 'menu.errorNotSave'],
+    ['leere Datei', '', 'menu.errorNotSave'],
+    ['neuere Version', JSON.stringify({ ...JSON.parse(exported), version: 99 }), 'menu.errorTooNew'],
+    ['ohne Gelände', without('world'), 'menu.errorBroken'],
+    ['zu groß', Buffer.alloc(2_100_000, 32), 'menu.errorTooBig'],
+  ];
+  const kept = staticPartsOfVillage(await readVillage(page));
+  let first = true;
+  for (const [label, content, key] of bad) {
+    await chooseFile(content);
+    village = await waitForVillage(page, (v) => v.menu === `menu:${key}`, `der Satz zu „${label}“ (${key})`);
+    check(same(staticPartsOfVillage(village), kept), `${label}: das Dorf hat sich verändert`);
+    if (first) {
+      first = false;
+      await sleep(400);
+      await shot(`${name}-menu-fehler`);
+    }
+    await tapUi('menu-close');
+    await waitForVillage(page, (v) => v.menu === 'closed', 'das geschlossene Menü');
+  }
+
+  // --- Kleine Bildschirme: das Menü passt ---
+  step('Menü: kleine Bildschirme');
+  for (const [w, h] of [[568, 320], [320, 568], [640, 360], [360, 640], [480, 320]]) {
+    await page.setViewportSize({ width: w, height: h });
+    await sleep(1200);
+    await waitForCameraRest(page);
+    let v = await readVillage(page);
+    const gear = v.ui.menu;
+    check(gear !== undefined && gear.w >= 48 && gear.h >= 48 && gear.x + gear.w / 2 <= w && gear.y + gear.h / 2 <= h, `${w}×${h}: Zahnrad fehlt, ist zu klein oder ragt aus dem Bild (${JSON.stringify(gear)})`);
+    if (!gear) continue;
+    await input.tap(gear);
+    v = await waitForVillage(page, (state) => state.menu === 'menu' && 'menu-load' in state.ui, `das Menü bei ${w}×${h}`);
+    for (const spot of ['menu-save', 'menu-load', 'menu-close']) {
+      const s = v.ui[spot];
+      check(s.w >= 48 && s.h >= 48 && s.x - s.w / 2 >= 0 && s.x + s.w / 2 <= w && s.y - s.h / 2 >= 0 && s.y + s.h / 2 <= h, `${w}×${h}: ${spot} ist zu klein oder ragt aus dem Bild (${JSON.stringify(s)})`);
+    }
+    const [saveSpot, loadSpot] = [v.ui['menu-save'], v.ui['menu-load']];
+    const overlap = Math.abs(saveSpot.x - loadSpot.x) < (saveSpot.w + loadSpot.w) / 2 && Math.abs(saveSpot.y - loadSpot.y) < (saveSpot.h + loadSpot.h) / 2;
+    check(!overlap, `${w}×${h}: die beiden Menü-Knöpfe überlappen`);
+    if ((w === 568 && h === 320) || (w === 320 && h === 568)) {
+      await sleep(400);
+      await shot(w > h ? `${name}-menu-handy-quer` : `${name}-menu-handy-hochkant`);
+    }
+    await tapUi('menu-close');
+    await waitForVillage(page, (state) => state.menu === 'closed', `das geschlossene Menü bei ${w}×${h}`);
+  }
+  await page.setViewportSize(size);
+  await sleep(1000);
+
+  // --- Kaputter Spielstand beim Start ---
+  step('Start mit kaputtem Spielstand');
+  await setRecordFromOutside(page, { format: 'village-save', version: 2, world: null, buildings: 'viele' });
+  await enterIsland(page, profile, waitForScene, SAVE_URL);
+  village = await waitForSave((v) => v.buildings.length > 0, 'das neue Dorf nach dem kaputten Spielstand');
+  check(village.save.start === 'unreadable' && village.save.autosave === true, `Kaputter Spielstand: ${JSON.stringify(village.save)}`);
+  check(/Dein altes Dorf ging nicht auf/.test(village.hint), `Kaputter Spielstand: Hinweis „${village.hint}“`);
+  check(village.buildings.length === 6, `Kaputter Spielstand: ${village.buildings.length} Gebäude statt dem Startdorf`);
+  // Eine Änderung stößt das Speichern an: der kaputte Spielstand wird durch einen heilen ersetzt.
+  await overview();
+  await placeSmall('flower', [0.5, 0.3], 'die Blume im neuen Dorf', (v, v0) => count(v, 'flower') === count(v0, 'flower') + 1);
+  await exitTool();
+  await waitForRecord(page, (r) => r.format === 'village-save' && r.version === 2 && Array.isArray(r.buildings) && r.buildings.length === 7, 'ein heiler Spielstand nach dem kaputten');
+
+  // --- Neuerer Spielstand: nicht überschreiben ---
+  step('Start mit Spielstand aus einer neueren Version');
+  const future = { ...exportedData, version: 99, note: 'neuer' };
+  await setRecordFromOutside(page, future);
+  await enterIsland(page, profile, waitForScene, SAVE_URL);
+  village = await waitForSave((v) => v.buildings.length > 0, 'das neue Dorf neben dem neueren Spielstand');
+  check(village.save.start === 'tooNew' && village.save.autosave === false, `Neuerer Spielstand: ${JSON.stringify(village.save)}`);
+  check(/neueren Version/.test(village.hint), `Neuerer Spielstand: Hinweis „${village.hint}“`);
+  await overview();
+  await placeSmall('flower', [0.4, 0.3], 'die Blume neben dem neueren Spielstand', (v, v0) => count(v, 'flower') === count(v0, 'flower') + 1);
+  await exitTool();
+  await sleep(4000);
+  const still = await readRecord(page);
+  check(still && still.version === 99 && still.note === 'neuer', 'Der Spielstand aus der neueren Version wurde überschrieben');
+
+  // --- ?seed=1 ohne &save=1: weder laden noch speichern ---
+  step('Adressregel: ?seed=1 lädt und speichert nicht');
   await page.goto(GAME_URL, { waitUntil: 'load' });
+  await waitForScene('boot');
+  await page.waitForTimeout(500);
+  if (profile.context.hasTouch) await page.touchscreen.tap(size.width / 2, size.height * 0.54);
+  else await page.mouse.click(size.width / 2, size.height * 0.54);
+  await waitForScene('island');
+  village = await waitForSave((v) => v.buildings.length > 0, 'das frische Dorf bei ?seed=1');
+  check(village.save.start === 'new' && village.save.autosave === false && village.save.startTick === 0, `?seed=1: ${JSON.stringify(village.save)}, erwartet neu ohne Autosave`);
+  check(village.buildings.length === 6, `?seed=1: ${village.buildings.length} Gebäude statt dem Startdorf`);
+  await sleep(1500);
+  check((await readRecord(page))?.version === 99, '?seed=1 hat den Spielstand überschrieben');
+
+  // --- Browser ohne IndexedDB: das Spiel läuft, ohne Fehler ---
+  step('Browser ohne IndexedDB');
+  const plain = await browser.newContext(profile.context);
+  await plain.addInitScript(() => {
+    Object.defineProperty(window, 'indexedDB', {
+      get() {
+        throw new DOMException('Speicher gesperrt', 'SecurityError');
+      },
+    });
+  });
+  const lone = await plain.newPage();
+  const loneProblems = [];
+  lone.on('console', (message) => {
+    if (message.type() === 'error') loneProblems.push(`Konsolenfehler: ${message.text()}`);
+  });
+  lone.on('pageerror', (error) => loneProblems.push(`Seitenfehler: ${error.message}`));
+  await lone.goto(`${URL}?save=1`, { waitUntil: 'load' });
+  await lone.waitForSelector('html[data-scene="boot"]', { state: 'attached', timeout: 10_000 });
+  await lone.waitForTimeout(500);
+  if (profile.context.hasTouch) await lone.touchscreen.tap(size.width / 2, size.height * 0.54);
+  else await lone.mouse.click(size.width / 2, size.height * 0.54);
+  // Die erste Insel eines frischen Browsers erzeugt alle Bilder und braucht im Headless-Modus einige Sekunden.
+  await lone.waitForSelector('html[data-scene="island"]', { state: 'attached', timeout: 40_000 });
+  const loneVillage = await waitForVillage(lone, (v) => v.buildings.length > 0 && v.save.store !== undefined, 'das Dorf ohne IndexedDB', 30_000);
+  check(loneVillage.save.store === 'memory' && loneVillage.save.autosave === false, `Ohne IndexedDB: ${JSON.stringify(loneVillage.save)}`);
+  check(/Hier kann nichts gespeichert werden/.test(loneVillage.hint), `Ohne IndexedDB: Hinweis „${loneVillage.hint}“`);
+  await sleep(2500);
+  check(loneProblems.length === 0, `Ohne IndexedDB: ${loneProblems.join(' | ')}`);
+  await plain.close();
+  for (const entry of loneProblems) problems.push(entry);
+}
+
+/** Web-App (M5): Manifest, Symbole, Service Worker, offline spielbar. */
+async function testPwa({ context, page, check, shot, size, profile, waitForScene, problems }) {
+  console.log(`  [${profile.name}] Web-App: Manifest, Service Worker, offline`);
+  await page.goto(GAME_URL, { waitUntil: 'load' });
+  await waitForScene('boot');
+  const info = await page.evaluate(async () => {
+    const link = document.querySelector('link[rel="manifest"]');
+    const href = link?.href ?? '';
+    const response = await fetch(href);
+    const manifest = await response.json();
+    const base = new URL(href);
+    const icons = [];
+    for (const icon of manifest.icons ?? []) {
+      const url = new URL(icon.src, base).href;
+      const image = new Image();
+      await new Promise((resolve) => {
+        image.onload = resolve;
+        image.onerror = resolve;
+        image.src = url;
+      });
+      icons.push({ src: icon.src, sizes: icon.sizes, purpose: icon.purpose, width: image.naturalWidth, height: image.naturalHeight });
+    }
+    const apple = document.querySelector('link[rel="apple-touch-icon"]');
+    const appleImage = new Image();
+    if (apple) {
+      await new Promise((resolve) => {
+        appleImage.onload = resolve;
+        appleImage.onerror = resolve;
+        appleImage.src = apple.href;
+      });
+    }
+    return {
+      href,
+      ok: response.ok,
+      manifest,
+      start: new URL(manifest.start_url, base).href,
+      scope: new URL(manifest.scope, base).href,
+      icons,
+      appleWidth: appleImage.naturalWidth,
+      appleCapable: document.querySelector('meta[name="apple-mobile-web-app-capable"]')?.content,
+      title: document.title,
+    };
+  });
+  check(info.href === `${URL}manifest.webmanifest` && info.ok, `Manifest: Adresse ${info.href}`);
+  check(info.manifest.name === info.title && info.manifest.short_name === info.title, `Manifest: Name „${info.manifest.name}“ ist nicht der Titel „${info.title}“`);
+  check(info.manifest.display === 'standalone', `Manifest: display ${info.manifest.display}`);
+  check(info.start === URL && info.scope === URL, `Manifest: start_url ${info.start}, scope ${info.scope} – erwartet ${URL}`);
+  check(info.manifest.lang === 'de' && typeof info.manifest.description === 'string' && info.manifest.description !== '', 'Manifest: Sprache oder Beschreibung fehlt');
+  const sizes = info.icons.map((icon) => icon.sizes);
+  check(sizes.includes('192x192') && sizes.includes('512x512') && info.icons.some((icon) => icon.purpose === 'maskable'), `Manifest: Symbole ${JSON.stringify(sizes)}`);
+  for (const icon of info.icons) check(`${icon.width}x${icon.height}` === icon.sizes, `Symbol ${icon.src}: ${icon.width}×${icon.height} statt ${icon.sizes}`);
+  check(info.appleWidth === 180 && info.appleCapable === 'yes', `iPad: Symbol ${info.appleWidth} px, Web-App-Tag ${info.appleCapable}`);
+
+  // Service Worker: aktiv, mit Cache, nach dem Neuladen steuert er die Seite.
+  const worker = await page.evaluate(async () => {
+    const registration = await navigator.serviceWorker.ready;
+    const names = await caches.keys();
+    const urls = names.length > 0 ? (await (await caches.open(names[0])).keys()).map((request) => new URL(request.url).pathname) : [];
+    return { state: registration.active?.state, scope: registration.scope, script: registration.active?.scriptURL, names, urls };
+  });
+  check(worker.state === 'activated' && worker.scope === URL && worker.script === `${URL}sw.js`, `Service Worker: ${JSON.stringify({ state: worker.state, scope: worker.scope, script: worker.script })}`);
+  check(worker.names.length === 1 && /^village-[0-9a-f]{12}$/.test(worker.names[0]), `Cache: ${JSON.stringify(worker.names)}`);
+  check(['/Schlumpfwelt/', '/Schlumpfwelt/index.html', '/Schlumpfwelt/manifest.webmanifest', '/Schlumpfwelt/icons/icon-192.png'].every((url) => worker.urls.includes(url)) && worker.urls.some((url) => /\/assets\/index-.*\.js$/.test(url)), `Cache enthält nicht alle Dateien: ${worker.urls.join(', ')}`);
+  await page.reload({ waitUntil: 'load' });
+  await waitForScene('boot');
+  const controlled = await page.evaluate(() => navigator.serviceWorker.controller !== null);
+  check(controlled, 'Nach dem Neuladen steuert der Service Worker die Seite nicht');
+
+  // Offline: das Spiel startet aus dem Cache.
+  await context.setOffline(true);
+  try {
+    await page.reload({ waitUntil: 'load' });
+    await waitForScene('boot');
+    await page.waitForTimeout(500);
+    if (profile.context.hasTouch) await page.touchscreen.tap(size.width / 2, size.height * 0.54);
+    else await page.mouse.click(size.width / 2, size.height * 0.54);
+    await waitForScene('island');
+    await waitForCameraRest(page);
+    await page.waitForTimeout(2500);
+    const offline = await readVillage(page);
+    check(offline.buildings.length > 0 && 'tool-shop' in offline.ui, 'Offline: die Insel ist nicht da');
+    // Beweis, dass das Netz wirklich aus ist (`navigator.onLine` sagt mit einer CDP-Sitzung nichts): eine Datei, die nicht im Cache liegt (der
+    // Service Worker lädt sich selbst nie aus dem Cache), lässt sich nicht holen. Der erwartete Konsolenfehler dazu zählt nicht als Problem.
+    const problemsBefore = problems.length;
+    const reachable = await page.evaluate((url) => fetch(url, { cache: 'no-store' }).then(() => true, () => false), `${URL}sw.js`);
+    await sleep(400);
+    problems.splice(problemsBefore);
+    check(reachable === false, 'Offline-Test: das Netz ist nicht wirklich aus (sw.js ist erreichbar)');
+    await shot(`${profile.name}-offline`);
+  } finally {
+    await context.setOffline(false);
+  }
+}
+
+/** Startet das Spiel (Tippen zum Spielen) und wartet auf die Insel. */
+async function enterIsland(page, profile, waitForScene, url = GAME_URL) {
+  await page.goto(url, { waitUntil: 'load' });
   await waitForScene('boot');
   await page.waitForTimeout(500);
   const { width, height } = profile.context.viewport;
@@ -2109,7 +2631,7 @@ async function testProfile(browser, profile) {
     await waitForCameraRest(page);
   }
 
-  if (!M2_ONLY && !M3_ONLY && !M4_ONLY) {
+  if (!M2_ONLY && !M3_ONLY && !M4_ONLY && !M5_ONLY) {
     if (profile.context.hasTouch) {
       await testTouchCamera({ page, context, problems, check, shot, size: { width, height } });
     } else {
@@ -2123,7 +2645,7 @@ async function testProfile(browser, profile) {
   const cdp = profile.context.hasTouch ? await context.newCDPSession(page) : undefined;
   const input = cdp ? { tap: (p) => page.touchscreen.tap(p.x, p.y) } : { tap: (p) => page.mouse.click(p.x, p.y) };
   const drag = cdp ? (from, to) => touchDevice(cdp).drag(from, to, { steps: 8, pauseMs: 30, holdMs: 200 }) : undefined;
-  if (!M3_ONLY && !M4_ONLY) {
+  if (!M3_ONLY && !M4_ONLY && !M5_ONLY) {
     try {
       await testBuilding({ page, check, shot, size, input, drag, name: profile.name });
     } catch (error) {
@@ -2131,7 +2653,7 @@ async function testProfile(browser, profile) {
       await shot(`${profile.name}-bauen-fehler`).catch(() => {});
     }
   }
-  if (!M2_ONLY && !M4_ONLY) {
+  if (!M2_ONLY && !M4_ONLY && !M5_ONLY) {
     try {
       // Frische Insel mit frischem Startlager für die Wirtschafts-Prüfungen (das Bauen oben hat Geld ausgegeben).
       if (!M3_ONLY) await enterIsland(page, profile, waitForScene);
@@ -2141,7 +2663,7 @@ async function testProfile(browser, profile) {
       await shot(`${profile.name}-wirtschaft-fehler`).catch(() => {});
     }
   }
-  if (!M2_ONLY && !M3_ONLY) {
+  if (!M2_ONLY && !M3_ONLY && !M5_ONLY) {
     try {
       // Frische Insel für den Shop (das Bauen und Wirtschaften oben hat Geld ausgegeben und Freischaltungen erreicht).
       if (!M4_ONLY) await enterIsland(page, profile, waitForScene);
@@ -2151,6 +2673,20 @@ async function testProfile(browser, profile) {
     } catch (error) {
       problems.push(`Shop: ${error.message}`);
       await shot(`${profile.name}-shop-fehler`).catch(() => {});
+    }
+  }
+  if (!M2_ONLY && !M3_ONLY && !M4_ONLY) {
+    try {
+      await testSaving({ browser, page, check, shot, size, input, name: profile.name, profile, waitForScene, problems });
+    } catch (error) {
+      problems.push(`Speichern: ${error.message}`);
+      await shot(`${profile.name}-speichern-fehler`).catch(() => {});
+    }
+    try {
+      await testPwa({ context, page, check, shot, size, profile, waitForScene, problems });
+    } catch (error) {
+      problems.push(`Web-App: ${error.message}`);
+      await shot(`${profile.name}-webapp-fehler`).catch(() => {});
     }
   }
   await cdp?.detach();

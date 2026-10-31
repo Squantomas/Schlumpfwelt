@@ -218,7 +218,10 @@ export class VillageMenu {
       return {};
     }
     const center = (rect: Rect): MenuSpot => ({ x: rect.x + rect.width / 2, y: rect.y + rect.height / 2, w: rect.width, h: rect.height });
-    const spots: Record<string, MenuSpot> = { 'menu-panel': center(layout.panel), 'menu-close': center(layout.close) };
+    const spots: Record<string, MenuSpot> = { 'menu-panel': center(layout.panel) };
+    if (layout.close) {
+      spots['menu-close'] = center(layout.close);
+    }
     if (layout.save && layout.load) {
       spots['menu-save'] = center(layout.save);
       spots['menu-load'] = center(layout.load);
@@ -301,7 +304,7 @@ export class VillageMenu {
       object.setVisible(visible);
     }
     const layout = this.layoutData;
-    this.closeButton.setVisible(visible);
+    this.closeButton.setVisible(layout?.close !== undefined);
     this.saveButton.setVisible(layout?.save !== undefined);
     this.loadButton.setVisible(layout?.load !== undefined);
     this.confirmButton.setVisible(layout?.confirm !== undefined);
@@ -335,7 +338,9 @@ export class VillageMenu {
     this.sentence.setPosition(text.x + text.width / 2, text.y + text.height / 2);
 
     const centerOf = (rect: Rect): { x: number; y: number } => ({ x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 });
-    this.closeButton.setPosition(centerOf(layout.close).x, centerOf(layout.close).y);
+    if (layout.close) {
+      this.closeButton.setPosition(centerOf(layout.close).x, centerOf(layout.close).y);
+    }
     if (layout.save && layout.load) {
       this.saveButton.place(layout.save);
       this.loadButton.place(layout.load);

@@ -95,6 +95,11 @@ describe('menuLayout: nichts überlappt, nichts ragt über den Rand, alles groß
     expect((tall.load?.y ?? 0) > (tall.save?.y ?? 0)).toBe(true);
   });
 
+  it('zeigt das große ✕ oben nur im Menü, nicht bei der Frage (dort gibt es nur ein ✕)', () => {
+    expect(menuLayout(800, 600, 'menu').close).toBeDefined();
+    expect(menuLayout(800, 600, 'confirm').close).toBeUndefined();
+  });
+
   it('✓ ist größer als ✕ und liegt rechts davon', () => {
     const ask = menuLayout(800, 600, 'confirm');
     expect(ask.confirm?.width).toBeGreaterThan(ask.cancel?.width ?? 0);

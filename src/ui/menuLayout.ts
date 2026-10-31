@@ -27,7 +27,8 @@ export interface MenuLayout {
   readonly panel: Rect;
   /** The title, left of the close button. */
   readonly title: Rect;
-  readonly close: Rect;
+  /** The big ✕ at the top right (leaves the menu); not while ✓ / ✕ ask a question, so there is only one ✕ to pick. */
+  readonly close: Rect | undefined;
   /** The sentence (standing info, error, or the question). */
   readonly text: Rect;
   /** Menu mode: the two buttons. */
@@ -60,8 +61,9 @@ export function menuLayout(width: number, height: number, mode: MenuLayoutMode):
 
   const innerX = panel.x + PAD;
   const innerW = panelW - 2 * PAD;
-  const close: Rect = { x: panel.x + panelW - PAD - MENU_CLOSE, y: panel.y + PAD, width: MENU_CLOSE, height: MENU_CLOSE };
-  const title: Rect = { x: innerX, y: panel.y + PAD, width: close.x - GAP - innerX, height: HEADER_H };
+  const closeRect: Rect = { x: panel.x + panelW - PAD - MENU_CLOSE, y: panel.y + PAD, width: MENU_CLOSE, height: MENU_CLOSE };
+  const close = mode === 'confirm' ? undefined : closeRect;
+  const title: Rect = { x: innerX, y: panel.y + PAD, width: (close ? close.x - GAP : innerX + innerW) - innerX, height: HEADER_H };
   const text: Rect = { x: innerX, y: panel.y + PAD + HEADER_H + GAP, width: innerW, height: textH };
   const bodyY = text.y + textH + GAP;
 

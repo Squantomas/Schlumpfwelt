@@ -65,8 +65,12 @@ function makeWorld(files: readonly string[], online = true) {
           }
           return Promise.resolve();
         },
-        match: (request: { url: string } | string, options?: { ignoreSearch?: boolean }) => {
+        match: (request: { url: string } | string, options?: { ignoreSearch?: boolean; ignoreVary?: boolean }) => {
           const url = typeof request === 'string' ? request : request.url;
+          // The worker has to ask for `ignoreVary` (see the template); without it a `Vary: Origin` server never matches.
+          if (options?.ignoreVary !== true) {
+            return Promise.resolve(undefined);
+          }
           const wanted = options?.ignoreSearch ? url.split('?')[0] : url;
           for (const [key, body] of entries) {
             if (key === wanted) {
