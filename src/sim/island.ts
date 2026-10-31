@@ -20,8 +20,12 @@
 import { buildingType } from '../data/buildings';
 import { addAmounts, costOf, takeAmounts } from './economy';
 import { canPlace, tileIndex } from './buildings';
+import type { DeepReadonly } from './readonly';
 import type { SimState } from './state';
 import { inBounds, setTerrain, terrainAt, type Terrain } from './world';
+
+/** What the questions about planted trees and rocks read. */
+export type PlantedView = DeepReadonly<Pick<SimState, 'world' | 'planted'>>;
 
 /** The terrain an island item turns its tile into (`undefined` for other types). */
 export function islandResult(typeId: string): Terrain | undefined {
@@ -40,7 +44,7 @@ export function islandResult(typeId: string): Terrain | undefined {
 }
 
 /** Was the tree or rock on this tile planted by the player? */
-export function isPlanted(state: Pick<SimState, 'world' | 'planted'>, x: number, y: number): boolean {
+export function isPlanted(state: PlantedView, x: number, y: number): boolean {
   return inBounds(state.world, x, y) && state.planted.includes(tileIndex(state.world, x, y));
 }
 
@@ -67,7 +71,7 @@ export function placeIslandItem(state: SimState, typeId: string, x: number, y: n
 }
 
 /** The type of item whose cost a planted tile gives back (`tree` for forest, `rock` for rock). */
-export function plantedTypeAt(state: Pick<SimState, 'world' | 'planted'>, x: number, y: number): string | undefined {
+export function plantedTypeAt(state: PlantedView, x: number, y: number): string | undefined {
   if (!isPlanted(state, x, y)) {
     return undefined;
   }
@@ -84,7 +88,7 @@ export function plantedTypeAt(state: Pick<SimState, 'world' | 'planted'>, x: num
 }
 
 /** What demolishing the planted tree or rock on this tile gives back (empty if the tile has none). */
-export function plantedRefund(state: Pick<SimState, 'world' | 'planted'>, x: number, y: number): Record<string, number> {
+export function plantedRefund(state: PlantedView, x: number, y: number): Record<string, number> {
   const typeId = plantedTypeAt(state, x, y);
   return typeId === undefined ? {} : { ...costOf(typeId) };
 }

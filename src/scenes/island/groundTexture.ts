@@ -47,39 +47,90 @@ export function groundSize(world: WorldView): { width: number; height: number } 
   return { width: world.width * TILE_SIZE, height: world.height * TILE_SIZE };
 }
 
+/** A rectangle of tiles, both ends included. */
+export interface TileRange {
+  readonly x0: number;
+  readonly y0: number;
+  readonly x1: number;
+  readonly y1: number;
+}
+
+/**
+ * How far (in tiles) the painting of one tile reaches into its neighbours: the
+ * lightest sea halo is 1.3 tiles wide, rounded corners and details a little
+ * more. A change of one tile therefore needs {@link REPAINT_REACH} tiles around
+ * it painted again, and the tiles up to {@link REPAINT_REACH} further out
+ * painted into that area.
+ */
+export const REPAINT_REACH = 2;
+
 export function paintGround(ctx: CanvasRenderingContext2D, world: WorldView, seed: number): void {
-  const level = (x: number, y: number): number => levelOf(terrainAt(world, x, y));
   const { width, height } = groundSize(world);
   if (Math.max(width, height) > MAX_GROUND_TEXTURE_SIZE) {
     throw new Error(`Ground texture ${String(width)}×${String(height)} is bigger than ${String(MAX_GROUND_TEXTURE_SIZE)} px`);
   }
-
   ctx.fillStyle = cssColor(COLORS.waterDeep);
   ctx.fillRect(0, 0, width, height);
+  paintLayers(ctx, world, seed, { x0: 0, y0: 0, x1: world.width - 1, y1: world.height - 1 });
+}
 
-  paintSeaHalos(ctx, world, level);
-  paintFoam(ctx, world, level);
+/**
+ * Paints the ground of the tiles around `changed` again, after the terrain of
+ * those tiles changed (a tree planted, a beach filled up …): only the
+ * {@link REPAINT_REACH} tiles around them are cleared and painted, everything
+ * else stays as it is. The result is the same as painting everything again
+ * (`tests` and the smoke test compare them); it costs a few dozen tiles
+ * instead of the whole map. Returns the repainted tiles.
+ */
+export function repaintGround(ctx: CanvasRenderingContext2D, world: WorldView, seed: number, changed: TileRange): TileRange {
+  const area = growRange(world, changed, REPAINT_REACH);
+  const source = growRange(world, area, REPAINT_REACH);
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(area.x0 * TILE_SIZE, area.y0 * TILE_SIZE, (area.x1 - area.x0 + 1) * TILE_SIZE, (area.y1 - area.y0 + 1) * TILE_SIZE);
+  ctx.clip();
+  ctx.fillStyle = cssColor(COLORS.waterDeep);
+  ctx.fillRect(area.x0 * TILE_SIZE, area.y0 * TILE_SIZE, (area.x1 - area.x0 + 1) * TILE_SIZE, (area.y1 - area.y0 + 1) * TILE_SIZE);
+  paintLayers(ctx, world, seed, source);
+  ctx.restore();
+  return area;
+}
+
+function growRange(world: WorldView, range: TileRange, by: number): TileRange {
+  return {
+    x0: Math.max(0, range.x0 - by),
+    y0: Math.max(0, range.y0 - by),
+    x1: Math.min(world.width - 1, range.x1 + by),
+    y1: Math.min(world.height - 1, range.y1 + by),
+  };
+}
+
+/** All layers, bottom to top, for the tiles in `range` (the sea under them has been filled already). */
+function paintLayers(ctx: CanvasRenderingContext2D, world: WorldView, seed: number, range: TileRange): void {
+  const level = (x: number, y: number): number => levelOf(terrainAt(world, x, y));
+  paintSeaHalos(ctx, level, range);
+  paintFoam(ctx, level, range);
   // Beach: lip first, then the sand on top; then the same for the meadow.
-  paintTiles(ctx, world, (x, y) => level(x, y) < 1, 1, LIP + 1, () => COLORS.sandShade);
-  paintTiles(ctx, world, (x, y) => level(x, y) < 1, 1, 0, () => COLORS.sand);
-  paintTiles(ctx, world, (x, y) => level(x, y) < 2, 2, LIP, () => COLORS.grassShade);
-  paintTiles(ctx, world, (x, y) => level(x, y) < 2, 2, 0, () => COLORS.grass);
+  paintTiles(ctx, world, range, (x, y) => level(x, y) < 1, 1, LIP + 1, () => COLORS.sandShade);
+  paintTiles(ctx, world, range, (x, y) => level(x, y) < 1, 1, 0, () => COLORS.sand);
+  paintTiles(ctx, world, range, (x, y) => level(x, y) < 2, 2, LIP, () => COLORS.grassShade);
+  paintTiles(ctx, world, range, (x, y) => level(x, y) < 2, 2, 0, () => COLORS.grass);
   // Forest floor and rocky ground are patches on the meadow with their own colour.
-  paintPatch(ctx, world, 'forest', COLORS.forestFloor);
-  paintPatch(ctx, world, 'rock', COLORS.rockFloor);
+  paintPatch(ctx, world, range, 'forest', COLORS.forestFloor);
+  paintPatch(ctx, world, range, 'rock', COLORS.rockFloor);
 
-  paintDetails(ctx, world, seed);
+  paintDetails(ctx, world, seed, range);
 }
 
 /** Lighter water around the land: three soft steps from deep to shallow. */
-function paintSeaHalos(ctx: CanvasRenderingContext2D, world: WorldView, level: (x: number, y: number) => number): void {
+function paintSeaHalos(ctx: CanvasRenderingContext2D, level: (x: number, y: number) => number, range: TileRange): void {
   const halos: readonly [number, number][] = [
     [TILE_SIZE * 1.3, COLORS.waterMid],
     [TILE_SIZE * 0.55, COLORS.waterShallow],
   ];
   for (const [grow, color] of halos) {
     ctx.fillStyle = cssColor(color);
-    forEachTile(world, (x, y) => {
+    forEachTile(range, (x, y) => {
       if (level(x, y) >= 1) {
         roundedRect(ctx, x * TILE_SIZE - grow, y * TILE_SIZE - grow, TILE_SIZE + 2 * grow, TILE_SIZE + 2 * grow, grow + CORNER);
         ctx.fill();
@@ -89,10 +140,10 @@ function paintSeaHalos(ctx: CanvasRenderingContext2D, world: WorldView, level: (
 }
 
 /** White foam line along the coast, just outside the beach. */
-function paintFoam(ctx: CanvasRenderingContext2D, world: WorldView, level: (x: number, y: number) => number): void {
+function paintFoam(ctx: CanvasRenderingContext2D, level: (x: number, y: number) => number, range: TileRange): void {
   ctx.fillStyle = cssRgba(COLORS.foam, 0.75);
   const grow = 5;
-  forEachTile(world, (x, y) => {
+  forEachTile(range, (x, y) => {
     if (level(x, y) >= 1) {
       roundedRect(ctx, x * TILE_SIZE - grow, y * TILE_SIZE - grow + LIP, TILE_SIZE + 2 * grow, TILE_SIZE + 2 * grow, CORNER + grow);
       ctx.fill();
@@ -107,12 +158,13 @@ function paintFoam(ctx: CanvasRenderingContext2D, world: WorldView, level: (x: n
 function paintTiles(
   ctx: CanvasRenderingContext2D,
   world: WorldView,
+  range: TileRange,
   lower: (x: number, y: number) => boolean,
   minLevel: number,
   offset: number,
   colorOf: (terrain: Terrain) => number,
 ): void {
-  forEachTile(world, (x, y) => {
+  forEachTile(range, (x, y) => {
     if (levelOf(terrainAt(world, x, y)) < minLevel) {
       return;
     }
@@ -123,10 +175,10 @@ function paintTiles(
 }
 
 /** Paints all tiles of one terrain in `color`; outer corners are rounded where both neighbours are another terrain. */
-function paintPatch(ctx: CanvasRenderingContext2D, world: WorldView, terrain: Terrain, color: number): void {
+function paintPatch(ctx: CanvasRenderingContext2D, world: WorldView, range: TileRange, terrain: Terrain, color: number): void {
   ctx.fillStyle = cssColor(color);
   const other = (x: number, y: number): boolean => terrainAt(world, x, y) !== terrain;
-  forEachTile(world, (x, y) => {
+  forEachTile(range, (x, y) => {
     if (terrainAt(world, x, y) === terrain) {
       paintTile(ctx, x, y, 0, other);
       ctx.fill();
@@ -149,8 +201,8 @@ function paintTile(
 }
 
 /** Flowers and tufts on the meadow, moss and needles in the forest, pebbles on rocky ground, specks on sand. */
-function paintDetails(ctx: CanvasRenderingContext2D, world: WorldView, seed: number): void {
-  forEachTile(world, (x, y) => {
+function paintDetails(ctx: CanvasRenderingContext2D, world: WorldView, seed: number, range: TileRange): void {
+  forEachTile(range, (x, y) => {
     const terrain = terrainAt(world, x, y);
     const r = (n: number): number => hash2(seed + n * 101, x, y);
     const px = x * TILE_SIZE;
@@ -306,9 +358,9 @@ function mushroom(ctx: CanvasRenderingContext2D, x: number, y: number): void {
   }
 }
 
-function forEachTile(world: WorldView, visit: (x: number, y: number) => void): void {
-  for (let y = 0; y < world.height; y += 1) {
-    for (let x = 0; x < world.width; x += 1) {
+function forEachTile(range: TileRange, visit: (x: number, y: number) => void): void {
+  for (let y = range.y0; y <= range.y1; y += 1) {
+    for (let x = range.x0; x <= range.x1; x += 1) {
       visit(x, y);
     }
   }

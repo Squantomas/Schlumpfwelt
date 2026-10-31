@@ -65,6 +65,18 @@ export function markVillage(info: {
   readonly producers: string;
   /** Id of the building whose info card is open, or an empty text. */
   readonly card: string;
+  /** The shop: `closed`, or `<tab>:<page>/<pages>`. */
+  readonly shop: string;
+  /** The sentence on a locked shop card that was tapped (empty when none is shown). */
+  readonly tip: string;
+  /** Ids of the unlocked types (those with a condition), comma separated, in the order they were reached. */
+  readonly unlocked: string;
+  /** Coins the market has earned in total. */
+  readonly earned: string;
+  /** Number of trees and rocks the player planted. */
+  readonly planted: string;
+  /** What redrawing the ground cost: `{"count":…,"last":ms,"max":ms,"tiles":…}`. */
+  readonly repaint: string;
 }): void {
   const data = document.documentElement.dataset;
   const next = {
@@ -80,6 +92,12 @@ export function markVillage(info: {
     stock: info.stock,
     producers: info.producers,
     card: info.card,
+    shop: info.shop,
+    tip: info.tip,
+    unlocked: info.unlocked,
+    earned: info.earned,
+    planted: info.planted,
+    repaint: info.repaint,
   };
   for (const [key, value] of Object.entries(next)) {
     if (data[key] !== value) {

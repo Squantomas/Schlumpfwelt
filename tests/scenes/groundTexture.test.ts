@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { groundSize, MAX_GROUND_TEXTURE_SIZE, paintGround } from '../../src/scenes/island/groundTexture';
+import { groundSize, MAX_GROUND_TEXTURE_SIZE, REPAINT_REACH, paintGround, repaintGround } from '../../src/scenes/island/groundTexture';
 import { DEFAULT_WORLD_PARAMS, generateIsland } from '../../src/sim/islandGen';
 import { createWorld, setTerrain } from '../../src/sim/world';
 import { COLORS, TILE_SIZE, cssColor, rgb } from '../../src/ui/style';
@@ -83,5 +83,73 @@ describe('Bodentextur', () => {
     expect(() => {
       paintGround(ctx, generateIsland(42), 42);
     }).not.toThrow();
+  });
+});
+
+/** Ein Canvas-Kontext, der zählt, wie oft gefüllt wurde, und sich die Rechtecke von rect/fillRect merkt. */
+function countingContext(): { ctx: CanvasRenderingContext2D; calls: Map<string, number>; rects: number[][] } {
+  const calls = new Map<string, number>();
+  const rects: number[][] = [];
+  const state: Record<string, unknown> = {};
+  const ctx = new Proxy(state, {
+    get(target, key: string) {
+      if (key in target) {
+        return target[key];
+      }
+      return (...args: number[]): void => {
+        calls.set(key, (calls.get(key) ?? 0) + 1);
+        if (key === 'rect' || key === 'fillRect') {
+          rects.push(args);
+        }
+      };
+    },
+    set(target, key: string, value: unknown) {
+      target[key] = value;
+      return true;
+    },
+  }) as unknown as CanvasRenderingContext2D;
+  return { ctx, calls, rects };
+}
+
+describe('Boden neu malen (Baum pflanzen, Land aufschütten)', () => {
+  it('malt nur die Umgebung der geänderten Kachel – ein Bruchteil der Arbeit eines ganzen Bildes', () => {
+    const world = generateIsland(7);
+    const full = countingContext();
+    paintGround(full.ctx, world, 7);
+    const part = countingContext();
+    const area = repaintGround(part.ctx, world, 7, { x0: 24, y0: 24, x1: 24, y1: 24 });
+    const total = (calls: Map<string, number>): number => [...calls.values()].reduce((sum, n) => sum + n, 0);
+    expect(total(part.calls)).toBeLessThan(total(full.calls) / 10);
+    expect(area).toEqual({ x0: 24 - REPAINT_REACH, y0: 24 - REPAINT_REACH, x1: 24 + REPAINT_REACH, y1: 24 + REPAINT_REACH });
+  });
+
+  it('schneidet auf diesen Bereich zu und füllt ihn mit der Tiefwasserfarbe, bevor es malt', () => {
+    const world = generateIsland(7);
+    const { ctx, rects } = countingContext();
+    repaintGround(ctx, world, 7, { x0: 10, y0: 12, x1: 11, y1: 12 });
+    const left = (10 - REPAINT_REACH) * TILE_SIZE;
+    const top = (12 - REPAINT_REACH) * TILE_SIZE;
+    const width = (2 + 2 * REPAINT_REACH) * TILE_SIZE;
+    const height = (1 + 2 * REPAINT_REACH) * TILE_SIZE;
+    expect(rects).toContainEqual([left, top, width, height]);
+    // Der Hintergrund wird nur in diesem Bereich gemalt, nie über die ganze Karte.
+    const mapSize = groundSize(world);
+    expect(rects.some((rect) => rect[2] === mapSize.width && rect[3] === mapSize.height)).toBe(false);
+  });
+
+  it('bleibt am Kartenrand in der Karte', () => {
+    const world = generateIsland(7);
+    const { ctx } = countingContext();
+    expect(repaintGround(ctx, world, 7, { x0: 0, y0: 0, x1: 0, y1: 0 })).toEqual({ x0: 0, y0: 0, x1: REPAINT_REACH, y1: REPAINT_REACH });
+    expect(repaintGround(ctx, world, 7, { x0: 47, y0: 47, x1: 47, y1: 47 })).toEqual({ x0: 47 - REPAINT_REACH, y0: 47 - REPAINT_REACH, x1: 47, y1: 47 });
+  });
+
+  it('malt die Farben der neuen Geländeart (Wald auf einer Wiese)', () => {
+    const world = createWorld(12, 12, 'grass');
+    setTerrain(world, 6, 6, 'forest');
+    const { ctx, fills } = recordingContext();
+    repaintGround(ctx, world, 3, { x0: 6, y0: 6, x1: 6, y1: 6 });
+    expect(fills.has(cssColor(COLORS.forestFloor))).toBe(true);
+    expect(fills.has(cssColor(COLORS.grass))).toBe(true);
   });
 });

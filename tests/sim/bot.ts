@@ -1,5 +1,5 @@
 import { LOCKED_TYPE_IDS, buildingType } from '../../src/data/buildings';
-import type { Command } from '../../src/sim/commands';
+import { placementCommand } from '../../src/sim/commands';
 import { canPlacePath, checkPlacement, footprintTiles, isPath, unconnectedBuildings, type Tile } from '../../src/sim/buildings';
 import { canAfford } from '../../src/sim/economy';
 import type { Simulation } from '../../src/sim/simulation';
@@ -9,22 +9,6 @@ import { isUnlocked } from '../../src/sim/unlocks';
 const MAX_PATH_DISTANCE = 25;
 
 const key = (tile: Tile): string => `${String(tile.x)},${String(tile.y)}`;
-
-/** The command that builds a type: island items have their own commands. */
-export function commandFor(typeId: string, spot: Tile): Command {
-  switch (buildingType(typeId)?.island?.action) {
-    case 'plantTree':
-      return { type: 'plantTree', x: spot.x, y: spot.y };
-    case 'placeRock':
-      return { type: 'placeRock', x: spot.x, y: spot.y };
-    case 'fillLand':
-      return { type: 'fillLand', x: spot.x, y: spot.y };
-    case 'makeMeadow':
-      return { type: 'makeMeadow', x: spot.x, y: spot.y };
-    case undefined:
-      return { type: 'placeBuilding', buildingType: typeId, x: spot.x, y: spot.y };
-  }
-}
 
 /**
  * A very simple player for the tests: saves up for the things on its list in
@@ -68,7 +52,7 @@ export class Bot {
         this.noSpot.add(typeId);
         continue;
       }
-      this.sim.send(commandFor(typeId, spot));
+      this.sim.send(placementCommand(typeId, spot.x, spot.y));
       this.builtAt.set(typeId, state.tick);
       return typeId;
     }

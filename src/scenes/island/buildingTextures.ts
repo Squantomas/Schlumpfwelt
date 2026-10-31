@@ -46,7 +46,15 @@ export function buildingOrigin(type: BuildingType): { x: number; y: number } {
 const DRAWERS: Readonly<Record<string, (type: BuildingType) => Draw>> = {
   ...Object.fromEntries(Object.entries(PRODUCTION_DRAWERS).map(([shape, draw]) => [shape, (): Draw => draw])),
   mushroomHouse: (type) => (ctx, w, h) => {
-    drawMushroomHouse(ctx, w, h, type.look.palette ?? 'red');
+    // Big houses are the same picture, drawn bigger (the texture is `scale` times the size of a small house).
+    const scale = type.look.scale ?? 1;
+    ctx.save();
+    ctx.scale(scale, scale);
+    drawMushroomHouse(ctx, w / scale, h / scale, type.look.palette ?? 'red');
+    ctx.restore();
+  },
+  gardenHouse: (type) => (ctx, w, h) => {
+    drawGardenHouse(ctx, w, h, type.look.palette ?? 'pink');
   },
   flower: () => drawFlowers,
   bush: () => drawBush,
@@ -54,6 +62,12 @@ const DRAWERS: Readonly<Record<string, (type: BuildingType) => Draw>> = {
   bench: () => drawBench,
   lantern: () => drawLantern,
   fountain: () => drawFountain,
+  flowerbed: () => drawFlowerbed,
+  pond: () => drawPond,
+  islandTree: () => drawIslandTree,
+  islandRock: () => drawIslandRock,
+  islandBeach: () => drawIslandBeach,
+  islandMeadow: () => drawIslandMeadow,
 };
 
 /** Creates all textures (once; later scenes reuse them). */
@@ -161,6 +175,24 @@ function baseY(height: number): number {
   return height - PAD - 12;
 }
 
+/** One flower with a stem, a leaf, five petals and a yellow heart; `base` is where the stem stands on the ground. */
+function flowerAt(ctx: CanvasRenderingContext2D, x: number, base: number, stem: number, colour: number, size: number): void {
+  ctx.strokeStyle = css(COLORS.stalk);
+  ctx.lineWidth = 2.6;
+  ctx.lineCap = 'round';
+  ctx.beginPath();
+  ctx.moveTo(x, base + 2);
+  ctx.lineTo(x, base - stem);
+  ctx.stroke();
+  ellipse(ctx, x + 4, base - stem * 0.45, 5, 2.4, css(COLORS.stalk), -0.5);
+  const petal = css(FLOWER_PETALS[colour % FLOWER_PETALS.length] ?? COLORS.flower);
+  for (let i = 0; i < 5; i += 1) {
+    const angle = (i / 5) * Math.PI * 2 - Math.PI / 2;
+    circle(ctx, x + Math.cos(angle) * size, base - stem + Math.sin(angle) * size, size * 0.75, petal);
+  }
+  circle(ctx, x, base - stem, size * 0.62, css(COLORS.flowerCenter));
+}
+
 function drawFlowers(ctx: CanvasRenderingContext2D, width: number, height: number): void {
   const cx = width / 2;
   const base = baseY(height);
@@ -172,21 +204,7 @@ function drawFlowers(ctx: CanvasRenderingContext2D, width: number, height: numbe
     [17, 18, 2, 6],
   ];
   for (const [dx, stem, colour, size] of flowers) {
-    const x = cx + dx;
-    ctx.strokeStyle = css(COLORS.stalk);
-    ctx.lineWidth = 2.6;
-    ctx.lineCap = 'round';
-    ctx.beginPath();
-    ctx.moveTo(x, base + 2);
-    ctx.lineTo(x, base - stem);
-    ctx.stroke();
-    ellipse(ctx, x + 4, base - stem * 0.45, 5, 2.4, css(COLORS.stalk), -0.5);
-    const petal = css(FLOWER_PETALS[colour] ?? COLORS.flower);
-    for (let i = 0; i < 5; i += 1) {
-      const angle = (i / 5) * Math.PI * 2 - Math.PI / 2;
-      circle(ctx, x + Math.cos(angle) * size, base - stem + Math.sin(angle) * size, size * 0.75, petal);
-    }
-    circle(ctx, x, base - stem, size * 0.62, css(COLORS.flowerCenter));
+    flowerAt(ctx, cx + dx, base, stem, colour, size);
   }
 }
 
@@ -207,26 +225,36 @@ function drawBush(ctx: CanvasRenderingContext2D, width: number, height: number):
   }
 }
 
+/** A fence you can see from far away: four tall light pickets with a pointed top, two thick rails, dark side faces. */
 function drawFence(ctx: CanvasRenderingContext2D, width: number, height: number): void {
   const cx = width / 2;
   const base = baseY(height);
-  softShadow(ctx, cx, base + 3, 30, 6);
+  softShadow(ctx, cx, base + 3, 33, 7);
   // Two rails behind the pickets.
-  roundedBox(ctx, cx - 31, base - 20, 62, 5, 2.5, css(COLORS.woodDark));
-  roundedBox(ctx, cx - 31, base - 9, 62, 5, 2.5, css(COLORS.woodDark));
+  roundedBox(ctx, cx - 31, base - 34, 62, 7, 3.5, css(COLORS.woodDark));
+  roundedBox(ctx, cx - 31, base - 15, 62, 7, 3.5, css(COLORS.woodDark));
   for (const dx of [-24, -8, 8, 24]) {
-    const x = cx + dx - 5;
-    ctx.fillStyle = css(COLORS.wood);
+    const x = cx + dx - 7;
+    ctx.fillStyle = css(COLORS.woodLight);
     ctx.beginPath();
     ctx.moveTo(x, base + 1);
-    ctx.lineTo(x, base - 28);
-    ctx.lineTo(x + 5, base - 34);
-    ctx.lineTo(x + 10, base - 28);
-    ctx.lineTo(x + 10, base + 1);
+    ctx.lineTo(x, base - 42);
+    ctx.lineTo(x + 7, base - 52);
+    ctx.lineTo(x + 14, base - 42);
+    ctx.lineTo(x + 14, base + 1);
     ctx.closePath();
     ctx.fill();
-    roundedBox(ctx, x + 6, base - 27, 4, 28, 2, css(COLORS.woodDark));
-    roundedBox(ctx, x + 1.5, base - 26, 2.5, 24, 1.2, css(COLORS.woodLight));
+    // Darker right side and a thin outline: the pickets stand out from the meadow.
+    roundedBox(ctx, x + 8.5, base - 41, 5.5, 42, 2.5, css(COLORS.wood));
+    ctx.strokeStyle = css(COLORS.woodDark);
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(x, base + 1);
+    ctx.lineTo(x, base - 42);
+    ctx.lineTo(x + 7, base - 52);
+    ctx.lineTo(x + 14, base - 42);
+    ctx.lineTo(x + 14, base + 1);
+    ctx.stroke();
   }
 }
 
@@ -401,4 +429,188 @@ function drawPuff(ctx: CanvasRenderingContext2D, width: number): void {
   ctx.beginPath();
   ctx.arc(c, c, c - 2, 0, Math.PI * 2);
   ctx.fill();
+}
+
+/** A house with a garden: a mushroom house on the left two tiles, a picket fence with flowers on the third tile. */
+function drawGardenHouse(ctx: CanvasRenderingContext2D, _width: number, height: number, paletteName: string): void {
+  // The house is centred in its own two tiles (the left 144 px of the picture).
+  drawMushroomHouse(ctx, 2 * TILE_SIZE + 2 * PAD, height, paletteName);
+  const base = height - PAD - 10;
+  const gardenX = PAD + 2 * TILE_SIZE;
+  const cx = gardenX + TILE_SIZE / 2;
+  softShadow(ctx, cx, base + 3, 30, 7);
+  // A bed of soil with flowers, behind a low fence along the front and the right.
+  roundedBox(ctx, gardenX + 4, base - 16, TILE_SIZE - 8, 18, 8, css(COLORS.soilDark));
+  roundedBox(ctx, gardenX + 6, base - 17, TILE_SIZE - 12, 14, 7, css(COLORS.soil));
+  flowerAt(ctx, gardenX + 17, base - 6, 20, 0, 5.5);
+  flowerAt(ctx, gardenX + 32, base - 5, 28, 2, 6.5);
+  flowerAt(ctx, gardenX + 47, base - 6, 18, 3, 5.5);
+  // Picket fence in front.
+  roundedBox(ctx, gardenX + 2, base - 9, TILE_SIZE - 4, 5, 2.5, css(COLORS.woodDark));
+  for (const dx of [8, 22, 36, 50]) {
+    const x = gardenX + dx - 5;
+    ctx.fillStyle = css(COLORS.woodLight);
+    ctx.beginPath();
+    ctx.moveTo(x, base + 4);
+    ctx.lineTo(x, base - 16);
+    ctx.lineTo(x + 5, base - 22);
+    ctx.lineTo(x + 10, base - 16);
+    ctx.lineTo(x + 10, base + 4);
+    ctx.closePath();
+    ctx.fill();
+    roundedBox(ctx, x + 6, base - 15, 4, 19, 2, css(COLORS.wood));
+  }
+}
+
+/** A flower bed: a wooden frame, dark soil and a row of flowers. */
+function drawFlowerbed(ctx: CanvasRenderingContext2D, width: number, height: number): void {
+  const cx = width / 2;
+  const base = baseY(height) + 4;
+  softShadow(ctx, cx, base + 3, 58, 9);
+  roundedBox(ctx, cx - 58, base - 20, 116, 24, 9, css(COLORS.woodDark));
+  roundedBox(ctx, cx - 56, base - 22, 112, 20, 8, css(COLORS.wood));
+  roundedBox(ctx, cx - 50, base - 20, 100, 13, 6, css(COLORS.soil));
+  const flowers: readonly [number, number, number, number][] = [
+    // [dx, stem height, petal colour index, petal size]
+    [-42, 16, 3, 5.5],
+    [-26, 22, 0, 6.5],
+    [-9, 15, 1, 5.5],
+    [8, 24, 2, 6.5],
+    [25, 17, 0, 5.5],
+    [41, 21, 3, 6],
+  ];
+  for (const [dx, stem, colour, size] of flowers) {
+    flowerAt(ctx, cx + dx, base - 8, stem, colour, size);
+  }
+  // Wooden front board over the stems.
+  roundedBox(ctx, cx - 58, base - 9, 116, 13, 6, css(COLORS.woodLight));
+  roundedBox(ctx, cx - 58, base - 1, 116, 5, 2.5, css(COLORS.wood));
+}
+
+/** A little pond: water in a ring of stones, a lily pad, two reeds and a glint. */
+function drawPond(ctx: CanvasRenderingContext2D, width: number, height: number): void {
+  const cx = width / 2;
+  const ground = height - PAD - 10;
+  softShadow(ctx, cx, ground + 2, 58, 12);
+  const cy = ground - 30;
+  ellipse(ctx, cx, cy + 6, 60, 31, css(COLORS.stoneDark));
+  ellipse(ctx, cx, cy, 60, 31, css(COLORS.stone));
+  ellipse(ctx, cx, cy + 1, 50, 23, css(COLORS.stoneDark));
+  ellipse(ctx, cx, cy + 2, 48, 21, css(COLORS.fountainWater));
+  ellipse(ctx, cx - 14, cy - 3, 17, 5, cssRgba(COLORS.fountainWaterLight, 0.85), -0.12);
+  // Stones of the rim.
+  for (const [dx, dy, r] of [[-54, 2, 7], [-40, 18, 6.5], [-12, 27, 6], [18, 27, 7], [44, 17, 6.5], [56, 0, 7], [40, -18, 6.5], [-2, -28, 7], [-36, -18, 6]] as const) {
+    ellipse(ctx, cx + dx, cy + dy + 1.5, r * 1.15, r * 0.85, css(COLORS.stoneDark));
+    ellipse(ctx, cx + dx, cy + dy, r * 1.15, r * 0.85, css(COLORS.stoneLight));
+  }
+  // Lily pad with a blossom.
+  ellipse(ctx, cx + 16, cy + 5, 13, 6, css(COLORS.crownDark));
+  ellipse(ctx, cx + 16, cy + 4, 12, 5, css(COLORS.treeCrownLight));
+  circle(ctx, cx + 18, cy + 1, 3.6, css(COLORS.blossom));
+  circle(ctx, cx + 18, cy + 1, 1.6, css(COLORS.flowerCenter));
+  // Reeds on the left.
+  for (const [dx, tall] of [[-52, 40], [-45, 30]] as const) {
+    ctx.strokeStyle = css(COLORS.stalk);
+    ctx.lineWidth = 2.6;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(cx + dx, cy - 6);
+    ctx.lineTo(cx + dx + 2, cy - tall);
+    ctx.stroke();
+    roundedBox(ctx, cx + dx - 1.5, cy - tall - 8, 5, 12, 2.5, css(COLORS.trunkDark));
+  }
+}
+
+/** The picture of "plant a tree": a young tree on a little mound of soil. */
+function drawIslandTree(ctx: CanvasRenderingContext2D, width: number, height: number): void {
+  const cx = width / 2;
+  const base = baseY(height) + 4;
+  softShadow(ctx, cx, base + 3, 24, 7);
+  ellipse(ctx, cx, base + 1, 17, 6, css(COLORS.soilDark));
+  ellipse(ctx, cx, base - 1, 15, 5, css(COLORS.soil));
+  roundedBox(ctx, cx - 4.5, base - 38, 9, 38, 3, css(COLORS.treeTrunk));
+  roundedBox(ctx, cx + 0.5, base - 37, 4, 36, 2, css(COLORS.trunkDark));
+  circle(ctx, cx - 12, base - 42, 15, css(COLORS.crownDark));
+  circle(ctx, cx + 12, base - 42, 15, css(COLORS.crownDark));
+  circle(ctx, cx, base - 56, 20, css(COLORS.crownDark));
+  circle(ctx, cx - 12, base - 44, 14, css(COLORS.treeCrown));
+  circle(ctx, cx + 12, base - 44, 14, css(COLORS.treeCrown));
+  circle(ctx, cx, base - 59, 19, css(COLORS.treeCrown));
+  circle(ctx, cx - 7, base - 66, 8, css(COLORS.treeCrownLight));
+  circle(ctx, cx - 18, base - 47, 5, css(COLORS.treeCrownLight));
+}
+
+/** The picture of "set a rock": a big grey rock with a lit side and two pebbles. */
+function drawIslandRock(ctx: CanvasRenderingContext2D, width: number, height: number): void {
+  const cx = width / 2;
+  const base = baseY(height) + 4;
+  ellipse(ctx, cx, base + 2, 30, 8, cssRgba(COLORS.rockShadow, 0.35));
+  ctx.fillStyle = css(COLORS.rockShade);
+  ctx.beginPath();
+  ctx.moveTo(cx - 28, base);
+  ctx.quadraticCurveTo(cx - 34, base - 24, cx - 12, base - 32);
+  ctx.quadraticCurveTo(cx + 12, base - 38, cx + 28, base - 18);
+  ctx.quadraticCurveTo(cx + 36, base - 4, cx + 26, base);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = css(COLORS.rock);
+  ctx.beginPath();
+  ctx.moveTo(cx - 26, base - 3);
+  ctx.quadraticCurveTo(cx - 30, base - 24, cx - 10, base - 30);
+  ctx.quadraticCurveTo(cx + 8, base - 34, cx + 14, base - 22);
+  ctx.quadraticCurveTo(cx + 4, base - 8, cx - 4, base - 3);
+  ctx.closePath();
+  ctx.fill();
+  ellipse(ctx, cx - 12, base - 24, 9, 4.5, css(COLORS.rockLight), -0.5);
+  ellipse(ctx, cx + 36, base - 2, 6, 4, css(COLORS.rock));
+  ellipse(ctx, cx + 36, base - 4, 4, 2, css(COLORS.rockLight));
+  ellipse(ctx, cx - 36, base - 1, 5, 3.5, css(COLORS.rockShade));
+}
+
+/** One tile of ground in a rounded frame; used for the pictures of "beach" and "meadow". */
+function drawGroundTile(ctx: CanvasRenderingContext2D, ground: number, rim: number): void {
+  const x = PAD;
+  const y = 0;
+  roundedBox(ctx, x - 3, y + 2, TILE_SIZE + 6, TILE_SIZE + 2, 20, css(COLORS.waterMid));
+  roundedBox(ctx, x - 1, y + 4, TILE_SIZE + 2, TILE_SIZE - 2, 18, cssRgba(COLORS.foam, 0.85));
+  roundedBox(ctx, x + 2, y + 9, TILE_SIZE - 4, TILE_SIZE - 6, 16, css(rim));
+  roundedBox(ctx, x + 2, y + 4, TILE_SIZE - 4, TILE_SIZE - 6, 16, css(ground));
+}
+
+/** The picture of "make a beach": a tile of sand surrounded by water. */
+function drawIslandBeach(ctx: CanvasRenderingContext2D): void {
+  drawGroundTile(ctx, COLORS.sand, COLORS.sandShade);
+  const cx = PAD + TILE_SIZE / 2;
+  for (const [dx, dy, r] of [[-14, -8, 2.6], [10, -14, 2], [16, 6, 2.8], [-10, 12, 2.2], [2, 0, 2.4]] as const) {
+    circle(ctx, cx + dx, 28 + dy, r, cssRgba(COLORS.sandSpeck, 0.55));
+  }
+  ellipse(ctx, cx - 4, 36, 8, 5.5, css(COLORS.shell), 0.3);
+  ellipse(ctx, cx - 4, 36, 4.5, 3, css(COLORS.sandShade), 0.3);
+}
+
+/** The picture of "make a meadow": a tile of fresh grass with tufts and flowers. */
+function drawIslandMeadow(ctx: CanvasRenderingContext2D): void {
+  drawGroundTile(ctx, COLORS.grass, COLORS.grassShade);
+  const cx = PAD + TILE_SIZE / 2;
+  ctx.strokeStyle = css(COLORS.grassShade);
+  ctx.lineWidth = 2.4;
+  ctx.lineCap = 'round';
+  for (const [dx, dy] of [[-16, 12], [14, 14], [-4, -10]] as const) {
+    ctx.beginPath();
+    ctx.moveTo(cx + dx - 5, 28 + dy);
+    ctx.lineTo(cx + dx - 7, 28 + dy - 8);
+    ctx.moveTo(cx + dx, 28 + dy);
+    ctx.lineTo(cx + dx, 28 + dy - 10);
+    ctx.moveTo(cx + dx + 5, 28 + dy);
+    ctx.lineTo(cx + dx + 7, 28 + dy - 8);
+    ctx.stroke();
+  }
+  for (const [dx, dy, colour] of [[-12, -4, 0], [14, -8, 2], [4, 10, 3]] as const) {
+    const petal = css(FLOWER_PETALS[colour] ?? COLORS.flower);
+    for (let i = 0; i < 5; i += 1) {
+      const angle = (i / 5) * Math.PI * 2;
+      circle(ctx, cx + dx + Math.cos(angle) * 4, 28 + dy + Math.sin(angle) * 4, 2.8, petal);
+    }
+    circle(ctx, cx + dx, 28 + dy, 2.4, css(COLORS.flowerCenter));
+  }
 }

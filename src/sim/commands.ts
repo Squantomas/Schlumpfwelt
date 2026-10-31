@@ -1,3 +1,4 @@
+import { buildingType } from '../data/buildings';
 import { addBuilding, addPaths, demolishAt, relocateBuilding, type Tile } from './buildings';
 import { demolishPlanted, placeIslandItem } from './island';
 import type { SimState } from './state';
@@ -96,6 +97,22 @@ export interface MakeMeadowCommand {
 
 /** The id of the shop item each island command belongs to. */
 export const ISLAND_COMMAND_ITEMS = { plantTree: 'tree', placeRock: 'rock', fillLand: 'beach', makeMeadow: 'meadow' } as const;
+
+/** The command that puts a shop item on the tile (x, y): a building command, or for island items their own island command. */
+export function placementCommand(typeId: string, x: number, y: number): Command {
+  switch (buildingType(typeId)?.island?.action) {
+    case 'plantTree':
+      return { type: 'plantTree', x, y };
+    case 'placeRock':
+      return { type: 'placeRock', x, y };
+    case 'fillLand':
+      return { type: 'fillLand', x, y };
+    case 'makeMeadow':
+      return { type: 'makeMeadow', x, y };
+    case undefined:
+      return { type: 'placeBuilding', buildingType: typeId, x, y };
+  }
+}
 
 /**
  * Applies a single command to the state (mutates `state`). Commands with

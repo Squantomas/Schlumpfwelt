@@ -8,6 +8,21 @@ function widthOf(width: number, count: number): number {
 }
 
 describe('toolbarLayout', () => {
+  it('hat mit den 4 Werkzeugen Weg, Shop, Verschieben, Abreißen auf jedem Schirm eine Reihe großer Knöpfe', () => {
+    for (const width of [320, 360, 568, 640, 768, 1024]) {
+      const layout = toolbarLayout(width, 4);
+      expect(layout.rows, `${String(width)} px`).toBe(1);
+      expect(layout.size).toBeGreaterThanOrEqual(64);
+    }
+  });
+
+  it('lässt auf 568×320 mehr als die Hälfte der Höhe frei', () => {
+    const { size, rows } = toolbarLayout(568, 4, 320);
+    const panelH = rows * size + (rows - 1) * TOOLBAR_GAP + 2 * TOOLBAR_PAD + TOOLBAR_EDGE;
+    expect(panelH).toBeLessThan(160);
+    expect(size).toBeGreaterThanOrEqual(56);
+  });
+
   it.each([5, 6, 7])('passt mit %i Werkzeugen von 320 bis 1920 px ins Bild, Knöpfe ≥ 56 px', (count) => {
     for (const width of [320, 340, 360, 375, 390, 414, 480, 600, 768, 1024, 1280, 1920]) {
       const layout = toolbarLayout(width, count);

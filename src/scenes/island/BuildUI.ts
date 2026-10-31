@@ -1,30 +1,31 @@
 import type Phaser from 'phaser';
-import { buildingType, typesOf, type BuildingType } from '../../data/buildings';
+import { SHOP_CATEGORIES, buildingType, shopItems, type BuildingType } from '../../data/buildings';
 import { ITEM_IDS } from '../../data/goods';
 import { t, type TextKey, type TextParams } from '../../data/texts';
-import { costOf, missingFor } from '../../sim/economy';
 import type { Rect } from '../../ui/cameraMath';
-import { TOOLS, TOOL_CATEGORIES, type BuildTool, type BuildToolState, type ToolId } from '../../ui/buildTool';
+import { TOOLS, type BuildTool, type BuildToolState, type ToolId } from '../../ui/buildTool';
 import { CHIP_H, CHIP_W, EXIT_RADIUS, HINT_MAX_HEIGHT_NARROW, HINT_MIN_HEIGHT, hintBarGeometry, layoutBuildUi, type BuildLayout } from '../../ui/buildLayout';
 import { CANCEL_DIAMETER, CONFIRM_DIAMETER } from '../../ui/confirmLayout';
 import { createLabel, setLabelSize } from '../../ui/label';
 import { cardStatus, productionInfo } from '../../ui/productionInfo';
 import { RoundButton } from '../../ui/RoundButton';
+import { newItemsText } from '../../ui/shopModel';
 import { SquareButton } from '../../ui/SquareButton';
 import { worldTapIgnored } from '../../ui/tapPause';
 import { COLORS, clamp } from '../../ui/style';
-import { drawToolIcon } from '../../ui/toolIcons';
-import { PICKER_ARROW, PICKER_GAP, PICKER_PAD } from '../../ui/pickerLayout';
+import { drawStar, drawToolIcon } from '../../ui/toolIcons';
 import { TOOLBAR_GAP, TOOLBAR_PAD } from '../../ui/toolbarLayout';
 import type { ViewSize } from '../../ui/viewport';
 import { buildingTextureKey } from './buildingTextures';
-import { CostRow } from './CostRow';
 import { registerGoodTextures } from './goodTextures';
 import { InfoCard } from './InfoCard';
+import { ShopUI } from './ShopUI';
 import { StockBar } from './StockBar';
 
 /** How long a short explanation ("Hier geht das nicht.") stays. */
 const NOTICE_MS = 2800;
+/** The message "Neu im Shop: …" stays a little longer (a child has to read it). */
+const NEWS_MS = 5000;
 
 export interface UiSpot {
   readonly x: number;
@@ -32,53 +33,60 @@ export interface UiSpot {
   readonly enabled: boolean;
   /** The thing it stands for can not be paid for right now (the button is greyed but still takes taps). */
   readonly dim?: boolean;
-  /** Size of the area it covers (CSS px) – only given for the store bar and the info card. */
+  /** Size of the area it covers (CSS px) – only given for the store bar, the info card and the shop. */
   readonly w?: number;
   readonly h?: number;
+  /** Shop cards: `ok`, `dear` (greyed) or `locked`; the star ("new"); the chosen card / the shown tab. */
+  readonly state?: string;
+  readonly fresh?: boolean;
+  readonly active?: boolean;
+  /** The shop button shows the star "something new". */
+  readonly badge?: boolean;
 }
 
 const EMPTY: Rect = { x: 0, y: 0, width: 0, height: 0 };
 
+/** The most cards any tab of the shop has: the panel is as big for all tabs. */
+const SHOP_MOST = Math.max(...SHOP_CATEGORIES.map((category) => shopItems(category).length));
+
 /**
  * The building controls on top of the island: toolbar at the bottom (one big
- * button per tool, wraps on narrow screens), the variant picker above it
- * (it folds into a small chip once a place was tapped), a hint bar at the top
- * with a short sentence and a big ✕, and the ✓ / ✕ buttons at a fixed place
- * bottom right. Everything lives in the UI layer, in CSS pixels. It shows
- * what {@link BuildTool} says and passes taps on; it never touches the
- * simulation itself. M3 adds the store bar at the top left (coins and goods),
- * the cost under each picker card (cards that can not be paid for are greyed,
- * but stay choosable) and the info card of a production building.
+ * button per tool, wraps on narrow screens), a hint bar at the top with a short
+ * sentence and a big ✕, the ✓ / ✕ buttons at a fixed place bottom right, and
+ * the shop. Everything lives in the UI layer, in CSS pixels. It shows what
+ * {@link BuildTool} says and passes taps on; it never touches the simulation
+ * itself.
+ *
+ * - M3: the store bar at the top left (coins and goods), the cost on every
+ *   card (cards that can not be paid for are greyed, but stay choosable) and
+ *   the info card of a production building.
+ * - M4: the shop ({@link ShopUI}) replaces the three pickers: the "Shop"
+ *   button opens a panel with tabs and cards that covers the screen below the
+ *   store bar; a tap on a card starts placing that item. While an item is being
+ *   placed a small chip (its picture) leads back to the shop. A star on the shop
+ *   button, and the message "Neu im Shop: …", tell about new unlocks.
  */
 export class BuildUI {
   private readonly toolbarPanel: Phaser.GameObjects.Graphics;
-  private readonly pickerPanel: Phaser.GameObjects.Graphics;
   private readonly hintPanel: Phaser.GameObjects.Graphics;
   private readonly hintLabel: Phaser.GameObjects.Text;
   private readonly exitButton: RoundButton;
-  private readonly prevButton: RoundButton;
-  private readonly nextButton: RoundButton;
   private readonly confirmButton: RoundButton;
   private readonly cancelButton: RoundButton;
-  private readonly toolButtons = new Map<Exclude<ToolId, 'view'>, SquareButton>();
-  private readonly variantButtons = new Map<string, SquareButton>();
+  private readonly toolButtons = new Map<Exclude<ToolId, 'view' | 'place'>, SquareButton>();
   private readonly chipButtons = new Map<string, SquareButton>();
-  private readonly costRows = new Map<string, CostRow>();
+  private readonly shopStar: Phaser.GameObjects.Graphics;
   private readonly stock: StockBar;
   private readonly card: InfoCard;
+  private readonly shop: ShopUI;
   private view: ViewSize = { width: 1, height: 1 };
   private seenVersion = -1;
   private notice: { text: string; until: number } | undefined;
   private hintRect: Rect = EMPTY;
   private toolbarRect: Rect = EMPTY;
-  private pickerRect: Rect = EMPTY;
   private chipRect: Rect = EMPTY;
-  private pickerOpen = true;
-  private pickerPage = 0;
+  private shopPage = 0;
   private hintAtBottom = false;
-  private layoutData: BuildLayout | undefined;
-  private lastTool: ToolId = 'view';
-  private hadPreview = false;
   private lastUiTap = Number.NEGATIVE_INFINITY;
   /** The text of the hint bar as last set (the hint is only worked out when something changed). */
   private currentHint = '';
@@ -88,6 +96,7 @@ export class BuildUI {
   private zoomSpots: Record<string, UiSpot> = {};
   private spotsJson = '{}';
   private spotsDirty = true;
+  private shownShop = '';
 
   constructor(
     private readonly scene: Phaser.Scene,
@@ -105,9 +114,8 @@ export class BuildUI {
     });
     this.stock.update(this.getState().inventory, false);
     this.toolbarPanel = scene.add.graphics();
-    this.pickerPanel = scene.add.graphics();
     this.hintPanel = scene.add.graphics();
-    uiLayer.add([this.toolbarPanel, this.pickerPanel, this.hintPanel]);
+    uiLayer.add([this.toolbarPanel, this.hintPanel]);
 
     this.hintLabel = createLabel(scene, '', 24);
     this.exitButton = new RoundButton(scene, 0, 0, {
@@ -121,19 +129,9 @@ export class BuildUI {
         this.refresh();
       },
     });
-    const pager = (icon: 'left' | 'right', step: number): RoundButton =>
-      new RoundButton(scene, 0, 0, {
-        radius: PICKER_ARROW / 2,
-        icon,
-        onTap: (time) => {
-          this.touched(time);
-          this.pickerPage += step;
-          this.refresh();
-        },
-      });
-    this.prevButton = pager('left', -1);
-    this.nextButton = pager('right', 1);
 
+    this.shopStar = scene.add.graphics().setVisible(false);
+    drawStar(this.shopStar, 13);
     for (const id of TOOLS) {
       const button = new SquareButton(scene, {
         label: t(`tool.${id}`),
@@ -143,23 +141,49 @@ export class BuildUI {
         },
         onTap: (time) => {
           this.touched(time);
-          const again = this.tool.tool === id;
           this.tool.selectTool(id);
-          // Tapping the tool that is on opens its picker again; it never switches the tool off.
-          if (again && this.tool.variantCategory) {
-            this.pickerOpen = true;
-          }
           this.refresh();
         },
       });
+      if (id === 'shop') {
+        button.add(this.shopStar);
+      }
       this.toolButtons.set(id, button);
     }
 
-    const categories = new Set(Object.values(TOOL_CATEGORIES));
-    const types = [...categories].flatMap((category) => typesOf(category));
-    for (const type of types) {
-      this.variantButtons.set(type.id, this.variantButton(type, 'cell'));
-      this.chipButtons.set(type.id, this.variantButton(type, 'chip'));
+    this.shop = new ShopUI(scene, uiLayer, {
+      touched: (time) => {
+        this.touched(time);
+      },
+      onTab: (category) => {
+        this.tool.setShopTab(category);
+        this.shopPage = 0;
+        this.refresh();
+      },
+      onClose: () => {
+        this.tool.closeShop();
+        this.refresh();
+      },
+      onPick: (typeId) => {
+        const notice = this.tool.chooseItem(typeId);
+        if (notice) {
+          this.showNotice(notice);
+        } else {
+          // Starting with a clean slate: an old note does not belong to the new item.
+          this.notice = undefined;
+        }
+        this.refresh();
+      },
+      onPage: (step) => {
+        this.shopPage += step;
+        this.refresh();
+      },
+    });
+
+    for (const category of SHOP_CATEGORIES) {
+      for (const type of shopItems(category)) {
+        this.chipButtons.set(type.id, this.chipButton(type));
+      }
     }
 
     this.confirmButton = new RoundButton(scene, 0, 0, {
@@ -188,33 +212,17 @@ export class BuildUI {
         this.refresh();
       },
     });
-    for (const object of [this.confirmButton, this.cancelButton, this.exitButton, this.hintLabel, this.prevButton, this.nextButton]) {
+    for (const object of [this.confirmButton, this.cancelButton, this.exitButton, this.hintLabel]) {
       object.setVisible(false);
     }
 
-    uiLayer.add([
-      ...this.toolButtons.values(),
-      ...this.variantButtons.values(),
-      ...this.chipButtons.values(),
-      this.hintLabel,
-      this.exitButton,
-      this.prevButton,
-      this.nextButton,
-      this.confirmButton,
-      this.cancelButton,
-    ]);
+    uiLayer.add([...this.toolButtons.values(), ...this.chipButtons.values(), this.hintLabel, this.exitButton, this.confirmButton, this.cancelButton]);
   }
 
-  /** A picker cell (`cell`) or the small chip (`chip`) for one type. */
-  private variantButton(type: BuildingType, kind: 'cell' | 'chip'): SquareButton {
-    // A picker cell shows the cost under the name; the chip is too small for it.
-    const footer = kind === 'cell' ? new CostRow(this.scene) : undefined;
-    if (footer) {
-      this.costRows.set(type.id, footer);
-    }
+  /** The small button "back to the shop" for one item: its picture and name. */
+  private chipButton(type: BuildingType): SquareButton {
     const button = new SquareButton(this.scene, {
-      label: kind === 'cell' ? t(type.nameKey) : t(type.nameKey).replace(' ', '\n'),
-      ...(footer ? { footer } : {}),
+      label: t(type.nameKey).replace(' ', '\n'),
       content: this.scene.add.image(0, 0, buildingTextureKey(type.id)),
       fitContent: (content, width, height) => {
         const picture = content as Phaser.GameObjects.Image;
@@ -222,17 +230,8 @@ export class BuildUI {
       },
       onTap: (time) => {
         this.touched(time);
-        if (kind === 'chip') {
-          // On a low screen the open picker has no room next to a preview: the preview is dropped first.
-          if (this.tool.hasPreview && this.layoutData?.pickerFitsWithPreview === false) {
-            this.tool.cancel();
-          }
-          this.pickerOpen = true;
-        } else {
-          this.tool.selectVariant(type.id);
-          // Once a variant is chosen the picker folds into the chip and leaves the island free.
-          this.pickerOpen = false;
-        }
+        // The place that was tapped stays; the shop opens on the tab of this item.
+        this.tool.openShop();
         this.refresh();
       },
     });
@@ -256,7 +255,11 @@ export class BuildUI {
 
   /** Short explanation for the child ("Dieses Haus braucht einen Weg."). */
   showNotice(key: TextKey, params?: TextParams): void {
-    this.notice = { text: t(key, params), until: this.scene.time.now + NOTICE_MS };
+    this.showText(t(key, params), NOTICE_MS);
+  }
+
+  private showText(text: string, durationMs: number): void {
+    this.notice = { text, until: this.scene.time.now + durationMs };
     this.seenVersion = -1;
   }
 
@@ -270,6 +273,11 @@ export class BuildUI {
     return this.card.isOpen;
   }
 
+  /** Is the shop open? It covers the screen below the store bar; the zoom buttons are hidden then. */
+  get shopOpen(): boolean {
+    return this.tool.shopOpen;
+  }
+
   /** Where the hint bar ends at the top (0 if there is none up there): things in the world should not hide below it. */
   get topInset(): number {
     return this.hintRect.height > 0 && !this.hintAtBottom ? this.hintRect.y + this.hintRect.height + 6 : 0;
@@ -277,7 +285,7 @@ export class BuildUI {
 
   /** Is this screen point (CSS px) on a panel? Then a press there is not for the camera. */
   coversPoint(x: number, y: number): boolean {
-    return [this.toolbarRect, this.pickerRect, this.hintRect, this.chipRect, this.stock.rect, this.card.rect].some(
+    return [this.toolbarRect, this.shop.rect, this.hintRect, this.chipRect, this.stock.rect, this.card.rect].some(
       (rect) => rect.width > 0 && x >= rect.x && x <= rect.x + rect.width && y >= rect.y && y <= rect.y + rect.height,
     );
   }
@@ -305,7 +313,7 @@ export class BuildUI {
     const textMax = Math.max(100, hintBarGeometry(width).width - exitSpace - 40);
     setLabelSize(this.hintLabel.setWordWrapWidth(textMax - 12).setText(text), fontSize, textMax);
     // On a low screen (a phone held sideways) the bar is never taller than its minimum, on a narrow one (a phone held
-    // upright) not much taller: long sentences get smaller letters, so the picker below keeps its room.
+    // upright) not much taller: long sentences get smaller letters, so the picture below keeps its room.
     const maxHeight = height < 400 ? HINT_MIN_HEIGHT : width < 420 ? HINT_MAX_HEIGHT_NARROW : Number.POSITIVE_INFINITY;
     if (maxHeight < Number.POSITIVE_INFINITY) {
       while (this.hintLabel.height + 20 > maxHeight && fontSize > 11) {
@@ -319,24 +327,28 @@ export class BuildUI {
   /** Puts every control where {@link layoutBuildUi} says. */
   private applyLayout(layout: BuildLayout): void {
     const { width } = this.view;
-    this.layoutData = layout;
     this.stock.layout(layout.stock);
     this.applyCard(layout);
 
-    // Toolbar: big buttons, in several rows when the screen is too narrow or low.
+    // Toolbar: big buttons, in several rows when the screen is too narrow or low. The open shop covers it.
+    const shopOpen = layout.shop !== undefined;
     const { size: button, cols, rect: bar } = layout.toolbar;
-    this.toolbarRect = bar;
+    this.toolbarRect = shopOpen ? EMPTY : bar;
+    this.toolbarPanel.setVisible(!shopOpen);
     drawPanel(this.toolbarPanel, bar);
     TOOLS.forEach((id, index) => {
       const row = Math.floor(index / cols);
       const inRow = Math.min(cols, TOOLS.length - row * cols);
       const col = index - row * cols;
       const rowW = inRow * button + (inRow - 1) * TOOLBAR_GAP;
-      this.toolButtons
-        .get(id)
-        ?.layoutTo(button, button)
+      const toolButton = this.toolButtons.get(id);
+      toolButton
+        ?.setVisible(!shopOpen)
+        .layoutTo(button, button)
         .setPosition((width - rowW) / 2 + button / 2 + col * (button + TOOLBAR_GAP), bar.y + TOOLBAR_PAD + button / 2 + row * (button + TOOLBAR_GAP));
     });
+    // The star "something new in the shop" at the corner of the shop button.
+    this.shopStar.setVisible(this.tool.shopHasNews).setPosition(button / 2 - 8, -button / 2 + 8);
 
     // Hint bar.
     this.hintPanel.clear();
@@ -352,7 +364,7 @@ export class BuildUI {
       this.exitButton.setPosition(hint.x + hint.width - 8 - EXIT_RADIUS, hint.y + 4 + EXIT_RADIUS);
     }
 
-    this.applyPicker(layout);
+    this.applyShop(layout);
 
     // ✓ and ✕ at their fixed place.
     this.confirmButton.setVisible(layout.confirm !== undefined);
@@ -384,70 +396,33 @@ export class BuildUI {
     }
   }
 
-  private applyPicker(layout: BuildLayout): void {
-    const { width } = this.view;
-    const category = this.tool.variantCategory;
-    const types = category ? typesOf(category) : [];
-    this.pickerPanel.clear();
-    this.pickerRect = EMPTY;
-    for (const button of this.variantButtons.values()) {
-      button.setVisible(false);
+  /** The shop (when open) and the chip "back to the shop" (while an item is being placed). */
+  private applyShop(layout: BuildLayout): void {
+    const tool = this.tool;
+    const shop = layout.shop;
+    if (shop) {
+      const pages = Math.max(1, Math.ceil(shopItems(tool.shopTab).length / shop.perPage));
+      this.shopPage = clamp(this.shopPage, 0, pages - 1);
     }
-    this.prevButton.setVisible(false);
-    this.nextButton.setVisible(false);
+    this.shop.show(shop, this.getState(), tool.shopTab, this.shopPage, (typeId) => tool.isFresh(typeId), tool.item);
+    this.shownShop = shop ? `${tool.shopTab}:${String(this.shop.pageInfo.page + 1)}/${String(this.shop.pageInfo.pages)}` : 'closed';
 
-    const picker = layout.picker;
-    if (picker) {
-      this.pickerPage = clamp(this.pickerPage, 0, picker.pages - 1);
-      this.pickerRect = picker.rect;
-      drawPanel(this.pickerPanel, picker.rect);
-      const shown = types.slice(this.pickerPage * picker.perPage, (this.pickerPage + 1) * picker.perPage);
-      const rowsShown = picker.paged ? 1 : picker.rows;
-      const cols = picker.paged ? picker.perPage : picker.cols;
-      shown.forEach((type, index) => {
-        const row = Math.floor(index / cols);
-        // The last row is centred when it is not full.
-        const inRow = row === rowsShown - 1 ? shown.length - row * cols : cols;
-        const col = index - row * cols;
-        const rowW = inRow * picker.cellW + (inRow - 1) * PICKER_GAP;
-        this.variantButtons
-          .get(type.id)
-          ?.setVisible(true)
-          .layoutTo(picker.cellW, picker.cellH)
-          .setPosition(
-            (width - rowW) / 2 + picker.cellW / 2 + col * (picker.cellW + PICKER_GAP),
-            picker.rect.y + PICKER_PAD + picker.cellH / 2 + row * (picker.cellH + PICKER_GAP),
-          )
-          .setHighlighted(this.tool.variant === type.id)
-          .setDimmed(Object.keys(missingFor(this.getState(), type.id)).length > 0);
-        this.costRows.get(type.id)?.setCost(costOf(type.id), missingFor(this.getState(), type.id));
-      });
-      if (picker.paged) {
-        const y = picker.rect.y + picker.rect.height / 2;
-        this.prevButton.setVisible(true).setPosition(picker.rect.x + PICKER_PAD + PICKER_ARROW / 2, y).setDimmed(this.pickerPage === 0);
-        this.nextButton
-          .setVisible(true)
-          .setPosition(picker.rect.x + picker.rect.width - PICKER_PAD - PICKER_ARROW / 2, y)
-          .setDimmed(this.pickerPage >= picker.pages - 1);
-      }
-    }
-
-    // The folded picker: a small chip with the chosen variant, bottom left.
+    // The chip: the picture of the item that is being placed, bottom left.
     this.chipRect = layout.chip ?? EMPTY;
     for (const [id, button] of this.chipButtons) {
-      const shown = layout.chip !== undefined && this.tool.variant === id;
+      const shown = layout.chip !== undefined && tool.item === id;
       button.setVisible(shown);
       if (shown && layout.chip) {
-        button
-          .layoutTo(CHIP_W, CHIP_H)
-          .setPosition(layout.chip.x + CHIP_W / 2, layout.chip.y + CHIP_H / 2)
-          .setHighlighted(true)
-          .setDimmed(Object.keys(missingFor(this.getState(), id)).length > 0);
+        button.layoutTo(CHIP_W, CHIP_H).setPosition(layout.chip.x + CHIP_W / 2, layout.chip.y + CHIP_H / 2).setHighlighted(true);
       }
     }
   }
 
   private hintText(): string | undefined {
+    // The shop explains itself (cards, locks): no hint bar over it.
+    if (this.tool.shopOpen) {
+      return undefined;
+    }
     // The info card says everything itself: no extra note beside it (and if it does not fit, its sentence is the hint).
     if (this.tool.inspectedId !== undefined) {
       return this.cardFallback;
@@ -459,32 +434,22 @@ export class BuildUI {
     return hint ? t(hint, this.tool.hintParams) : undefined;
   }
 
-  /** Brings the buttons in line with the tool state (highlight, picker, hint, ✓ / ✕). */
+  /** Brings the buttons in line with the tool state (highlight, shop, hint, ✓ / ✕). */
   private refresh(): void {
-    // A new tool opens its picker; tapping a place on the map folds it into the chip.
-    if (this.tool.tool !== this.lastTool) {
-      this.lastTool = this.tool.tool;
-      this.pickerOpen = true;
-      // A note about the last tool does not belong to the next one.
-      this.notice = undefined;
+    for (const [id, button] of this.toolButtons) {
+      // The shop button stays lit while an item from the shop is being placed.
+      button.setHighlighted(this.tool.tool === id || (id === 'shop' && this.tool.tool === 'place'));
     }
     const hasPreview = this.tool.hasPreview;
-    if (hasPreview && !this.hadPreview) {
-      this.pickerOpen = false;
-    }
-    this.hadPreview = hasPreview;
-
-    for (const [id, button] of this.toolButtons) {
-      button.setHighlighted(this.tool.tool === id);
-    }
-    const category = this.tool.variantCategory;
     const input = {
       width: this.view.width,
       height: this.view.height,
       toolCount: TOOLS.length,
       stockCount: ITEM_IDS.length,
-      variantCount: category ? typesOf(category).length : 0,
-      pickerOpen: this.pickerOpen,
+      shopOpen: this.tool.shopOpen,
+      shopCount: SHOP_MOST,
+      shopTabs: SHOP_CATEGORIES.length,
+      hasChip: this.tool.tool === 'place',
       hasPreview,
       hintAtTop: this.tool.tool !== 'view',
     };
@@ -502,7 +467,7 @@ export class BuildUI {
     this.onChange();
   }
 
-  /** Once per frame: follow changes of the tool and the store, and let notices run out. */
+  /** Once per frame: follow changes of the tool and the store, let notices run out, announce unlocks. */
   update(): void {
     // Look at the store first: a change counts as a change of the tool (see `BuildTool.sync`).
     this.tool.sync();
@@ -511,11 +476,17 @@ export class BuildUI {
     if (expired) {
       this.notice = undefined;
     }
+    // Something was unlocked: a friendly message (and the star on the shop button, which `refresh` redraws).
+    const news = this.tool.takeAnnouncements();
+    if (news.length > 0) {
+      this.showText(newItemsText(news), NEWS_MS);
+    }
     // The numbers pop when they change; cards that can (not) be paid for change with them.
     const stockChanged = this.stock.update(state.inventory);
-    if (expired || this.seenVersion !== this.tool.version || (stockChanged && this.tool.variantCategory !== undefined)) {
+    if (expired || news.length > 0 || this.seenVersion !== this.tool.version || (stockChanged && this.tool.shopOpen)) {
       this.refresh();
     }
+    this.shop.update();
     // The card follows the simulation, which changes once per tick.
     const inspected = this.tool.inspectedId;
     if (inspected !== undefined && this.cardTick !== state.tick) {
@@ -536,13 +507,16 @@ export class BuildUI {
     if (this.spotsDirty) {
       this.spotsDirty = false;
       const spots: Record<string, UiSpot> = { ...this.zoomSpots };
-      for (const [id, button] of this.toolButtons) {
-        spots[`tool-${id}`] = { x: button.x, y: button.y, enabled: true };
-      }
-      for (const [id, button] of this.variantButtons) {
-        if (button.visible) {
-          spots[`variant-${id}`] = { x: button.x, y: button.y, enabled: true, dim: Object.keys(missingFor(this.getState(), id)).length > 0 };
+      if (!this.shop.isOpen) {
+        for (const [id, button] of this.toolButtons) {
+          spots[`tool-${id}`] = { x: button.x, y: button.y, enabled: true, ...(id === 'shop' ? { badge: this.tool.shopHasNews } : {}) };
         }
+      } else {
+        delete spots['zoom-in'];
+        delete spots['zoom-out'];
+      }
+      for (const [name, spot] of Object.entries(this.shop.spots(this.tool.item))) {
+        spots[name] = { x: spot.x, y: spot.y, enabled: true, w: spot.w, h: spot.h, ...(spot.state !== undefined ? { state: spot.state, dim: spot.state !== 'ok' } : {}), ...(spot.fresh !== undefined ? { fresh: spot.fresh } : {}), ...(spot.active !== undefined ? { active: spot.active } : {}) };
       }
       const stockRect = this.stock.rect;
       spots['stock'] = { x: stockRect.x + stockRect.width / 2, y: stockRect.y + stockRect.height / 2, enabled: true, w: stockRect.width, h: stockRect.height };
@@ -556,10 +530,6 @@ export class BuildUI {
           spots['chip'] = { x: button.x, y: button.y, enabled: true };
         }
       }
-      if (this.prevButton.visible) {
-        spots['page-prev'] = { x: this.prevButton.x, y: this.prevButton.y, enabled: this.pickerPage > 0 };
-        spots['page-next'] = { x: this.nextButton.x, y: this.nextButton.y, enabled: true };
-      }
       if (this.exitButton.visible) {
         spots['exit'] = { x: this.exitButton.x, y: this.exitButton.y, enabled: true };
       }
@@ -570,6 +540,16 @@ export class BuildUI {
       this.spotsJson = JSON.stringify(spots);
     }
     return this.spotsJson;
+  }
+
+  /** The shop for the test marker: `closed`, or `<tab>:<page>/<pages>`. */
+  get shownShopState(): string {
+    return this.shownShop;
+  }
+
+  /** The sentence on a tapped locked card, for tests. */
+  get shownTip(): string {
+    return this.shop.shownTip;
   }
 
   /** The numbers of the store bar as JSON (for tests). */
