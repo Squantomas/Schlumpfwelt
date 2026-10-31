@@ -13,6 +13,7 @@ import { RoundButton } from '../../ui/RoundButton';
 import { COLORS } from '../../ui/style';
 import { drawFileIcon } from '../../ui/toolIcons';
 import type { ViewSize } from '../../ui/viewport';
+import { addGraphics } from '../../ui/FastGraphics';
 
 /** Smallest size of the sentence in the menu (CSS px): longer sentences shrink down to it, then the line is cut by the panel. */
 const MIN_TEXT_FONT = 13;
@@ -47,8 +48,8 @@ class MenuButton extends Phaser.GameObjects.Container {
     onTap: (eventTime: number) => void,
   ) {
     super(scene, 0, 0);
-    this.face = scene.add.graphics();
-    this.picture = scene.add.graphics();
+    this.face = addGraphics(scene);
+    this.picture = addGraphics(scene);
     this.caption = createLabel(scene, text, 22);
     this.add([this.face, this.picture, this.caption]);
     this.on(Phaser.Input.Events.GAMEOBJECT_POINTER_DOWN, () => {
@@ -137,8 +138,8 @@ export class VillageMenu {
   ) {
     // The veil catches every press (the island below must not move or get tapped) and darkens the screen.
     this.veil = scene.add.zone(0, 0, 1, 1).setOrigin(0, 0).setInteractive();
-    this.dim = scene.add.graphics();
-    this.panel = scene.add.graphics();
+    this.dim = addGraphics(scene);
+    this.panel = addGraphics(scene);
     this.title = createLabel(scene, t('menu.title'), 30);
     this.sentence = createLabel(scene, '', 19);
     this.saveButton = new MenuButton(scene, 'save', t('menu.save'), (time) => {

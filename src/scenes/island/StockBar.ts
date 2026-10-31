@@ -6,6 +6,7 @@ import { createLabel, setLabelSize } from '../../ui/label';
 import { COLORS } from '../../ui/style';
 import type { StockLayout } from '../../ui/stockLayout';
 import { goodTextureKey } from './goodTextures';
+import { addGraphics } from '../../ui/FastGraphics';
 
 interface Chip {
   readonly id: string;
@@ -37,7 +38,7 @@ export class StockBar {
     private readonly scene: Phaser.Scene,
     uiLayer: Phaser.GameObjects.Layer,
   ) {
-    this.panel = scene.add.graphics();
+    this.panel = addGraphics(scene);
     uiLayer.add(this.panel);
     for (const id of ITEM_IDS) {
       const icon = scene.add.image(0, 0, goodTextureKey(id));

@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
 import { COLORS, MIN_TAP_SIZE } from './style';
+import { addGraphics } from './FastGraphics';
 
 export type ButtonIcon = 'play' | 'plus' | 'minus' | 'check' | 'cross' | 'back' | 'left' | 'right' | 'gear';
 
@@ -35,7 +36,7 @@ export class RoundButton extends Phaser.GameObjects.Container {
     super(scene, x, y);
     this.icon = options.icon;
     this.variant = options.variant ?? 'normal';
-    this.face = scene.add.graphics();
+    this.face = addGraphics(scene);
     this.add(this.face);
     this.setRadius(options.radius);
 
