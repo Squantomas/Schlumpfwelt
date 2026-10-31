@@ -124,4 +124,25 @@ describe('Simulation', () => {
     expect(placed?.status).toBe('noPath');
     expect(sim.state.tick).toBe(0);
   });
+
+  it('load ersetzt den ganzen Zustand durch eine Kopie, verwirft wartende Befehle und holt nichts nach', () => {
+    const sim = new Simulation(createInitialState(1));
+    sim.update(500);
+    sim.send({ type: 'setPaused', paused: true });
+    const other = createInitialState(9);
+    other.tick = 700;
+    other.inventory['coins'] = 4321;
+    sim.update(40);
+    sim.load(other);
+    expect(sim.state.seed).toBe(9);
+    expect(sim.state.tick).toBe(700);
+    expect(sim.state.inventory['coins']).toBe(4321);
+    // The queued command belonged to the old village.
+    sim.update(100);
+    expect(sim.state.paused).toBe(false);
+    expect(sim.state.tick).toBe(701);
+    // A copy: changing the source later changes nothing.
+    other.inventory['coins'] = 1;
+    expect(sim.state.inventory['coins']).toBe(4321);
+  });
 });

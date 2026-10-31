@@ -1,5 +1,6 @@
 {
   "app.title": "{gameName}",
+  "app.description": "Ein gemütliches Aufbauspiel für Kinder: gestalte deine eigene Insel.",
   "boot.title": "{gameName}",
   "boot.tapToPlay": "Tippen zum Spielen",
   "tool.path": "Weg",
@@ -105,5 +106,22 @@
   "hint.islandGrassOnly": "Das geht nur auf der Wiese.",
   "hint.islandWaterOnly": "Hier ist schon Land.",
   "hint.islandSandOnly": "Wiese geht nur auf dem Strand.",
-  "hint.naturalObject": "Das ist von allein gewachsen. Das bleibt."
+  "hint.naturalObject": "Das ist von allein gewachsen. Das bleibt.",
+  "save.startBroken": "Dein altes Dorf ging nicht auf. Hier ist eine neue Insel!",
+  "save.startTooNew": "Dein altes Dorf ist von einer neueren Version. Es bleibt gespeichert.",
+  "save.noStorage": "Hier kann nichts gespeichert werden. Sichere dein Dorf über das Zahnrad als Datei.",
+  "menu.title": "Dein {village}",
+  "menu.save": "Als Datei sichern",
+  "menu.load": "Aus Datei laden",
+  "menu.infoAuto": "Dein Dorf wird von allein gespeichert.",
+  "menu.infoManual": "Hier wird nicht von allein gespeichert. Sichere dein Dorf als Datei!",
+  "menu.fileSaved": "Die Datei ist fertig. Heb sie gut auf!",
+  "menu.fileFailed": "Das Sichern hat nicht geklappt.",
+  "menu.replace": "Dein jetziges Dorf wird ersetzt. Willst du das?",
+  "menu.loaded": "Dein Dorf aus der Datei ist da!",
+  "menu.errorNotSave": "Das ist keine Datei von diesem Spiel.",
+  "menu.errorTooNew": "Diese Datei ist von einer neueren Version des Spiels.",
+  "menu.errorBroken": "Diese Datei ist kaputt. Dein Dorf bleibt, wie es ist.",
+  "menu.errorTooBig": "Die Datei ist viel zu groß. Dein Dorf bleibt, wie es ist.",
+  "menu.errorRead": "Die Datei ließ sich nicht lesen. Dein Dorf bleibt, wie es ist."
 }

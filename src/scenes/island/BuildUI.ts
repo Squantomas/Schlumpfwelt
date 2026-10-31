@@ -82,6 +82,9 @@ export class BuildUI {
   private readonly toolButtons = new Map<Exclude<ToolId, 'view' | 'place'>, SquareButton>();
   private readonly chipButtons = new Map<string, SquareButton>();
   private readonly shopStar: Phaser.GameObjects.Graphics;
+  /** The gear under the zoom buttons: opens the menu (save and load a file). Only while looking. */
+  private readonly menuButton: RoundButton;
+  private menuRect: Rect = EMPTY;
   private readonly stock: StockBar;
   private readonly card: InfoCard;
   private readonly shop: ShopUI;
@@ -113,6 +116,7 @@ export class BuildUI {
     private readonly tool: BuildTool,
     private readonly getState: () => BuildToolState,
     private readonly onChange: () => void,
+    private readonly onMenu: () => void,
   ) {
     registerGoodTextures(scene);
     this.stock = new StockBar(scene, uiLayer);
@@ -200,6 +204,16 @@ export class BuildUI {
       }
     }
 
+    this.menuButton = new RoundButton(scene, 0, 0, {
+      radius: 34, // the real size comes from `zoomLayout`
+      icon: 'gear',
+      onTap: (time) => {
+        this.touched(time);
+        this.onMenu();
+      },
+    });
+    this.menuButton.setVisible(false);
+
     this.confirmButton = new RoundButton(scene, 0, 0, {
       radius: CONFIRM_DIAMETER / 2,
       icon: 'check',
@@ -230,7 +244,7 @@ export class BuildUI {
       object.setVisible(false);
     }
 
-    uiLayer.add([...this.toolButtons.values(), ...this.chipButtons.values(), this.hintLabel, this.exitButton, this.confirmButton, this.cancelButton]);
+    uiLayer.add([...this.toolButtons.values(), ...this.chipButtons.values(), this.menuButton, this.hintLabel, this.exitButton, this.confirmButton, this.cancelButton]);
   }
 
   /** The small button "back to the shop" for one item: its picture and name. */
@@ -254,7 +268,7 @@ export class BuildUI {
   }
 
   /** A control was tapped: for a moment the world ignores taps (double taps on ✓ / ✕ must not fall through). */
-  private touched(eventTime: number): void {
+  touched(eventTime: number): void {
     this.lastUiTap = eventTime;
   }
 
@@ -301,7 +315,7 @@ export class BuildUI {
 
   /** Is this screen point (CSS px) on a panel? Then a press there is not for the camera. */
   coversPoint(x: number, y: number): boolean {
-    return [this.toolbarRect, this.shop.rect, this.hintRect, this.chipRect, this.stock.rect, this.card.rect].some(
+    return [this.toolbarRect, this.shop.rect, this.hintRect, this.chipRect, this.stock.rect, this.card.rect, this.menuRect].some(
       (rect) => rect.width > 0 && x >= rect.x && x <= rect.x + rect.width && y >= rect.y && y <= rect.y + rect.height,
     );
   }
@@ -345,6 +359,11 @@ export class BuildUI {
     const { width } = this.view;
     this.stock.layout(layout.stock);
     this.applyCard(layout);
+    this.menuRect = layout.menu ?? EMPTY;
+    this.menuButton.setVisible(layout.menu !== undefined);
+    if (layout.menu) {
+      this.menuButton.setRadius(layout.menu.width / 2).setPosition(layout.menu.x + layout.menu.width / 2, layout.menu.y + layout.menu.height / 2);
+    }
 
     // Toolbar: big buttons, in several rows when the screen is too narrow or low. The open shop covers it.
     const shopOpen = layout.shop !== undefined;
@@ -492,6 +511,7 @@ export class BuildUI {
       hasChip: this.tool.tool === 'place',
       hasPreview,
       hintAtTop: this.tool.tool !== 'view',
+      hasMenu: this.tool.tool === 'view',
     };
     const inspected = this.tool.inspectedId;
     this.cardFallback = undefined;
@@ -554,6 +574,9 @@ export class BuildUI {
       } else {
         delete spots['zoom-in'];
         delete spots['zoom-out'];
+      }
+      if (this.menuButton.visible) {
+        spots['menu'] = { x: this.menuButton.x, y: this.menuButton.y, enabled: true, w: this.menuRect.width, h: this.menuRect.height };
       }
       for (const [name, spot] of Object.entries(this.shop.spots(this.tool.item))) {
         spots[name] = { x: spot.x, y: spot.y, enabled: true, w: spot.w, h: spot.h, ...(spot.state !== undefined ? { state: spot.state, dim: spot.state !== 'ok' } : {}), ...(spot.fresh !== undefined ? { fresh: spot.fresh } : {}), ...(spot.active !== undefined ? { active: spot.active } : {}), ...(spot.font !== undefined ? { font: spot.font } : {}), ...(spot.textH !== undefined ? { textH: spot.textH } : {}) };

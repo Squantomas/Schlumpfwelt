@@ -38,6 +38,16 @@ export class Simulation {
     return this.clock.tickMs;
   }
 
+  /**
+   * Replaces the whole state (a village that was loaded from a file). The state is copied; commands that were
+   * queued for the old village are dropped and the clock starts over, so nothing is caught up.
+   */
+  load(state: SimState): void {
+    Object.assign(this.current, structuredClone(state));
+    this.queue = [];
+    this.clock.reset();
+  }
+
   /** Queues a command; it takes effect at the start of the next tick. */
   send(command: Command): void {
     this.queue.push(command);
