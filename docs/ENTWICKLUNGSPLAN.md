@@ -47,13 +47,14 @@ Sammeln → Verarbeiten → Verkaufen → **Geld** → Shop (Häuser, Deko, Schl
 Bau-Materialien (Holz, Stein) werden fürs Bauen verbraucht, Endprodukte (Möbel, Kuchen) bringen auf dem Markt Geld. Kuchen ist zugleich Essen. Der Markt kauft zusätzlich überschüssige Beeren für wenig Geld (Reserve für die Bäckerei bleibt): So führt schon ein Beerengarten mit Markt immer wieder zu Geld, und der Holzfäller kostet nur Taler – man kann sich nie festspielen (Entscheidung M3, Korrekturrunde 1).
 
 ### Schlümpfe
-- Name, Beruf, Mützenfarbe, Stimmung (fröhlich / normal / traurig) – antippen zeigt eine Karte
-- **Zuhause**: Spieler zieht Schlumpf auf ein Haus. Wohnort nah an der Arbeit → mehr Ertrag
+- Name, Beruf, Mützenfarbe, Stimmung (fröhlich / normal / traurig, ab M7) – antippen zeigt eine Karte
+- **Arbeit**: Jedes Produktionsgebäude hat sofort einen Arbeiter (ein freier Schlumpf oder ein neuer, der kostenlos mit dem Boot kommt). Die Schlümpfe tragen die Waren sichtbar zum Markt; der Ertrag hängt davon nicht ab, so bremsen sie die Wirtschaft nie (Entscheidung M6)
+- **Zuhause**: Häuser haben Platz für 2–4 Schlümpfe; wer keins hat, zieht von selbst ins nächste Haus mit Platz (Entscheidung M6: kein Ziehen per Drag & Drop, kein Ertrag nach Wohnort – ein Umzug über die Karte ist ab M7 denkbar)
 - **Bedürfnisse (sanft)**: Essen, ein Zuhause, Deko in der Nähe → Stimmung → Arbeitstempo
-- Neue Schlümpfe kommen per Boot, nachdem man sie im Shop eingeladen hat. Voraussetzung: ein freies Haus
+- Neue Schlümpfe kommen per Boot, nachdem man sie im Shop eingeladen hat (Reiter Häuser). Voraussetzung: ein freies Haus
 
 ### Shop
-Ein Feld über der Insel mit vier Reitern: **Häuser** (Pilzhaus-Varianten: klein in Rot/Blau/Gelb, groß, mit Garten), **Deko** (Blumen, Beet, Busch, Zaun, Bank, Laterne, Teich, Brunnen), **Gebäude** (die sechs Produktionsgebäude), **Insel** (Baum pflanzen, Fels setzen, Strand aufschütten, Wiese anlegen – die Vorstufe der Insel-Erweiterungen aus M10). Später kommen die Schlümpfe zum Einladen dazu (M6). Alle Artikel, Preise, Reihenfolge und Bedingungen stehen in `src/data/buildings.json`.
+Ein Feld über der Insel mit vier Reitern: **Häuser** (Pilzhaus-Varianten: klein in Rot/Blau/Gelb, groß, mit Garten), **Deko** (Blumen, Beet, Busch, Zaun, Bank, Laterne, Teich, Brunnen), **Gebäude** (die sechs Produktionsgebäude), **Insel** (Baum pflanzen, Fels setzen, Strand aufschütten, Wiese anlegen – die Vorstufe der Insel-Erweiterungen aus M10). Seit M6 lädt man im Reiter Häuser auch Schlümpfe ein (erste Karte, braucht ein freies Haus). Alle Artikel, Preise, Reihenfolge und Bedingungen stehen in `src/data/buildings.json`.
 - **Kaufen = Platzieren:** Ein Tipp auf eine Karte schließt den Shop und startet das Platzieren; bezahlt wird erst beim Setzen (✓), es gibt keinen Besitz-Bestand. Zu teure Karten sind grau, aber wählbar (der Hinweis sagt, was fehlt); gesperrte Karten zeigen ein Schloss und die Bedingung.
 - **Freischaltungen** laufen automatisch über den Dorf-Fortschritt, ohne zweite Währung und ohne Extra-Zahlung: „N Gebäude vom Typ X stehen“ (z. B. Schreinerei und Steinbruch nach dem ersten Holzfäller), „N Häuser stehen“, „der Markt hat N Taler verdient“. Ist eine Bedingung einmal erfüllt, bleibt der Artikel für immer frei. Neues im Shop wird gemeldet (Meldung, Stern). Was man zum Weiterkommen braucht (Holzfäller, Beerengarten, Markt), ist nie gesperrt.
 - **Insel gestalten:** Baum und Fels (Wiese → Wald/Fels, zählen für Holzfäller und Steinbruch; nur selbst Gepflanztes lässt sich mit Erstattung wieder abreißen), Strand aufschütten (Wasser am Land, endgültig) und Wiese anlegen (Strand → Wiese, endgültig); die Insel bleibt von Wasser umgeben.
@@ -69,7 +70,7 @@ Ein Feld über der Insel mit vier Reitern: **Häuser** (Pilzhaus-Varianten: klei
 - **Simulation getrennt von Darstellung**: `src/sim/` ist reines TypeScript ohne Phaser → mit **Vitest** testbar
 - **Spieldaten in JSON** (`src/data/`): Gebäude, Waren, Preise, Schlümpfe, Texte → Balancing ohne Code
 - **Feste Simulations-Ticks** (z. B. 10/s), Darstellung interpoliert
-- **Wegfindung**: A* auf dem Wegeraster
+- **Wegfindung**: A* auf dem Kachelraster – Wege sind billig und schnell, Wiese geht auch (langsamer), Gebäude nur im Notfall, Wasser nie
 - **Speichern**: IndexedDB, Autosave jede Minute + Export/Import als `.json`
 - **Touch**: Ziehen = Kamera, Zwei-Finger = Zoom, Tippen = Auswahl, Bauen per „Antippen + Bestätigen“ statt Drag & Drop
 - **Deployment**: GitHub Actions baut bei jedem Push auf `main` und veröffentlicht auf **GitHub Pages**; Pull Requests werden vorher gebaut und getestet
@@ -80,7 +81,7 @@ src/
 ├── sim/          # Welt, Gebäude, Wirtschaft, Schlümpfe, Wege, Uhr – kein Phaser
 ├── scenes/       # Phaser-Szenen: Boot, Insel, UI, Shop, Eltern
 ├── ui/           # Buttons, Karten, Dialoge
-├── data/         # buildings.json, goods.json, smurfs.json, texts.de.json
+├── data/         # buildings.json, goods.json, residents.json, names.json, texts.de.json
 └── save/         # IndexedDB, Export/Import
 public/assets/    # Grafiken, Sounds
 tests/

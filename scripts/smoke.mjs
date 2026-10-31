@@ -4,11 +4,12 @@
  *
  *   npm run smoke                                # baut, startet `vite preview`, testet, räumt auf
  *   npm run smoke -- --no-build                  # vorhandenes dist/ verwenden
- *   npm run smoke -- --out docs/screenshots/m6   # anderer Screenshot-Ordner (Standard: m5)
+ *   npm run smoke -- --out docs/screenshots/m7   # anderer Screenshot-Ordner (Standard: m6)
  *   npm run smoke -- --m2-only                   # nur die Bau-Prüfungen (M2), ohne Kamera, Wirtschaft und Shop (schnell)
  *   npm run smoke -- --m3-only                   # nur die Wirtschafts-Prüfungen (M3), ohne Kamera, Bauen und Shop
  *   npm run smoke -- --m4-only                   # nur die Shop-Prüfungen (M4): Reiter, Schlösser, Freischaltung, Insel (etwa 5 Minuten)
  *   npm run smoke -- --m5-only                   # nur die Prüfungen zu Speichern und Web-App (M5)
+ *   npm run smoke -- --m6-only                   # nur die Bewohner (M6): Karte, Tragen, Einladen, Boot, volles Dorf, Bildzeit
  *   npm run smoke -- --profile tablet            # nur Tablet bzw. nur Desktop
  *
  * Öffnet das Spiel (feste Insel `?seed=1&nosave=1`) als Tablet (1024×768, Touch,
@@ -48,6 +49,14 @@
  * `failures`, `savedTick`. Web-App: Manifest (Name, `standalone`, Adressen relativ zu `/Schlumpfwelt/`, Symbole mit der
  * richtigen Größe), Service Worker aktiv mit Cache, nach dem Neuladen gesteuert, und das Spiel startet offline
  * (`context.setOffline`).
+ * Seit M6 (Bewohner, `<html data-residents|boats|resident-card|perf>`): die zwei Bewohner des Startdorfs (Namen, Mützen,
+ * Gärtner und Händler im roten Haus), Antippen eines stehenden Bewohners öffnet seine Karte (✕ ≥ 48 px, im Bild), der
+ * Gärtner trägt Beeren sichtbar zum Markt, die Karte „einladen“ ist ohne freies Haus gesperrt (Satz statt Platzieren),
+ * nach einem zweiten Haus und 30 Talern bringt ein Boot den Gast an die Küste, er geht nach Hause und das Boot fährt
+ * weg; ein volles Dorf (40 Bewohner, in die echte IndexedDB geschrieben) lädt mit denselben Namen und Mützen, jedes
+ * Produktionsgebäude hat genau einen Arbeiter, die Bildzeit bei 4-facher CPU-Drosselung (CDP
+ * `Emulation.setCPUThrottlingRate`) bleibt unter `PERF_LIMIT` und wird ausgegeben, nach dem Neuladen sind Bewohner,
+ * Zuhause und Arbeit gleich, und die Karte passt auf 320×568 und 568×320.
  * Exitcode ≠ 0 bei Konsolenfehlern, Seitenfehlern, fehlgeschlagenen Requests,
  * fehlgeschlagenen Kamera-Prüfungen oder wenn das Spiel nicht in die
  * Insel-Szene wechselt.
@@ -71,22 +80,22 @@ const M2_ONLY = process.argv.includes('--m2-only');
 const M3_ONLY = process.argv.includes('--m3-only');
 const M4_ONLY = process.argv.includes('--m4-only');
 const M5_ONLY = process.argv.includes('--m5-only');
+const M6_ONLY = process.argv.includes('--m6-only');
 /** `--profile tablet|desktop`: nur dieses Gerät testen (zum Entwickeln). */
 const ONLY_PROFILE = argValue('--profile');
-const SCREENSHOT_DIR = path.resolve(ROOT, argValue('--out') ?? path.join('docs', 'screenshots', 'm5'));
+const SCREENSHOT_DIR = path.resolve(ROOT, argValue('--out') ?? path.join('docs', 'screenshots', 'm6'));
 /** Alle übrigen Screenshots (Kamera-Prüfungen früherer Meilensteine, Zwischenschritte) landen hier, nicht im Repo. */
 const TEMP_SCREENSHOT_DIR = path.join(os.tmpdir(), 'schlumpfwelt-smoke');
-/** Nur diese Bilder gehören in `docs/screenshots/mN/` – die Screenshots dieses Meilensteins (M5: Speichern und Web-App). */
+/** Nur diese Bilder gehören in `docs/screenshots/mN/` – die Screenshots dieses Meilensteins (M6: Bewohner). */
 const KEEP_SCREENSHOTS = new Set([
-  'tablet-zahnrad',
-  'tablet-menu',
-  'tablet-menu-frage',
-  'tablet-menu-fehler',
-  'tablet-geladen',
-  'tablet-menu-handy-quer',
-  'tablet-menu-handy-hochkant',
-  'tablet-offline',
-  'tablet-weiterspielen',
+  'tablet-bewohner-karte',
+  'tablet-tragen',
+  'tablet-einladen-voll',
+  'tablet-einladen',
+  'tablet-boot',
+  'tablet-gewimmel',
+  'tablet-bewohner-handy-hochkant',
+  'tablet-bewohner-handy-quer',
 ]);
 
 /** Kachelgröße und Wasser-Rand der Kamera (siehe `TILE_SIZE` und `camera.json`). */
@@ -640,6 +649,7 @@ const footprintOf = (type) => FOOTPRINT[type] ?? 1;
 
 /** In welchem Reiter des Shops ein Typ steht (siehe `shop.category` in `buildings.json`). */
 const SHOP_TAB = {
+  invite: 'houses',
   'house-red': 'houses',
   'house-blue': 'houses',
   'house-yellow': 'houses',
@@ -1604,7 +1614,7 @@ async function testEconomy({ page, check, shot, size, input, name }) {
 
 /** Die Artikel jedes Reiters, in der Reihenfolge der Datei (siehe `buildings.json`). */
 const SHOP_ITEMS = {
-  houses: ['house-red', 'house-blue', 'house-yellow', 'house-big', 'house-garden'],
+  houses: ['invite', 'house-red', 'house-blue', 'house-yellow', 'house-big', 'house-garden'],
   deco: ['flower', 'bush', 'fence', 'bench', 'flowerbed', 'lantern', 'pond', 'fountain'],
   production: ['lumberjack', 'berry-garden', 'quarry', 'carpenter', 'bakery', 'market'],
   island: ['tree', 'rock', 'beach', 'meadow'],
@@ -1666,7 +1676,8 @@ async function testShop({ page, check, shot, size, input, name, waitLong }) {
     for (const id of SHOP_ITEMS[tab]) check(`item-${id}` in village.ui, `Reiter ${tab}: Karte ${id} fehlt`);
     check(Object.keys(village.ui).filter((spot) => spot.startsWith('item-')).length === SHOP_ITEMS[tab].length, `Reiter ${tab}: ${Object.keys(village.ui).filter((spot) => spot.startsWith('item-')).length} Karten, erwartet ${SHOP_ITEMS[tab].length}`);
     for (const id of SHOP_ITEMS[tab]) {
-      const expected = locked[tab].includes(id) ? 'locked' : 'ok';
+      // Einladen (M6) braucht ein freies Haus: im Startdorf sind beide Plätze des roten Hauses belegt.
+      const expected = id === 'invite' ? 'noRoom' : locked[tab].includes(id) ? 'locked' : 'ok';
       check(stateOf(village, id) === expected, `Reiter ${tab}: ${id} ist „${stateOf(village, id)}“, erwartet „${expected}“`);
       // Gesperrte Karten sind grau, bezahlbare nicht.
       check(village.ui[`item-${id}`]?.dim === (expected !== 'ok'), `Reiter ${tab}: ${id} hat die falsche Graustufe`);
@@ -2278,7 +2289,7 @@ async function testSaving({ browser, page, check, shot, size, input, name, profi
     (r) => r.paths?.length === before.paths.length && r.planted?.length === 1 && r.buildings?.length === before.buildings.length,
     'den gespeicherten Stand',
   );
-  check(record.format === 'village-save' && record.version === 2, `Spielstand: Format ${record.format}, Version ${record.version}`);
+  check(record.format === 'village-save' && record.version === 3, `Spielstand: Format ${record.format}, Version ${record.version}`);
   check(same(staticPartsOfRecord(record), { ...staticPartsOfVillage(before), planted: 1 }), 'Spielstand in der IndexedDB stimmt nicht mit dem Dorf überein (Gebäude, Wege, Gelände, Bäume)');
   check(same(record.unlocked, before.unlocked), `Spielstand: Freischaltungen ${JSON.stringify(record.unlocked)} statt ${JSON.stringify(before.unlocked)}`);
   check(record.world.terrain.length === MAP_TILES * MAP_TILES && /^[wsgfr]+$/.test(record.world.terrain), 'Spielstand: Gelände ist kein Text aus w, s, g, f, r');
@@ -2335,7 +2346,7 @@ async function testSaving({ browser, page, check, shot, size, input, name, profi
   check(/^[a-z0-9-]+-\d{4}-\d{2}-\d{2}\.json$/.test(download.suggestedFilename()), `Dateiname „${download.suggestedFilename()}“`);
   const exported = await readFile(await download.path(), 'utf8');
   const exportedData = JSON.parse(exported);
-  check(exportedData.format === 'village-save' && exportedData.version === 2, 'Export: Format oder Version stimmt nicht');
+  check(exportedData.format === 'village-save' && exportedData.version === 3, 'Export: Format oder Version stimmt nicht');
   await waitForVillage(page, (v) => v.menu === 'menu:menu.fileSaved', 'der Satz „Datei fertig“');
   check(same(staticPartsOfRecord(exportedData), staticPartsOfVillage(await readVillage(page))), 'Export: Datei stimmt nicht mit dem Dorf überein');
   await tapUi('menu-close');
@@ -2552,7 +2563,7 @@ async function testSaving({ browser, page, check, shot, size, input, name, profi
   await overview();
   await placeSmall('flower', [0.5, 0.3], 'die Blume im neuen Dorf', (v, v0) => count(v, 'flower') === count(v0, 'flower') + 1);
   await exitTool();
-  await waitForRecord(page, (r) => r.format === 'village-save' && r.version === 2 && Array.isArray(r.buildings) && r.buildings.length === 7, 'ein heiler Spielstand nach dem kaputten');
+  await waitForRecord(page, (r) => r.format === 'village-save' && r.version === 3 && Array.isArray(r.buildings) && r.buildings.length === 7, 'ein heiler Spielstand nach dem kaputten');
 
   // --- Neuerer Spielstand: nicht überschreiben ---
   step('Start mit Spielstand aus einer neueren Version');
@@ -2766,6 +2777,409 @@ async function testPwa({ context, page, check, shot, size, profile, waitForScene
   }
 }
 
+// ---------------------------------------------------------------------------------------------------------------------
+// M6 – Bewohner
+// ---------------------------------------------------------------------------------------------------------------------
+
+/** Was ein Bewohner gerade tut (`activityOf` in `src/sim/residents.ts`). */
+const ACTIVITIES = ['boat', 'toWork', 'work', 'carry', 'toHome', 'rest', 'stroll', 'visit', 'wait'];
+/** Im Stehen (nicht unterwegs): so ein Bewohner lässt sich sicher antippen. */
+const STANDING = ['work', 'rest', 'visit', 'wait'];
+/** Die Grenze für die Bildzeit mit mindestens 30 Bewohnern bei 4-facher CPU-Drosselung (ms, Hauptthread pro Bild; ein Bild bei 30 fps hat 33 ms). */
+const PERF_LIMIT = { residents: 30, rate: 4, mean: 16, p95: 25 };
+
+/** Bewohner und Boote aus `<html data-residents|data-boats|data-resident-card>` (siehe `publishResidents` in IslandScene.ts). */
+async function readResidents(page) {
+  return page.evaluate(() => {
+    const d = document.documentElement.dataset;
+    return { residents: JSON.parse(d.residents ?? '[]'), boats: JSON.parse(d.boats ?? '[]'), card: d.residentCard ?? '' };
+  });
+}
+
+/** Wartet, bis `predicate({ residents, boats, card })` stimmt; wirft mit dem Stand, wenn nicht. */
+async function waitForResidents(page, predicate, what, timeoutMs = 10_000) {
+  const deadline = Date.now() + timeoutMs;
+  let state;
+  while (Date.now() < deadline) {
+    state = await readResidents(page);
+    const found = predicate(state);
+    if (found) return { ...state, found };
+    await sleep(120);
+  }
+  throw new Error(`Zeitüberschreitung beim Warten auf ${what} (Stand: ${state?.residents.length} Bewohner, ${state?.boats.length} Boote, Karte „${state?.card}“)`);
+}
+
+/** Die Bildzeit aus `<html data-perf>` (Mittel, p95 und Maximum der letzten 300 Bilder in ms, `total` = Bilder seit dem Start). */
+async function readPerf(page) {
+  return JSON.parse(await page.evaluate(() => document.documentElement.dataset.perf ?? '{}'));
+}
+
+/** Löscht alle Spielstände der Seite (von außen, wie `setRecordFromOutside`): danach beginnt `?seed=1` ein neues Dorf. */
+async function clearRecords(page) {
+  await page.goto(`${URL}manifest.webmanifest`, { waitUntil: 'load' });
+  await page.evaluate(
+    () =>
+      new Promise((resolve, reject) => {
+        const open = indexedDB.open('village-game/Schlumpfwelt/', 1);
+        open.onupgradeneeded = () => open.result.createObjectStore('saves');
+        open.onerror = () => reject(open.error);
+        open.onsuccess = () => {
+          const db = open.result;
+          const transaction = db.transaction('saves', 'readwrite');
+          transaction.objectStore('saves').clear();
+          transaction.oncomplete = () => {
+            db.close();
+            resolve();
+          };
+          transaction.onerror = () => reject(transaction.error);
+        };
+      }),
+  );
+}
+
+/**
+ * Ein volles Dorf aus einem Spielstand: große Häuser mit einem Weg davor und Produktionsgebäude nahe der Mitte (mit
+ * freiem Rand), dazu Bewohner ohne Haus und Arbeit, bis es `residents` sind – mit Namen, die noch niemand trägt. Haus
+ * und Arbeit verteilt das Spiel beim Laden (`settleResidents`).
+ */
+function crowdedRecord(record, names, { residents: count, houses: maxHouses, producers: maxProducers }) {
+  const { width, height, terrain } = record.world;
+  const taken = new Set(record.paths);
+  for (const b of record.buildings) {
+    const size = footprintOf(b.type);
+    for (let dy = 0; dy < size; dy += 1) for (let dx = 0; dx < size; dx += 1) taken.add((b.y + dy) * width + b.x + dx);
+  }
+  const free = (x, y) => x >= 1 && y >= 1 && x < width - 1 && y < height - 1 && terrain[y * width + x] === 'g' && !taken.has(y * width + x);
+  const spots = [];
+  for (let y = 2; y < height - 2; y += 1) for (let x = 2; x < width - 2; x += 1) spots.push({ x, y, d: Math.hypot(x - width / 2, y - height / 2) });
+  spots.sort((a, b) => a.d - b.d);
+  const buildings = [...record.buildings];
+  const paths = [...record.paths];
+  let nextBuildingId = record.nextBuildingId;
+  const place = (type, limit) => {
+    const size = footprintOf(type);
+    let placed = 0;
+    for (const { x, y } of spots) {
+      if (placed >= limit) break;
+      let ok = true;
+      // Der Grundriss, eine Wegreihe darunter und eine freie Kachel um alles.
+      for (let dy = -1; dy <= size + 1 && ok; dy += 1) for (let dx = -1; dx <= size && ok; dx += 1) ok = free(x + dx, y + dy);
+      if (!ok) continue;
+      buildings.push({ id: nextBuildingId, type, x, y });
+      nextBuildingId += 1;
+      for (let dy = 0; dy < size; dy += 1) for (let dx = 0; dx < size; dx += 1) taken.add((y + dy) * width + x + dx);
+      for (let dx = 0; dx < size; dx += 1) {
+        taken.add((y + size) * width + x + dx);
+        paths.push((y + size) * width + x + dx);
+      }
+      placed += 1;
+    }
+    return placed;
+  };
+  const houses = place('house-big', maxHouses);
+  const producers = place('berry-garden', Math.ceil(maxProducers / 2)) + place('bakery', Math.floor(maxProducers / 2));
+  const used = new Set(record.residents.map((r) => r.name));
+  const unused = names.filter((n) => !used.has(n));
+  let nextResidentId = record.nextResidentId;
+  const extra = [];
+  for (let i = record.residents.length; i < count; i += 1) {
+    const name = unused[extra.length] ?? `${names[i % names.length]} ${i}`;
+    extra.push({ id: nextResidentId, name, hat: nextResidentId % 8, home: null, job: null, at: record.paths[i % record.paths.length], route: [], step: 0, doing: 'wait', goal: 'visit', place: null, timer: 1 + (i % 20), carrying: null, seen: 0, trips: 0 });
+    nextResidentId += 1;
+  }
+  return { record: { ...record, buildings, paths, nextBuildingId, residents: [...record.residents, ...extra], nextResidentId }, houses, producers };
+}
+
+/** Die Landkachel am Wasser, die `from` (Kachel) am nächsten liegt – ungefähr dort legt das Boot an (`landingFor`). */
+function nearestCoast(village, from) {
+  const letter = (x, y) => village.terrain[y * MAP_TILES + x];
+  let best;
+  for (let y = 1; y < MAP_TILES - 1; y += 1) {
+    for (let x = 1; x < MAP_TILES - 1; x += 1) {
+      if (letter(x, y) === 'w' || ![[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dy]) => letter(x + dx, y + dy) === 'w')) continue;
+      const distance = Math.hypot(x - from.x, y - from.y);
+      if (!best || distance < best.distance) best = { x, y, distance };
+    }
+  }
+  return best;
+}
+
+/** Was von einem Bewohner beim Speichern bleiben muss (Arbeit und Zuhause als Typ des Gebäudes). */
+const residentIdentity = (r) => [r.id, r.name, r.hat, r.home, r.job];
+
+/**
+ * Bewohner (M6): das Startdorf mit seinen zwei Bewohnern, Antippen zeigt die Karte, Tragen ist sichtbar, Einladen ist
+ * ohne freies Haus gesperrt, mit Haus und Talern kommt ein neuer Bewohner mit dem Boot und geht nach Hause; ein volles
+ * Dorf (40 Bewohner) bleibt beim Speichern und Neuladen gleich, die Bildzeit bei 4-facher CPU-Drosselung bleibt unter
+ * der Grenze, und die Karte passt auf kleine Handys (320×568, 568×320).
+ */
+async function testResidents({ context, page, check, shot, size, input, name, profile, waitForScene }) {
+  const { step, cameraAtRest, tapUi, tapTile, selectTool, openShop, openTab, pickItem, exitTool, confirm } = buildHelpers({ page, check, size, input, name });
+  const zoom = async (button, times) => {
+    for (let i = 0; i < times; i += 1) {
+      await tapUi(button);
+      await sleep(350);
+    }
+    await cameraAtRest();
+    await sleep(300); // ein Tick, damit `data-residents` die neue Kamera kennt
+  };
+  /** Ein stehender Bewohner (noch mindestens 3 s) an einer gut antippbaren Stelle des Bildschirms. */
+  const standingOnScreen = (state, ui, view) => {
+    const top = (ui.stock ? ui.stock.y + ui.stock.h / 2 : 0) + 40;
+    const bottom = (ui['tool-path'] ? ui['tool-path'].y - 52 : view.height) - 40;
+    return state.residents.find((r) => STANDING.includes(r.activity) && r.timer > 30 && r.sx > 40 && r.sx < view.width - 90 && r.sy > top && r.sy < bottom);
+  };
+  /** Tippt einen stehenden Bewohner an und wartet auf seine Karte. */
+  const tapResident = async (view, what) => {
+    const ui = (await readVillage(page)).ui;
+    const { found: target } = await waitForResidents(page, (state) => standingOnScreen(state, ui, view), `einen stehenden Bewohner im Bild (${what})`, 30_000);
+    await input.tap({ x: target.sx, y: target.sy });
+    await waitForResidents(page, (state) => state.card === String(target.id), `die Karte von ${target.name} (${what})`, 5000);
+    const village = await waitForVillage(page, (v) => 'card' in v.ui && 'card-close' in v.ui, `Karte und ✕ in data-ui (${what})`, 4000);
+    return { target, village };
+  };
+  /** Die Karte liegt im Bild, ihr ✕ ist mindestens 48 px groß, und sie überdeckt weder Lagerleiste noch Werkzeugleiste. */
+  const checkCard = (village, view, what) => {
+    const { card } = village.ui;
+    const close = village.ui['card-close'];
+    check(card.x - card.w / 2 >= -0.5 && card.x + card.w / 2 <= view.width + 0.5 && card.y - card.h / 2 >= -0.5 && card.y + card.h / 2 <= view.height + 0.5, `${what}: die Karte ragt über den Bildrand (${JSON.stringify(card)})`);
+    check(close.w >= 48 && close.h >= 48 && close.x - 24 >= 0 && close.x + 24 <= view.width && close.y - 24 >= 0 && close.y + 24 <= view.height, `${what}: ✕ der Karte zu klein oder außerhalb (${JSON.stringify(close)})`);
+    for (const [spot, p] of Object.entries(village.ui)) {
+      if (spot === 'stock' || spot.startsWith('tool-')) {
+        const w = p.w ?? 48;
+        const h = p.h ?? 48;
+        check(Math.abs(card.x - p.x) >= (card.w + w) / 2 - 0.5 || Math.abs(card.y - p.y) >= (card.h + h) / 2 - 0.5, `${what}: die Karte überdeckt „${spot}“`);
+      }
+    }
+  };
+  const closeCard = async (what) => {
+    await tapUi('card-close');
+    await waitForResidents(page, (state) => state.card === '', `die geschlossene Karte (${what})`, 4000);
+  };
+
+  // --- Das Startdorf: zwei Bewohner (Gärtner und Händler) im roten Haus ---
+  step('Bewohner: das Startdorf');
+  await enterIsland(page, profile, waitForScene);
+  let state = await waitForResidents(page, (s) => s.residents.length === 2 && s.residents.every((r) => r.x !== undefined), 'die zwei Bewohner des Startdorfs');
+  const starters = state.residents;
+  check(starters.every((r) => typeof r.name === 'string' && r.name.length > 0) && new Set(starters.map((r) => r.name)).size === 2, `Startdorf: Namen ${JSON.stringify(starters.map((r) => r.name))}`);
+  check(starters.every((r) => Number.isInteger(r.hat) && r.hat >= 0 && r.hat < 8), `Startdorf: Mützen ${JSON.stringify(starters.map((r) => r.hat))}`);
+  check(same(starters.map((r) => r.job).sort(), ['berry-garden', 'market']) && starters.every((r) => r.home === 'house-red'), `Startdorf: Arbeit ${JSON.stringify(starters.map((r) => r.job))}, Zuhause ${JSON.stringify(starters.map((r) => r.home))}`);
+  check(starters.every((r) => ACTIVITIES.includes(r.activity)), `Startdorf: unbekannte Tätigkeit ${JSON.stringify(starters.map((r) => r.activity))}`);
+
+  // --- Antippen zeigt die Karte (Name, Beruf, Mütze, Zuhause, Tätigkeit) ---
+  step('Bewohner: antippen zeigt die Karte');
+  await zoom('zoom-in', 2);
+  let { target, village } = await tapResident(size, 'Tablet/Desktop');
+  check(village.tool === 'view' && village.card === '' && village.shop === 'closed', `Karte: Werkzeug ${village.tool}, Gebäudekarte „${village.card}“, Shop ${village.shop}`);
+  checkCard(village, size, 'Bewohner-Karte');
+  await sleep(400);
+  await shot(`${name}-bewohner-karte`);
+  await closeCard('✕');
+  console.log(`  [${name}] Karte von ${target.name} (${target.job}, Mütze ${target.hat}) geöffnet und geschlossen`);
+
+  // --- Tragen: der Gärtner bringt Beeren zum Markt, über dem Kopf sichtbar ---
+  step('Bewohner: Tragen ist sichtbar');
+  const carrierFound = await page
+    .waitForFunction(
+      ({ width, height }) => {
+        const residents = JSON.parse(document.documentElement.dataset.residents ?? '[]');
+        const carrier = residents.find((r) => r.carrying !== '' && r.icon === 1 && r.sx > 0 && r.sx < width && r.sy > 0 && r.sy < height);
+        // Das Bild anhalten, solange das Tragen zu sehen ist (für den Screenshot).
+        if (carrier) window.__holdFrames = true;
+        return carrier ? JSON.stringify(carrier) : false;
+      },
+      size,
+      { timeout: 90_000, polling: 60 },
+    )
+    .then((handle) => handle.jsonValue())
+    .catch(() => undefined);
+  check(carrierFound !== undefined, 'Tragen: in 90 s trug niemand sichtbar etwas zum Markt');
+  if (carrierFound) {
+    const carrier = JSON.parse(carrierFound);
+    check(carrier.job === 'berry-garden' && carrier.carrying === 'berries' && carrier.activity === 'carry', `Tragen: ${JSON.stringify(carrier)}`);
+    await shot(`${name}-tragen`);
+  }
+  await page.evaluate(() => window.__releaseFrames());
+
+  // --- Einladen ohne freies Haus: die Karte ist gesperrt und sagt warum ---
+  step('Einladen: ohne freies Haus gesperrt');
+  await zoom('zoom-out', 2);
+  await openShop();
+  village = await openTab('houses');
+  const blocked = village.ui['item-invite'];
+  check(blocked?.state === 'noRoom' && blocked.dim === true, `Einladen ohne Platz: Karte ${JSON.stringify(blocked)}, erwartet noRoom und grau`);
+  await tapUi('item-invite');
+  village = await waitForVillage(page, (v) => v.tip !== '', 'den Satz zur gesperrten Einladung', 4000);
+  check(village.tool === 'shop' && village.shop.startsWith('houses:') && /Haus/.test(village.tip), `Einladen ohne Platz: Werkzeug ${village.tool}, Shop ${village.shop}, Satz „${village.tip}“`);
+  await shot(`${name}-einladen-voll`);
+
+  // --- Ein Haus bauen: jetzt ist Platz, aber die Taler reichen erst später ---
+  step('Einladen: Haus bauen, auf Taler warten, einladen');
+  await pickItem('house-red');
+  let cam = await cameraAtRest();
+  village = await readVillage(page);
+  const houseArea = findFreeArea(village, cam, size, 2, 2, { near: { x: size.width * 0.35, y: size.height * 0.4 } });
+  check(houseArea !== undefined, 'Einladen: kein Platz für das Haus');
+  if (!houseArea) return;
+  await tapTile({ x: houseArea.x, y: houseArea.y + 1 });
+  await waitForVillage(page, (v) => v.preview === 'place:ok', 'grüne Vorschau fürs Haus');
+  const buildingsBefore = village.buildings.length;
+  await confirm((v) => v.buildings.length === buildingsBefore + 1, 'das zweite Haus');
+  // Das Boot ist schnell (4 Kacheln pro Sekunde): vor dem Einladen so weit herauszoomen, dass die Küste beim neuen Haus im Bild ist.
+  await exitTool();
+  const coast = nearestCoast(village, { x: houseArea.x + 1, y: houseArea.y + 2 });
+  for (let i = 0; i < 2 && coast; i += 1) {
+    const p = screenOfTile(await cameraAtRest(), size, coast);
+    if (p.x > 160 && p.x < size.width - 160 && p.y > 160 && p.y < size.height - 230) break;
+    await zoom('zoom-out', 1);
+  }
+  await pickItem('invite');
+  village = await readVillage(page);
+  if (village.stock.coins < 30) {
+    check(village.preview === 'invite:cost' && village.ui.confirm?.enabled === false, `Einladen zu teuer: Vorschau ${village.preview}, ✓ ${JSON.stringify(village.ui.confirm)}`);
+  }
+  village = await waitForVillage(page, (v) => v.preview === 'invite:ok' && v.ui.confirm?.enabled === true, 'genug Taler für die Einladung', 240_000);
+  await sleep(300);
+  await shot(`${name}-einladen`);
+  const coinsBefore = village.stock.coins;
+  await confirm((v) => v.tool === 'view', 'zurück auf „Anschauen“ nach dem Einladen');
+  state = await waitForResidents(page, (s) => s.residents.length === 3 && s.boats.length === 1, 'den neuen Bewohner im Boot', 5000);
+  const guest = state.residents.find((r) => !starters.some((s) => s.id === r.id));
+  const boat = state.boats[0];
+  check(guest && guest.activity === 'boat' && guest.home === 'house-red' && guest.job === '' && boat.passenger === guest.id, `Einladen: ${JSON.stringify(guest)}, Boot ${JSON.stringify(boat)}`);
+  if (!guest) return;
+  check(!starters.some((s) => s.name === guest.name), `Einladen: der Name „${guest.name}“ ist schon vergeben`);
+
+  // --- Das Boot fährt an die Küste beim Dorf, der Bewohner steigt aus und geht nach Hause ---
+  step('Einladen: das Boot kommt an, der Bewohner geht nach Hause');
+  const shore = { x: boat.shore % MAP_TILES, y: Math.floor(boat.shore / MAP_TILES) };
+  // Das Bild anhalten, sobald das Boot mit dem Gast gut im Bild ist (für den Screenshot).
+  const sailing = await page
+    .waitForFunction(
+      ({ id, width, height }) => {
+        const d = document.documentElement.dataset;
+        const aboard = JSON.parse(d.boats ?? '[]').some((b) => b.passenger === id && b.left > 0);
+        const seat = JSON.parse(d.residents ?? '[]').find((r) => r.id === id);
+        const visible = aboard && seat?.sx > 30 && seat.sx < width - 30 && seat.sy > 90 && seat.sy < height - 150;
+        if (visible) window.__holdFrames = true;
+        return visible;
+      },
+      { id: guest.id, ...size },
+      { timeout: 30_000, polling: 60 },
+    )
+    .then(() => true)
+    .catch(() => false);
+  check(sailing, 'Einladen: das Boot mit dem Gast war nie gut im Bild');
+  if (sailing) await shot(`${name}-boot`);
+  await page.evaluate(() => window.__releaseFrames());
+  const ashore = await waitForResidents(page, (s) => s.residents.find((r) => r.id === guest.id && r.activity !== 'boat'), 'den Bewohner an Land', 60_000);
+  check(['toHome', 'rest'].includes(ashore.found.activity) && Math.abs(ashore.found.x / TILE - (shore.x + 0.5)) < 1.5 && Math.abs(ashore.found.y / TILE - (shore.y + 0.6)) < 1.5, `Einladen: an Land ${JSON.stringify(ashore.found)}, Küste ${JSON.stringify(shore)}`);
+  village = await readVillage(page);
+  check(village.stock.coins <= coinsBefore - 30 + 2, `Einladen: ${coinsBefore} → ${village.stock.coins} Taler (die Einladung kostet 30)`);
+  // Die Meldung „Neu im Shop“ (das zweite Haus schaltet etwas frei) steht 7 s darüber, danach kommt der Satz zum Gast.
+  village = await waitForVillage(page, (v) => v.hint.includes(guest.name), `den Hinweis, dass ${guest.name} mit dem Boot kommt`, 12_000).catch(() => readVillage(page));
+  check(village.hint.includes(guest.name), `Einladen: Hinweis „${village.hint}“ nennt nicht ${guest.name}`);
+  await waitForResidents(page, (s) => s.residents.find((r) => r.id === guest.id && r.activity === 'rest'), 'den Bewohner zu Hause', 90_000);
+  await waitForResidents(page, (s) => s.boats.length === 0, 'das Boot, das wieder wegfährt', 60_000);
+
+  // --- Ein volles Dorf (40 Bewohner) im echten Speicher ---
+  step('Bewohner: volles Dorf laden (40 Bewohner)');
+  const names = JSON.parse(await readFile(path.join(ROOT, 'src', 'data', 'names.json'), 'utf8')).names;
+  await clearRecords(page);
+  await enterIsland(page, profile, waitForScene, SAVE_URL);
+  // Ein neues Dorf speichert erst nach einer Minute oder nach einer Änderung: zwei Wegkacheln (kosten nichts) speichern sofort.
+  village = await waitForVillage(page, (v) => v.save.start === 'new' && v.buildings.length > 0, 'das neue Dorf mit Speicher');
+  cam = await cameraAtRest();
+  const pathSpot = findFreeArea(village, cam, size, 2, 1, { near: { x: size.width * 0.6, y: size.height * 0.45 } });
+  check(pathSpot !== undefined, 'Volles Dorf: kein Platz für zwei Wegkacheln');
+  if (!pathSpot) return;
+  await selectTool('path');
+  await tapTile(pathSpot);
+  await tapTile({ x: pathSpot.x + 1, y: pathSpot.y });
+  await confirm((v) => v.paths.length === village.paths.length + 2, 'zwei neue Wegkacheln');
+  await exitTool();
+  const fresh = await waitForRecord(page, (r) => r.version === 3 && r.residents?.length === 2 && r.paths?.length === village.paths.length + 2, 'den Spielstand des neuen Dorfs');
+  const crowded = crowdedRecord(fresh, names, { residents: 40, houses: 10, producers: 6 });
+  console.log(`  [${name}] volles Dorf: ${crowded.houses} große Häuser, ${crowded.producers} Produktionsgebäude, ${crowded.record.residents.length} Bewohner`);
+  await setRecordFromOutside(page, crowded.record);
+  await enterIsland(page, profile, waitForScene, SAVE_URL);
+  village = await waitForVillage(page, (v) => v.save.start !== undefined && v.buildings.length > 0, 'das volle Dorf', 20_000);
+  check(village.save.start === 'loaded', `Volles Dorf: ${JSON.stringify(village.save)}, erwartet „loaded“`);
+  state = await waitForResidents(page, (s) => s.residents.length === 40 && s.residents.every((r) => r.x !== undefined), 'die 40 Bewohner', 10_000);
+  const byId = new Map(state.residents.map((r) => [r.id, r]));
+  check(crowded.record.residents.every((r) => byId.get(r.id)?.name === r.name && byId.get(r.id)?.hat === r.hat), 'Volles Dorf: Namen oder Mützen stimmen nicht mit dem Spielstand überein');
+  check(new Set(state.residents.map((r) => r.name)).size === 40, 'Volles Dorf: Namen kommen doppelt vor');
+  // Jedes Produktionsgebäude hat genau einen Arbeiter.
+  const producerTypes = ['berry-garden', 'bakery', 'market', 'lumberjack', 'quarry', 'carpenter'];
+  for (const type of producerTypes) {
+    const buildings = village.buildings.filter((b) => b.type === type).length;
+    const workers = state.residents.filter((r) => r.job === type).length;
+    check(buildings === workers, `Volles Dorf: ${buildings} × ${type}, aber ${workers} Arbeiter`);
+  }
+  await sleep(1500);
+  await shot(`${name}-gewimmel`);
+
+  // --- Bildzeit mit 40 Bewohnern bei 4-facher CPU-Drosselung ---
+  step(`Bewohner: Bildzeit bei ${PERF_LIMIT.rate}× CPU-Drosselung`);
+  const session = await context.newCDPSession(page);
+  const free = await readPerf(page);
+  await session.send('Emulation.setCPUThrottlingRate', { rate: PERF_LIMIT.rate });
+  let perf;
+  const started = Date.now();
+  try {
+    const first = (await readPerf(page)).total ?? 0;
+    perf = await readPerf(page);
+    // Die Zahlen gelten für die letzten 300 Bilder: warten, bis alle gedrosselt waren.
+    while ((perf.total ?? 0) < first + 330 && Date.now() - started < 300_000) {
+      await sleep(1000);
+      perf = await readPerf(page);
+    }
+  } finally {
+    await session.send('Emulation.setCPUThrottlingRate', { rate: 1 });
+    await session.detach();
+  }
+  console.log(`  [${name}] Bildzeit ohne Drosselung: Mittel ${free.mean} ms, p95 ${free.p95} ms (${free.frames} Bilder)`);
+  console.log(
+    `  [${name}] Bildzeit bei ${PERF_LIMIT.rate}× Drosselung, ${perf.residents} Bewohner: Mittel ${perf.mean} ms, p95 ${perf.p95} ms, max ${perf.max} ms (Simulation ${perf.simMean}/${perf.simP95}, Zeichnen ${perf.renderMean}/${perf.renderP95}; ${perf.frames} Bilder in ${((Date.now() - started) / 1000).toFixed(0)} s; Grenze Mittel ${PERF_LIMIT.mean}, p95 ${PERF_LIMIT.p95})`,
+  );
+  check(perf.frames >= 300 && perf.residents >= PERF_LIMIT.residents, `Bildzeit: nur ${perf.frames} Bilder mit ${perf.residents} Bewohnern gemessen`);
+  check(perf.mean <= PERF_LIMIT.mean && perf.p95 <= PERF_LIMIT.p95, `Bildzeit bei ${PERF_LIMIT.rate}× Drosselung: Mittel ${perf.mean} ms, p95 ${perf.p95} ms – Grenze ${PERF_LIMIT.mean} / ${PERF_LIMIT.p95} ms`);
+
+  // --- Speichern und Neuladen: dieselben Bewohner mit demselben Zuhause und derselben Arbeit ---
+  step('Bewohner: Neuladen behält die Bewohner');
+  await waitForVillage(page, (v) => v.save.saves >= 1, 'einen Autosave des vollen Dorfs', 70_000);
+  const before = (await readResidents(page)).residents.map(residentIdentity);
+  await enterIsland(page, profile, waitForScene, SAVE_URL);
+  village = await waitForVillage(page, (v) => v.save.start !== undefined && v.buildings.length > 0, 'das neu geladene Dorf', 20_000);
+  check(village.save.start === 'loaded', `Neuladen: ${JSON.stringify(village.save)}`);
+  state = await waitForResidents(page, (s) => s.residents.length === 40, 'die 40 Bewohner nach dem Neuladen');
+  check(same(state.residents.map(residentIdentity), before), 'Neuladen: Bewohner, Namen, Mützen, Zuhause oder Arbeit haben sich geändert');
+  const record = await readRecord(page);
+  check(record?.version === 3 && record.residents?.length === 40, `Neuladen: Spielstand Version ${record?.version} mit ${record?.residents?.length} Bewohnern`);
+
+  // --- Kleine Handys: die Karte passt, ✕ ist groß genug ---
+  if (profile.name === 'tablet') {
+    for (const [w, h, label] of [
+      [320, 568, 'hochkant'],
+      [568, 320, 'quer'],
+    ]) {
+      step(`Bewohner: Karte auf dem Handy ${label} (${w}×${h})`);
+      await page.setViewportSize({ width: w, height: h });
+      await sleep(800);
+      await cameraAtRest();
+      await sleep(300);
+      ({ village } = await tapResident({ width: w, height: h }, `${w}×${h}`));
+      checkCard(village, { width: w, height: h }, `Bewohner-Karte ${w}×${h}`);
+      await sleep(400);
+      await shot(`${name}-bewohner-handy-${label}`);
+      await closeCard(`${w}×${h}`);
+    }
+    await page.setViewportSize(size);
+    await sleep(800);
+  }
+}
+
 /** Startet das Spiel (Tippen zum Spielen) und wartet auf die Insel. */
 async function enterIsland(page, profile, waitForScene, url = GAME_URL) {
   // Ein Abschnitt, der abbrach, kann den Bildschirm klein gelassen haben: jeder neue Start beginnt mit der Größe des Geräts.
@@ -2879,7 +3293,7 @@ async function testProfile(browser, profile) {
     await waitForCameraRest(page);
   }
 
-  if (!M2_ONLY && !M3_ONLY && !M4_ONLY && !M5_ONLY) {
+  if (!M2_ONLY && !M3_ONLY && !M4_ONLY && !M5_ONLY && !M6_ONLY) {
     if (profile.context.hasTouch) {
       await testTouchCamera({ page, context, problems, check, shot, size: { width, height } });
     } else {
@@ -2893,7 +3307,7 @@ async function testProfile(browser, profile) {
   const cdp = profile.context.hasTouch ? await context.newCDPSession(page) : undefined;
   const input = cdp ? { tap: (p) => page.touchscreen.tap(p.x, p.y) } : { tap: (p) => page.mouse.click(p.x, p.y) };
   const drag = cdp ? (from, to) => touchDevice(cdp).drag(from, to, { steps: 8, pauseMs: 30, holdMs: 200 }) : undefined;
-  if (!M3_ONLY && !M4_ONLY && !M5_ONLY) {
+  if (!M3_ONLY && !M4_ONLY && !M5_ONLY && !M6_ONLY) {
     try {
       await testBuilding({ page, check, shot, size, input, drag, name: profile.name });
     } catch (error) {
@@ -2901,7 +3315,7 @@ async function testProfile(browser, profile) {
       await shot(`${profile.name}-bauen-fehler`).catch(() => {});
     }
   }
-  if (!M2_ONLY && !M4_ONLY && !M5_ONLY) {
+  if (!M2_ONLY && !M4_ONLY && !M5_ONLY && !M6_ONLY) {
     try {
       // Frische Insel mit frischem Startlager für die Wirtschafts-Prüfungen (das Bauen oben hat Geld ausgegeben).
       if (!M3_ONLY) await enterIsland(page, profile, waitForScene);
@@ -2911,7 +3325,7 @@ async function testProfile(browser, profile) {
       await shot(`${profile.name}-wirtschaft-fehler`).catch(() => {});
     }
   }
-  if (!M2_ONLY && !M3_ONLY && !M5_ONLY) {
+  if (!M2_ONLY && !M3_ONLY && !M5_ONLY && !M6_ONLY) {
     try {
       // Frische Insel für den Shop (das Bauen und Wirtschaften oben hat Geld ausgegeben und Freischaltungen erreicht).
       if (!M4_ONLY) await enterIsland(page, profile, waitForScene);
@@ -2923,7 +3337,7 @@ async function testProfile(browser, profile) {
       await shot(`${profile.name}-shop-fehler`).catch(() => {});
     }
   }
-  if (!M2_ONLY && !M3_ONLY && !M4_ONLY) {
+  if (!M2_ONLY && !M3_ONLY && !M4_ONLY && !M6_ONLY) {
     try {
       await testSaving({ browser, page, check, shot, size, input, name: profile.name, profile, waitForScene, problems });
     } catch (error) {
@@ -2935,6 +3349,14 @@ async function testProfile(browser, profile) {
     } catch (error) {
       problems.push(`Web-App: ${error.message}`);
       await shot(`${profile.name}-webapp-fehler`).catch(() => {});
+    }
+  }
+  if (!M2_ONLY && !M3_ONLY && !M4_ONLY && !M5_ONLY) {
+    try {
+      await testResidents({ context, page, check, shot, size, input, name: profile.name, profile, waitForScene });
+    } catch (error) {
+      problems.push(`Bewohner: ${error.message}`);
+      await shot(`${profile.name}-bewohner-fehler`).catch(() => {});
     }
   }
   await cdp?.detach();
