@@ -9,7 +9,7 @@ import { CANCEL_DIAMETER, CONFIRM_DIAMETER } from '../../ui/confirmLayout';
 import { createLabel, setLabelSize } from '../../ui/label';
 import { cardStatus, productionInfo } from '../../ui/productionInfo';
 import { RoundButton } from '../../ui/RoundButton';
-import { MessageBoard } from '../../ui/messageBoard';
+import { MessageBoard, newsVisible } from '../../ui/messageBoard';
 import { newItemsText } from '../../ui/shopModel';
 import { SquareButton } from '../../ui/SquareButton';
 import { worldTapIgnored } from '../../ui/tapPause';
@@ -82,6 +82,9 @@ export class BuildUI {
   private readonly toolButtons = new Map<Exclude<ToolId, 'view' | 'place'>, SquareButton>();
   private readonly chipButtons = new Map<string, SquareButton>();
   private readonly shopStar: Phaser.GameObjects.Graphics;
+  /** The gear under the zoom buttons: opens the menu (save and load a file). Only while looking. */
+  private readonly menuButton: RoundButton;
+  private menuRect: Rect = EMPTY;
   private readonly stock: StockBar;
   private readonly card: InfoCard;
   private readonly shop: ShopUI;
@@ -113,6 +116,9 @@ export class BuildUI {
     private readonly tool: BuildTool,
     private readonly getState: () => BuildToolState,
     private readonly onChange: () => void,
+    private readonly onMenu: () => void,
+    /** Is the menu behind the gear open? It covers the hint bar, so "Neu im Shop" must not run out under it. */
+    private readonly menuOpen: () => boolean,
   ) {
     registerGoodTextures(scene);
     this.stock = new StockBar(scene, uiLayer);
@@ -200,6 +206,16 @@ export class BuildUI {
       }
     }
 
+    this.menuButton = new RoundButton(scene, 0, 0, {
+      radius: 34, // the real size comes from `zoomLayout`
+      icon: 'gear',
+      onTap: (time) => {
+        this.touched(time);
+        this.onMenu();
+      },
+    });
+    this.menuButton.setVisible(false);
+
     this.confirmButton = new RoundButton(scene, 0, 0, {
       radius: CONFIRM_DIAMETER / 2,
       icon: 'check',
@@ -230,7 +246,7 @@ export class BuildUI {
       object.setVisible(false);
     }
 
-    uiLayer.add([...this.toolButtons.values(), ...this.chipButtons.values(), this.hintLabel, this.exitButton, this.confirmButton, this.cancelButton]);
+    uiLayer.add([...this.toolButtons.values(), ...this.chipButtons.values(), this.menuButton, this.hintLabel, this.exitButton, this.confirmButton, this.cancelButton]);
   }
 
   /** The small button "back to the shop" for one item: its picture and name. */
@@ -254,7 +270,7 @@ export class BuildUI {
   }
 
   /** A control was tapped: for a moment the world ignores taps (double taps on ✓ / ✕ must not fall through). */
-  private touched(eventTime: number): void {
+  touched(eventTime: number): void {
     this.lastUiTap = eventTime;
   }
 
@@ -306,6 +322,13 @@ export class BuildUI {
     );
   }
 
+  /** Is this screen point (CSS px) on the round gear button? (The wheel over it does not zoom the island.) */
+  overMenuButton(x: number, y: number): boolean {
+    const { x: left, y: top, width, height } = this.menuRect;
+    const radius = width / 2;
+    return width > 0 && Math.hypot(x - (left + radius), y - (top + height / 2)) <= radius;
+  }
+
   /** Call whenever the visible area changes (start, resize, rotation). `zoomSpots` are published with the others. */
   layout(size: ViewSize, zoomSpots: Record<string, UiSpot>): void {
     this.view = size;
@@ -345,6 +368,11 @@ export class BuildUI {
     const { width } = this.view;
     this.stock.layout(layout.stock);
     this.applyCard(layout);
+    this.menuRect = layout.menu ?? EMPTY;
+    this.menuButton.setVisible(layout.menu !== undefined);
+    if (layout.menu) {
+      this.menuButton.setRadius(layout.menu.width / 2).setPosition(layout.menu.x + layout.menu.width / 2, layout.menu.y + layout.menu.height / 2);
+    }
 
     // Toolbar: big buttons, in several rows when the screen is too narrow or low. The open shop covers it.
     const shopOpen = layout.shop !== undefined;
@@ -456,12 +484,17 @@ export class BuildUI {
     if (this.tool.inspectedId !== undefined) {
       return this.cardFallback;
     }
-    const message = this.board.current(this.scene.time.now, !this.tool.hasPreview);
+    const message = this.board.current(this.scene.time.now, this.newsAllowed());
     if (message !== undefined) {
       return message;
     }
     const hint = this.tool.hint;
     return hint ? t(hint, this.tool.hintParams) : undefined;
+  }
+
+  /** May news ("Neu im Shop") be shown now? Only where the hint bar really shows it – otherwise its 7 seconds would run out unseen. */
+  private newsAllowed(): boolean {
+    return newsVisible({ hasPreview: this.tool.hasPreview, shopOpen: this.tool.shopOpen, inspectedId: this.tool.inspectedId, menuOpen: this.menuOpen() });
   }
 
   /** Brings the buttons in line with the tool state (highlight, shop, hint, ✓ / ✕). */
@@ -487,6 +520,7 @@ export class BuildUI {
       hasChip: this.tool.tool === 'place',
       hasPreview,
       hintAtTop: this.tool.tool !== 'view',
+      hasMenu: this.tool.tool === 'view',
     };
     const inspected = this.tool.inspectedId;
     this.cardFallback = undefined;
@@ -508,7 +542,7 @@ export class BuildUI {
     this.tool.sync();
     const state = this.getState();
     // News runs out by itself: redraw the hint bar when what it shows changes (then a standing explanation is back).
-    const message = this.board.current(this.scene.time.now, !this.tool.hasPreview);
+    const message = this.board.current(this.scene.time.now, this.newsAllowed());
     const expired = message !== this.lastMessage;
     this.lastMessage = message;
     // Something was unlocked: a friendly message (and the star on the shop button, which `refresh` redraws).
@@ -549,6 +583,9 @@ export class BuildUI {
       } else {
         delete spots['zoom-in'];
         delete spots['zoom-out'];
+      }
+      if (this.menuButton.visible) {
+        spots['menu'] = { x: this.menuButton.x, y: this.menuButton.y, enabled: true, w: this.menuRect.width, h: this.menuRect.height };
       }
       for (const [name, spot] of Object.entries(this.shop.spots(this.tool.item))) {
         spots[name] = { x: spot.x, y: spot.y, enabled: true, w: spot.w, h: spot.h, ...(spot.state !== undefined ? { state: spot.state, dim: spot.state !== 'ok' } : {}), ...(spot.fresh !== undefined ? { fresh: spot.fresh } : {}), ...(spot.active !== undefined ? { active: spot.active } : {}), ...(spot.font !== undefined ? { font: spot.font } : {}), ...(spot.textH !== undefined ? { textH: spot.textH } : {}) };

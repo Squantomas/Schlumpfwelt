@@ -77,6 +77,10 @@ export function markVillage(info: {
   readonly planted: string;
   /** What redrawing the ground cost: `{"count":…,"last":ms,"max":ms,"tiles":…}`. */
   readonly repaint: string;
+  /** The menu behind the gear: `closed`, `menu`, `menu:<sentence key>` or `confirm`. */
+  readonly menu: string;
+  /** Where the controls of the open menu are (CSS px) as JSON, `{}` while it is closed. */
+  readonly menuSpots: string;
 }): void {
   const data = document.documentElement.dataset;
   const next = {
@@ -98,10 +102,17 @@ export function markVillage(info: {
     earned: info.earned,
     planted: info.planted,
     repaint: info.repaint,
+    menu: info.menu,
+    menuSpots: info.menuSpots,
   };
   for (const [key, value] of Object.entries(next)) {
     if (data[key] !== value) {
       data[key] = value;
     }
   }
+}
+
+/** Publishes how saving stands (`<html data-save>`, JSON: store, autosave, start, saves, failures, savedTick) for tests. */
+export function markSave(info: string): void {
+  document.documentElement.dataset.save = info;
 }

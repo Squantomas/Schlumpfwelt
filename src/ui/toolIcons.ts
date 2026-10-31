@@ -204,3 +204,34 @@ export function drawStar(g: Phaser.GameObjects.Graphics, r: number): void {
   g.fillStyle(COLORS.coin).fillPoints(points(r * 0.82), true);
   g.fillStyle(COLORS.coinShine).fillCircle(-r * 0.12, -r * 0.14, r * 0.2);
 }
+
+/**
+ * The icons of the two menu buttons, in the colour of a button face: a tray with an arrow going down into it (save as
+ * a file) or up out of it (load from a file).
+ */
+export function drawFileIcon(g: Phaser.GameObjects.Graphics, kind: 'save' | 'load', s: number): void {
+  g.clear();
+  const color = COLORS.buttonIcon;
+  const stroke = Math.max(3, s * 0.1);
+  g.lineStyle(stroke, color, 1);
+  // The tray.
+  g.beginPath();
+  g.moveTo(-s * 0.38, s * 0.1);
+  g.lineTo(-s * 0.38, s * 0.38);
+  g.lineTo(s * 0.38, s * 0.38);
+  g.lineTo(s * 0.38, s * 0.1);
+  g.strokePath();
+  // The arrow: down into the tray, or up out of it.
+  const dir = kind === 'save' ? 1 : -1;
+  const tip = s * 0.2 * dir + s * 0.08;
+  const tail = -s * 0.4 * dir + s * 0.08;
+  g.beginPath();
+  g.moveTo(0, tail);
+  g.lineTo(0, tip);
+  g.strokePath();
+  g.beginPath();
+  g.moveTo(-s * 0.2, tip - s * 0.2 * dir);
+  g.lineTo(0, tip);
+  g.lineTo(s * 0.2, tip - s * 0.2 * dir);
+  g.strokePath();
+}

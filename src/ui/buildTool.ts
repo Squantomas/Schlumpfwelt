@@ -106,6 +106,8 @@ export function problemHint(problem: PlacementProblem, forPath = false, typeId?:
       return 'hint.locked';
     case 'noCoast':
       return 'hint.islandNoCoast';
+    case 'full':
+      return 'hint.full';
     case 'blocked':
       return 'hint.occupied';
     case 'outOfMap':

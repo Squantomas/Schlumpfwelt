@@ -1,7 +1,7 @@
 import Phaser from 'phaser';
 import { COLORS, MIN_TAP_SIZE } from './style';
 
-export type ButtonIcon = 'play' | 'plus' | 'minus' | 'check' | 'cross' | 'back' | 'left' | 'right';
+export type ButtonIcon = 'play' | 'plus' | 'minus' | 'check' | 'cross' | 'back' | 'left' | 'right' | 'gear';
 
 /** `confirm` is green (✓), `cancel` red (✕), `done` blue (leave the tool), `normal` yellow. */
 export type ButtonVariant = 'normal' | 'confirm' | 'cancel' | 'done';
@@ -129,6 +129,22 @@ export class RoundButton extends Phaser.GameObjects.Container {
         const a = r * 0.34;
         strokeLine(g, colors.icon, r * 0.2, [[-a, -a], [a, a]]);
         strokeLine(g, colors.icon, r * 0.2, [[-a, a], [a, -a]]);
+        break;
+      }
+      case 'gear': {
+        // A cog: eight teeth around a ring with a hole.
+        const teeth = 8;
+        const outer = r * 0.52;
+        const inner = r * 0.38;
+        const points: Phaser.Math.Vector2[] = [];
+        for (let i = 0; i < teeth * 4; i += 1) {
+          const angle = (i / (teeth * 4)) * Math.PI * 2 - Math.PI / (teeth * 4);
+          const radius = i % 4 === 1 || i % 4 === 2 ? outer : inner;
+          points.push(new Phaser.Math.Vector2(Math.cos(angle) * radius, Math.sin(angle) * radius));
+        }
+        g.fillStyle(colors.icon).fillPoints(points, true);
+        g.fillCircle(0, 0, inner);
+        g.fillStyle(colors.face).fillCircle(0, 0, r * 0.16);
         break;
       }
       case 'plus':

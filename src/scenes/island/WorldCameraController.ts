@@ -22,6 +22,8 @@ export interface WorldCameraOptions {
   readonly blocksCamera: (object: Phaser.GameObjects.GameObject) => boolean;
   /** Presses on a panel (toolbar, picker) also belong to the UI, even between its buttons. Point in CSS px. */
   readonly blocksPoint?: (x: number, y: number) => boolean;
+  /** Is the mouse wheel at this point (CSS px) not for the island (a panel, the menu, the open shop)? Defaults to `blocksPoint`. */
+  readonly blocksWheel?: (x: number, y: number) => boolean;
   /** A tap on the world (not on a button): the world point and the screen point (CSS px). */
   readonly onTap: (world: Point, screen: Point, eventTime: number) => void;
 }
@@ -174,8 +176,13 @@ export class WorldCameraController {
   };
 
   private readonly onWheel = (pointer: Phaser.Input.Pointer, _over: unknown, _dx: number, deltaY: number): void => {
+    const point = this.cssPoint(pointer);
+    // The wheel over a panel, the menu or the open shop does not zoom the island behind it.
+    if ((this.options.blocksWheel ?? this.options.blocksPoint)?.(point.x, point.y) === true) {
+      return;
+    }
     const delta = Math.max(-MAX_WHEEL_DELTA, Math.min(MAX_WHEEL_DELTA, deltaY));
-    this.rig.zoomBy(Math.exp(-delta * this.options.wheelZoomPerPixel), this.cssPoint(pointer));
+    this.rig.zoomBy(Math.exp(-delta * this.options.wheelZoomPerPixel), point);
   };
 
   private apply(): void {

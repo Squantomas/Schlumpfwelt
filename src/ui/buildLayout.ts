@@ -29,10 +29,13 @@ export interface ZoomLayout {
   readonly radius: number;
   readonly zoomIn: { readonly x: number; readonly y: number };
   readonly zoomOut: { readonly x: number; readonly y: number };
+  /** Centre of the gear (menu: save and load a file) under the zoom buttons, same size; shown only while looking (see `BuildLayout.menu`). */
+  readonly menu: { readonly x: number; readonly y: number };
+  /** The two zoom buttons. */
   readonly rect: Rect;
 }
 
-/** The two zoom buttons at the top right; smaller (still over 48 px) on low screens. */
+/** The two zoom buttons and the gear below them at the top right; smaller (still over 48 px) on low screens. */
 export function zoomLayout(width: number, height: number): ZoomLayout {
   const low = height < 400;
   const radius = low ? 28 : 34;
@@ -41,7 +44,8 @@ export function zoomLayout(width: number, height: number): ZoomLayout {
   const x = width - margin - radius;
   const zoomIn = { x, y: margin + radius };
   const zoomOut = { x, y: zoomIn.y + 2 * radius + gap };
-  return { radius, zoomIn, zoomOut, rect: { x: x - radius, y: margin, width: 2 * radius, height: 4 * radius + gap } };
+  const menu = { x, y: zoomOut.y + 2 * radius + gap };
+  return { radius, zoomIn, zoomOut, menu, rect: { x: x - radius, y: margin, width: 2 * radius, height: 4 * radius + gap } };
 }
 
 /** Horizontal place of the hint bar: always the same width, clear of the zoom column. */
@@ -72,6 +76,8 @@ export interface BuildLayoutInput {
   readonly stockCount: number;
   /** Is the info card of a production building open? (Only while looking.) */
   readonly infoOpen: boolean;
+  /** Does the gear belong on screen (only while looking: no tool, no card, no shop)? */
+  readonly hasMenu?: boolean;
 }
 
 export interface BuildLayout {
@@ -82,6 +88,8 @@ export interface BuildLayout {
   readonly toolbar: ToolbarLayout & { readonly rect: Rect };
   readonly hint: Rect | undefined;
   readonly zoom: ZoomLayout;
+  /** The gear under the zoom buttons, if shown. */
+  readonly menu: Rect | undefined;
   /** The shop, if open. Toolbar, zoom buttons, hint bar, chip and ✓ / ✕ are hidden then. */
   readonly shop: ShopLayout | undefined;
   /** The small button "back to the shop" (while an item is being placed). */
@@ -126,5 +134,8 @@ export function layoutBuildUi(input: BuildLayoutInput): BuildLayout {
     ? infoCardLayout({ top: stock.rect.y + stock.rect.height + GAP, bottom: toolbar.rect.y - GAP, width, zoom: zoom.rect })
     : undefined;
 
-  return { stock, card, toolbar, hint, zoom, shop, chip, confirm, cancel };
+  const showMenu = input.hasMenu === true && !input.shopOpen && !input.infoOpen && !input.hasPreview && !input.hasChip;
+  const menu: Rect | undefined = showMenu ? { x: zoom.menu.x - zoom.radius, y: zoom.menu.y - zoom.radius, width: 2 * zoom.radius, height: 2 * zoom.radius } : undefined;
+
+  return { stock, card, toolbar, hint, zoom, menu, shop, chip, confirm, cancel };
 }
