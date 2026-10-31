@@ -2,7 +2,7 @@ import { defineConfig, type Plugin } from 'vitest/config';
 import texts from './src/data/texts.de.json' with { type: 'json' };
 import theme from './src/data/theme.json' with { type: 'json' };
 import { pwaPlugin } from './scripts/pwaPlugin.mjs';
-import { COLORS, cssColor } from './src/ui/style';
+import { COLORS, cssColor } from './src/ui/style.ts';
 
 /** The colour of the water: browser bar, splash screen and icons all take it from `COLORS.water` (one source). */
 const WATER = cssColor(COLORS.water);

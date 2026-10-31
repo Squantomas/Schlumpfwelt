@@ -317,7 +317,7 @@ export class BuildUI {
 
   /** Is this screen point (CSS px) on a panel? Then a press there is not for the camera. */
   coversPoint(x: number, y: number): boolean {
-    return [this.toolbarRect, this.shop.rect, this.hintRect, this.chipRect, this.stock.rect, this.card.rect, this.menuRect].some(
+    return [this.toolbarRect, this.shop.rect, this.hintRect, this.chipRect, this.stock.rect, this.card.rect].some(
       (rect) => rect.width > 0 && x >= rect.x && x <= rect.x + rect.width && y >= rect.y && y <= rect.y + rect.height,
     );
   }
