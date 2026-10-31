@@ -3,7 +3,7 @@
  *
  * - `manifest.webmanifest` is made from the theme (name) at build time, so the name of the game stays in
  *   `src/data/theme.json` only; the address (`start_url`, `scope`) is relative to the base of the page
- *   (`/Schlumpfwelt/` on GitHub Pages).
+ *   (the path of GitHub Pages).
  * - `sw.js` is the template `scripts/swTemplate.js` with the list of all files of the build and a version
  *   (a hash over their names and contents), written after everything else is in `dist/`.
  * - The link to the manifest goes into index.html (with the base), also in development; there is no service

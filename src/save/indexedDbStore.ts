@@ -1,7 +1,7 @@
 import { BACKUP_KEYS, MemoryStore, type SaveStore } from './saveStore';
 
 /**
- * One database per address of the game: every copy on the same origin (`/Schlumpfwelt/`, a test copy next to it)
+ * One database per address of the game: every copy on the same origin (a copy and a test copy next to it)
  * keeps its own village. `BASE_URL` is the path the game is served under.
  */
 const DB_NAME = `village-game${import.meta.env.BASE_URL}`;

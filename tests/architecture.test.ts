@@ -1,6 +1,9 @@
 import { ESLint } from 'eslint';
 import { describe, expect, it } from 'vitest';
 import indexHtml from '../index.html?raw';
+import texts from '../src/data/texts.de.json';
+import theme from '../src/data/theme.json';
+import { createManifest } from '../scripts/pwaPlugin.mjs';
 
 /**
  * Guards the architecture rules from CLAUDE.md:
@@ -147,5 +150,38 @@ describe('Theme: Markenbegriffe nur in src/data/theme.json', () => {
   it('index.html holt den Titel aus dem Theme', () => {
     expect(indexHtml).not.toMatch(BRAND_WORDS);
     expect(indexHtml).toContain('<title>%GAME_NAME%</title>');
+  });
+});
+
+describe('Theme: auch Build-Skripte, Symbole und Manifest kennen keinen Markennamen (R14)', () => {
+  const BRAND_WORDS = /schl[uü]mpf|smurf/i;
+  // Everything the build and the web app are made of, except the smoke test (it opens the address of the game, which has the name in it).
+  const scripts = import.meta.glob<string>(['/scripts/*', '!/scripts/smoke.mjs'], { query: '?raw', import: 'default', eager: true });
+  const publicTexts = import.meta.glob<string>('/public/**/*.{svg,json,webmanifest,html,txt,js}', { query: '?raw', import: 'default', eager: true });
+
+  it('findet die Skripte und die Dateien in public/', () => {
+    expect(Object.keys(scripts)).toEqual(expect.arrayContaining(['/scripts/pwaPlugin.mjs', '/scripts/swTemplate.js', '/scripts/makeIcons.mjs']));
+    expect(Object.keys(publicTexts)).toContain('/public/favicon.svg');
+  });
+
+  it.each(Object.entries(scripts))('%s enthält keine Markenbegriffe', (_path, content) => {
+    expect(content).not.toMatch(BRAND_WORDS);
+  });
+
+  it.each(Object.entries(publicTexts))('%s enthält keine Markenbegriffe', (_path, content) => {
+    expect(content).not.toMatch(BRAND_WORDS);
+  });
+
+  it('das Manifest bekommt den Namen nur aus dem Theme (alles andere im Manifest ist markenfrei)', () => {
+    const manifest = createManifest({ name: theme.gameName, description: texts['app.description'], color: '#000000', lang: 'de' });
+    const { name, short_name: shortName, ...rest } = manifest;
+    expect(name).toBe(theme.gameName);
+    expect(shortName).toBe(theme.gameName);
+    expect(JSON.stringify(rest)).not.toMatch(BRAND_WORDS);
+  });
+
+  it('index.html holt auch die Farbe aus dem Spiel (eine Quelle: COLORS.water)', () => {
+    expect(indexHtml).toContain('content="%THEME_COLOR%"');
+    expect(indexHtml).not.toMatch(/#[0-9a-f]{6}/i);
   });
 });

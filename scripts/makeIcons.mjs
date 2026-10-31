@@ -17,6 +17,10 @@ import { fileURLToPath } from 'node:url';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const OUT = path.join(ROOT, 'public', 'icons');
 
+// The colours come from the game itself (src/ui/style.ts), not from a second list. Node strips the types of the file.
+const { COLORS, HOUSE_PALETTES, cssColor } = await import('../src/ui/style.ts');
+const c = (color) => cssColor(color);
+
 function loadPlaywright() {
   const require = createRequire(import.meta.url);
   try {
@@ -31,20 +35,20 @@ function loadPlaywright() {
 function svg(size, scale) {
   const s = scale;
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 100 100">
-  <rect width="100" height="100" fill="#8ed8f8"/>
+  <rect width="100" height="100" fill="${c(COLORS.water)}"/>
   <g transform="translate(50 50) scale(${s}) translate(-50 -50)">
-    <circle cx="50" cy="54" r="34" fill="#b5e8fb"/>
-    <circle cx="50" cy="55" r="31" fill="#f7e4a9"/>
-    <circle cx="50" cy="53" r="26" fill="#8ad463"/>
-    <ellipse cx="50" cy="73" rx="14" ry="3" fill="#69b946" opacity="0.6"/>
-    <rect x="41" y="52" width="18" height="21" rx="6" fill="#fff1d6"/>
-    <rect x="46.5" y="60" width="7" height="13" rx="3" fill="#9a5f2e"/>
-    <path d="M26 54 Q26 24 50 24 Q74 24 74 54 Q74 58 70 58 L30 58 Q26 58 26 54 Z" fill="#e65a5a"/>
-    <path d="M26 54 Q26 52 28 52 L72 52 Q74 52 74 54 Q74 58 70 58 L30 58 Q26 58 26 54 Z" fill="#c23f3f"/>
-    <circle cx="40" cy="38" r="4.4" fill="#fff"/>
-    <circle cx="57" cy="33" r="3.6" fill="#fff"/>
-    <circle cx="62" cy="45" r="3" fill="#fff"/>
-    <circle cx="35" cy="48" r="2.4" fill="#fff"/>
+    <circle cx="50" cy="54" r="34" fill="${c(COLORS.waterShallow)}"/>
+    <circle cx="50" cy="55" r="31" fill="${c(COLORS.sand)}"/>
+    <circle cx="50" cy="53" r="26" fill="${c(COLORS.grass)}"/>
+    <ellipse cx="50" cy="73" rx="14" ry="3" fill="${c(COLORS.grassShade)}" opacity="0.6"/>
+    <rect x="41" y="52" width="18" height="21" rx="6" fill="${c(COLORS.stem)}"/>
+    <rect x="46.5" y="60" width="7" height="13" rx="3" fill="${c(COLORS.door)}"/>
+    <path d="M26 54 Q26 24 50 24 Q74 24 74 54 Q74 58 70 58 L30 58 Q26 58 26 54 Z" fill="${c(HOUSE_PALETTES.red.cap)}"/>
+    <path d="M26 54 Q26 52 28 52 L72 52 Q74 52 74 54 Q74 58 70 58 L30 58 Q26 58 26 54 Z" fill="${c(HOUSE_PALETTES.red.capShade)}"/>
+    <circle cx="40" cy="38" r="4.4" fill="${c(COLORS.white)}"/>
+    <circle cx="57" cy="33" r="3.6" fill="${c(COLORS.white)}"/>
+    <circle cx="62" cy="45" r="3" fill="${c(COLORS.white)}"/>
+    <circle cx="35" cy="48" r="2.4" fill="${c(COLORS.white)}"/>
   </g>
 </svg>`;
 }
