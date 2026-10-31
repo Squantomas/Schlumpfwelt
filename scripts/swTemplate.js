@@ -57,7 +57,7 @@ self.addEventListener('fetch', (event) => {
 
 async function answer(request, scope) {
   const cache = await caches.open(CACHE);
-  // `?seed=1&save=1` and the like do not make another file. `ignoreVary`: a server that answers with `Vary: Origin`
+  // `?seed=1` and the like do not make another file. `ignoreVary`: a server that answers with `Vary: Origin`
   // (the preview server does) would otherwise never match the copy that was fetched by the install step.
   const cached = await cache.match(request, { ignoreSearch: true, ignoreVary: true });
   if (cached) {

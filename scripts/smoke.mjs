@@ -2405,9 +2405,13 @@ async function testSaving({ browser, page, check, shot, size, input, name, profi
   village = await waitForSave((v) => v.buildings.length > 0, 'das Dorf nach dem harten Schließen');
   check(count(village, 'flower') === count(beforeClose, 'flower') + 1, `Hartes Schließen: ${count(village, 'flower')} statt ${count(beforeClose, 'flower') + 1} Blumen – der letzte Bau ging verloren`);
 
-  // --- Zwei Fenster: nur eins speichert (R2) ---
-  step('Zwei Fenster: das zweite speichert nicht');
-  const recordBefore = JSON.stringify(await readRecord(page));
+  // --- Zwei Fenster: das neueste speichert, das alte sagt es und schreibt nichts mehr (N1) ---
+  step('Zwei Fenster: das neue übernimmt, das alte schreibt nichts mehr');
+  await overview();
+  await placeSmall('flower', [0.5, 0.3], 'die Blume im ersten Fenster', (v, v0) => count(v, 'flower') === count(v0, 'flower') + 1);
+  await exitTool();
+  const flowersA = count(await readVillage(page), 'flower');
+  await waitForRecord(page, (r) => r.buildings.filter((b) => b.type === 'flower').length === flowersA, 'die Blume des ersten Fensters in der IndexedDB');
   const second = await page.context().newPage();
   const secondProblems = [];
   second.on('console', (message) => {
@@ -2421,13 +2425,36 @@ async function testSaving({ browser, page, check, shot, size, input, name, profi
   else await second.mouse.click(size.width / 2, size.height * 0.54);
   await second.waitForSelector('html[data-scene="island"]', { state: 'attached', timeout: 40_000 });
   const other = await waitForVillage(second, (v) => v.buildings.length > 0 && v.save.store !== undefined, 'das Dorf im zweiten Fenster', 30_000);
-  check(other.save.start === 'otherWindow' && other.save.autosave === false, `Zweites Fenster: ${JSON.stringify(other.save)}`);
-  check(/anderen Fenster/.test(other.hint), `Zweites Fenster: Hinweis „${other.hint}“`);
-  await second.waitForTimeout(1500);
+  check(other.save.start === 'loaded' && other.save.autosave === true && other.save.lost === false, `Zweites (neues) Fenster: ${JSON.stringify(other.save)}`);
+  check(count(other, 'flower') === flowersA, `Zweites Fenster: ${count(other, 'flower')} statt ${flowersA} Blumen – der letzte Stand des ersten ging verloren`);
+  const alt = await waitForVillage(page, (v) => v.save.lost === true, 'die Meldung „anderes Fenster“ im ersten Fenster', 15_000);
+  check(/jetzt in einem anderen Fenster/.test(alt.hint) && alt.save.autosave === false, `Erstes (altes) Fenster: Hinweis „${alt.hint}“, ${JSON.stringify(alt.save)}`);
+  // Das neue Fenster baut und speichert …
+  const second2 = buildHelpers({ page: second, check, size, input: profile.context.hasTouch ? { tap: (p2) => second.touchscreen.tap(p2.x, p2.y) } : { tap: (p2) => second.mouse.click(p2.x, p2.y) }, name });
+  await second2.pickItem('flower');
+  const vSecond = await readVillage(second);
+  const spotSecond = findFreeArea(vSecond, await waitForCameraRest(second).then(() => readCamera(second)), size, 1, 1, { near: { x: size.width * 0.4, y: size.height * 0.35 } });
+  check(spotSecond !== undefined, 'Zweites Fenster: kein freier Platz für die Blume');
+  if (spotSecond) {
+    await second2.tapTile(spotSecond);
+    await waitForVillage(second, (v) => v.preview === 'place:ok', 'grüne Vorschau im zweiten Fenster');
+    await second2.confirm((v) => count(v, 'flower') === flowersA + 1, 'die Blume im zweiten Fenster');
+  }
+  const recordNew = await waitForRecord(page, (r) => r.buildings.filter((b) => b.type === 'flower').length === flowersA + 1, 'die Blume des zweiten Fensters in der IndexedDB');
+  // … das alte baut noch etwas, aber nichts davon wird geschrieben.
+  await placeSmall('bush', [0.35, 0.62], 'den Busch im alten Fenster', (v, v0) => count(v, 'bush') === count(v0, 'bush') + 1);
+  await exitTool();
+  await sleep(3000);
+  const recordAfter = await readRecord(page);
+  check(recordAfter.buildings.length === recordNew.buildings.length && !recordAfter.buildings.some((b) => !recordNew.buildings.some((n) => n.id === b.id && n.type === b.type)), 'Altes Fenster: sein Bau wurde in den Spielstand des neuen Fensters geschrieben');
+  check((await readVillage(page)).save.saves === alt.save.saves, 'Altes Fenster: meldet weitere Schreibvorgänge');
   await second.close();
-  check(JSON.stringify(await readRecord(page)) === recordBefore || (await readRecord(page)).tick >= JSON.parse(recordBefore).tick, 'Zweites Fenster: der Spielstand des ersten wurde verändert');
   for (const entry of secondProblems) problems.push(entry);
-  check((await readVillage(page)).save.autosave === true, 'Erstes Fenster: Autosave ist nach dem zweiten Fenster aus');
+  // Neuladen des alten Fensters: nichts geht verloren (die Blumen beider Fenster, kein Busch des alten).
+  await enterIsland(page, profile, waitForScene, SAVE_URL);
+  village = await waitForSave((v) => v.buildings.length > 0, 'das Dorf nach den zwei Fenstern');
+  check(village.save.start === 'loaded' && village.save.autosave === true && village.save.lost === false, `Nach den zwei Fenstern: ${JSON.stringify(village.save)}`);
+  check(count(village, 'flower') === flowersA + 1, `Nach den zwei Fenstern: ${count(village, 'flower')} statt ${flowersA + 1} Blumen`);
 
   // --- Kaputter Spielstand beim Start ---
   step('Start mit kaputtem Spielstand');
