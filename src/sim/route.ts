@@ -17,6 +17,12 @@ const NEW_TILE_COST = 1;
 const EXISTING_TILE_COST = 0.4;
 const TURN_COST = 0.4;
 
+/** Optional output of {@link findRoute}: how much work the search did (for tests, instead of timing it). */
+export interface RouteStats {
+  /** Search states that were expanded (0 when the cheap checks already decided). */
+  expanded: number;
+}
+
 export type RouteFailure = 'startBlocked' | 'endBlocked' | 'noRoute' | 'tooLong';
 
 export type RouteResult =
@@ -142,7 +148,13 @@ function buffersFor(size: number): Buffers {
  * tile can not carry a path, `noRoute` if there is no way at all, `tooLong`
  * if there is one, but none within `maxLength` tiles.
  */
-export function findRoute(state: PlacementView, from: Tile, to: Tile, maxLength: number = MAX_ROUTE_LENGTH): RouteResult {
+export function findRoute(
+  state: PlacementView,
+  from: Tile,
+  to: Tile,
+  maxLength: number = MAX_ROUTE_LENGTH,
+  stats?: RouteStats,
+): RouteResult {
   const { world } = state;
   const passable = (x: number, y: number): boolean => inBounds(world, x, y) && (isPath(state, x, y) || canPlacePath(state, x, y) === 'ok');
   if (!passable(from.x, from.y)) {
@@ -188,6 +200,9 @@ export function findRoute(state: PlacementView, from: Tile, to: Tile, maxLength:
     }
     if (entry.cost > costOf(entry.state)) {
       continue;
+    }
+    if (stats) {
+      stats.expanded += 1;
     }
     const used = entry.state % layers;
     const rest = Math.floor(entry.state / layers);

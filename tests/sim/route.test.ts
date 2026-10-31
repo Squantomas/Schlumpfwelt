@@ -172,25 +172,56 @@ describe('findRoute', () => {
     expect(findRoute(state, { x: 8, y: 5 }, { x: 12, y: 5 }, 6)).toEqual({ ok: false, reason: 'tooLong' });
   });
 
-  it('ist schnell: im Mittel unter 10 ms pro Aufruf (zu lang, kurz, ohne Route)', () => {
-    const state = run(grassState(48), { type: 'placeBuilding', buildingType: 'fountain', x: 12, y: 12 });
-    for (let x = 0; x < 48; x += 1) {
-      setTerrainAt(state, x, 40, 'water');
-    }
-    findRoute(state, { x: 2, y: 2 }, { x: 5, y: 5 }); // Puffer anlegen, zählt nicht
-    const cases: [Tile, Tile][] = [
-      [{ x: 2, y: 2 }, { x: 45, y: 30 }], // zu lang
-      [{ x: 2, y: 2 }, { x: 20, y: 18 }], // lange Suche mit Hindernis
-      [{ x: 2, y: 2 }, { x: 10, y: 45 }], // keine Route (Wasserwand)
-      [{ x: 14, y: 10 }, { x: 14, y: 16 }], // kurz, um den Brunnen
-    ];
-    const started = performance.now();
-    for (let i = 0; i < 20; i += 1) {
-      const [from, to] = cases[i % cases.length] ?? [{ x: 2, y: 2 }, { x: 5, y: 5 }];
-      findRoute(state, from, to);
-    }
-    // Großzügige Marge, damit langsame CI-Rechner nicht flackern (gemessen: etwa 1 ms).
-    expect((performance.now() - started) / 20).toBeLessThan(10);
+  describe('Aufwand (gezählt, nicht gemessen)', () => {
+    const world = (): ReturnType<typeof grassState> => {
+      const state = run(grassState(48), { type: 'placeBuilding', buildingType: 'fountain', x: 12, y: 12 });
+      for (let x = 0; x < 48; x += 1) {
+        setTerrainAt(state, x, 40, 'water');
+      }
+      return state;
+    };
+    const work = (state: ReturnType<typeof grassState>, from: Tile, to: Tile, max?: number): { result: ReturnType<typeof findRoute>; expanded: number } => {
+      const stats = { expanded: 0 };
+      const result = findRoute(state, from, to, max, stats);
+      return { result, expanded: stats.expanded };
+    };
+
+    it('kommt bei „zu lang“ ohne Suche aus (0 Zustände)', () => {
+      const { result, expanded } = work(world(), { x: 2, y: 2 }, { x: 45, y: 30 });
+      expect(result).toEqual({ ok: false, reason: 'tooLong' });
+      expect(expanded).toBe(0);
+    });
+
+    it('kommt bei „keine Route“ ohne Suche aus (0 Zustände)', () => {
+      const { result, expanded } = work(world(), { x: 2, y: 2 }, { x: 10, y: 45 });
+      expect(result).toEqual({ ok: false, reason: 'noRoute' });
+      expect(expanded).toBe(0);
+    });
+
+    it('kommt bei blockiertem Start oder Ende ohne Suche aus', () => {
+      const state = world();
+      expect(work(state, { x: 2, y: 40 }, { x: 5, y: 5 }).expanded).toBe(0);
+      expect(work(state, { x: 5, y: 5 }, { x: 13, y: 13 }).expanded).toBe(0);
+    });
+
+    it('bleibt bei einer typischen Route unter einer festen Schranke', () => {
+      const state = world();
+      // Kurze Route um den Brunnen und eine lange, die fast die Höchstlänge ausnutzt.
+      const short = work(state, { x: 14, y: 10 }, { x: 14, y: 16 });
+      expect(short.result.ok).toBe(true);
+      expect(short.expanded).toBeLessThan(700); // gemessen: 205
+      const long = work(state, { x: 2, y: 2 }, { x: 20, y: 18 });
+      expect(long.result.ok).toBe(true);
+      expect(long.expanded).toBeLessThan(12_000); // gemessen: 3574
+    });
+
+    it('zählt gleich viel bei gleicher Anfrage (deterministisch)', () => {
+      const state = world();
+      const first = work(state, { x: 2, y: 2 }, { x: 20, y: 18 }).expanded;
+      work(state, { x: 25, y: 3 }, { x: 4, y: 25 });
+      expect(work(state, { x: 2, y: 2 }, { x: 20, y: 18 }).expanded).toBe(first);
+      expect(first).toBeGreaterThan(0);
+    });
   });
 
   it('liefert dasselbe Ergebnis, egal wie oft und womit vorher gesucht wurde (wiederverwendete Puffer)', () => {
