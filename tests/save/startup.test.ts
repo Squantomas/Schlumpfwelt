@@ -5,9 +5,8 @@ import { SAVE_VERSION, toSaveData } from '../../src/sim/saveData';
 import { createInitialState } from '../../src/sim/state';
 
 /** A store that reports itself as IndexedDB but is memory – the real one is checked by the smoke test. */
-function idbLike(initial?: unknown): SaveStore {
-  const inner = new MemoryStore(initial);
-  return { kind: 'indexedDb', load: () => inner.load(), save: (data) => inner.save(data) };
+function idbLike(initial?: unknown, inner = new MemoryStore(initial)): SaveStore {
+  return { kind: 'indexedDb', load: () => inner.load(), save: (data) => inner.save(data), saveBackup: (data) => inner.saveBackup(data), loadBackups: () => inner.loadBackups() };
 }
 
 const random = (): number => 4242;
@@ -85,7 +84,7 @@ describe('Start: Laden beim Start', () => {
   });
 
   it('Speicher nicht lesbar: weiterspielen, nichts überschreiben, dezenter Hinweis', async () => {
-    const broken: SaveStore = { kind: 'indexedDb', load: () => Promise.reject(new Error('gesperrt')), save: () => Promise.resolve() };
+    const broken: SaveStore = { kind: 'indexedDb', load: () => Promise.reject(new Error('gesperrt')), save: () => Promise.resolve(), saveBackup: () => Promise.resolve(), loadBackups: () => Promise.resolve([]) };
     const start = await prepareStart(parseStartParams(''), broken, random);
     expect(start.kind).toBe('storageFailed');
     expect(start.autosave).toBe(false);
@@ -97,5 +96,40 @@ describe('Start: Laden beim Start', () => {
     expect(start.kind).toBe('new');
     expect(start.autosave).toBe(false);
     expect(start.notice).toBe('save.noStorage');
+  });
+
+  it('R1: ein unlesbarer Spielstand wird vor dem Ersetzen gesichert – der erste bleibt für immer, spätere gehen an einen zweiten Platz', async () => {
+    const inner = new MemoryStore({ format: 'village-save', version: 2, world: null, wichtig: 'erster' });
+    const store = idbLike(undefined, inner);
+    const first = await prepareStart(parseStartParams(''), store, random);
+    expect(first.kind).toBe('unreadable');
+    expect(first.autosave).toBe(true);
+    expect(await inner.loadBackups()).toEqual([{ format: 'village-save', version: 2, world: null, wichtig: 'erster' }]);
+    // Autosave replaces the broken save by a good one; later a second broken one shows up.
+    await inner.save({ nochmal: 'kaputt' });
+    await prepareStart(parseStartParams(''), store, random);
+    await inner.save({ drittes: 'kaputt' });
+    await prepareStart(parseStartParams(''), store, random);
+    const copies = await inner.loadBackups();
+    expect(copies).toHaveLength(2);
+    expect(copies[0]).toMatchObject({ wichtig: 'erster' });
+    expect(copies[1]).toEqual({ drittes: 'kaputt' });
+  });
+
+  it('R1: lässt sich die Kopie nicht anlegen, wird auch nichts darüber geschrieben', async () => {
+    const inner = new MemoryStore({ kaputt: true });
+    const store: SaveStore = { ...idbLike(undefined, inner), saveBackup: () => Promise.reject(new Error('voll')) };
+    const start = await prepareStart(parseStartParams(''), store, random);
+    expect(start.kind).toBe('unreadable');
+    expect(start.autosave).toBe(false);
+  });
+
+  it('R1: ein guter oder ein neuerer Spielstand braucht keine Kopie', async () => {
+    const inner = new MemoryStore(toSaveData(createInitialState(3)));
+    await prepareStart(parseStartParams(''), idbLike(undefined, inner), random);
+    const future = new MemoryStore({ ...toSaveData(createInitialState(3)), version: SAVE_VERSION + 1 });
+    await prepareStart(parseStartParams(''), idbLike(undefined, future), random);
+    expect(await inner.loadBackups()).toEqual([]);
+    expect(await future.loadBackups()).toEqual([]);
   });
 });

@@ -33,7 +33,7 @@ export type StartKind = 'new' | 'loaded' | 'unreadable' | 'tooNew' | 'storageFai
 export interface StartResult {
   readonly state: SimState;
   readonly kind: StartKind;
-  /** Save while playing? (Not when the save is from a newer version, the store failed, or the address says no.) */
+  /** Save while playing? (Not when the save is from a newer version, the store failed, the address says no, or another window owns the saving.) */
   readonly autosave: boolean;
   /** A friendly sentence for the child or the parents, or `undefined`. */
   readonly notice: TextKey | undefined;
@@ -66,6 +66,13 @@ export async function prepareStart(params: StartParams, store: SaveStore, random
   if (result.reason === 'tooNew') {
     // Keep the newer save untouched: no saving over it.
     return { state: fresh(), kind: 'tooNew', autosave: false, notice: 'save.startTooNew' };
+  }
+  // Never replace what could not be read without keeping a copy: a bug in a future migration would otherwise cost every village.
+  try {
+    await store.saveBackup(stored);
+  } catch {
+    // No copy possible: then nothing is written over it either.
+    return { state: fresh(), kind: 'unreadable', autosave: false, notice: 'save.startBroken' };
   }
   return { state: fresh(), kind: 'unreadable', autosave: true, notice: 'save.startBroken' };
 }

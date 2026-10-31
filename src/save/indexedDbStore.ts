@@ -1,4 +1,4 @@
-import { MemoryStore, type SaveStore } from './saveStore';
+import { BACKUP_KEYS, MemoryStore, type SaveStore } from './saveStore';
 
 const DB_NAME = 'village-game';
 const DB_VERSION = 1;
@@ -49,6 +49,29 @@ class IndexedDbStore implements SaveStore {
     const transaction = this.db.transaction(STORE_NAME, 'readwrite');
     transaction.objectStore(STORE_NAME).put(data, KEY);
     await transactionDone(transaction);
+  }
+
+  async saveBackup(data: unknown): Promise<void> {
+    const transaction = this.db.transaction(STORE_NAME, 'readwrite');
+    const objects = transaction.objectStore(STORE_NAME);
+    const first = objects.get(BACKUP_KEYS[0]);
+    first.onsuccess = () => {
+      // The first copy stays; later ones only replace the second place.
+      objects.put(data, first.result === undefined ? BACKUP_KEYS[0] : BACKUP_KEYS[1]);
+    };
+    await transactionDone(transaction);
+  }
+
+  async loadBackups(): Promise<unknown[]> {
+    const objects = this.db.transaction(STORE_NAME, 'readonly').objectStore(STORE_NAME);
+    const found: unknown[] = [];
+    for (const key of BACKUP_KEYS) {
+      const value: unknown = await requestPromise(objects.get(key));
+      if (value !== undefined) {
+        found.push(value);
+      }
+    }
+    return found;
   }
 }
 

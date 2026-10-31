@@ -12,6 +12,14 @@ class SlowStore implements SaveStore {
   readonly kind = 'memory';
   writes: unknown[] = [];
   failing = false;
+  saveBackup(): Promise<void> {
+    return Promise.resolve();
+  }
+
+  loadBackups(): Promise<unknown[]> {
+    return Promise.resolve([]);
+  }
+
   private pending: { resolve: () => void; reject: (error: Error) => void }[] = [];
 
   load(): Promise<unknown> {
@@ -256,6 +264,8 @@ describe('Autosave: wenn das Speichern scheitert', () => {
     const broken: SaveStore = {
       kind: 'indexedDb',
       load: () => Promise.resolve(undefined),
+      saveBackup: () => Promise.resolve(),
+      loadBackups: () => Promise.resolve([]),
       save: () => {
         throw new Error('kaputt');
       },

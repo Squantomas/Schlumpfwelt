@@ -11,12 +11,24 @@ export interface SaveStore {
   load(): Promise<unknown>;
   /** Replaces the saved data. Rejects if it could not be written. */
   save(data: unknown): Promise<void>;
+  /**
+   * Keeps a copy of data that could not be read, before it is replaced: the first one stays for good (`backup`), later
+   * ones go to a second place that is overwritten (`backup-latest`) – at most two copies, so a bug in a future
+   * migration never costs a village. Rejects if the copy could not be written.
+   */
+  saveBackup(data: unknown): Promise<void>;
+  /** The copies made by {@link SaveStore.saveBackup}, first the one that stays (for tests and for rescuing by hand). */
+  loadBackups(): Promise<unknown[]>;
 }
+
+/** The two places of the copies. */
+export const BACKUP_KEYS = ['backup', 'backup-latest'] as const;
 
 /** A store that keeps the data in memory only: for tests, and as the quiet fallback when IndexedDB is not available. */
 export class MemoryStore implements SaveStore {
   readonly kind = 'memory';
   private data: unknown;
+  private readonly backups = new Map<string, unknown>();
   /** How often `save` was called (for tests). */
   writes = 0;
 
@@ -32,5 +44,14 @@ export class MemoryStore implements SaveStore {
     this.data = structuredClone(data);
     this.writes += 1;
     return Promise.resolve();
+  }
+
+  saveBackup(data: unknown): Promise<void> {
+    this.backups.set(this.backups.has('backup') ? 'backup-latest' : 'backup', structuredClone(data));
+    return Promise.resolve();
+  }
+
+  loadBackups(): Promise<unknown[]> {
+    return Promise.resolve(BACKUP_KEYS.filter((key) => this.backups.has(key)).map((key) => structuredClone(this.backups.get(key))));
   }
 }
