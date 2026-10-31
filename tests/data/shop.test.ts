@@ -81,6 +81,12 @@ describe('Shop: Kategorien und Artikel (buildings.json)', () => {
     }
   });
 
+  it('kostet höchstens vier verschiedene Dinge (so viele zeigt die Kostenzeile einer Karte)', () => {
+    for (const type of BUILDING_TYPES) {
+      expect(Object.keys(type.cost).length, type.id).toBeLessThanOrEqual(4);
+    }
+  });
+
   it('Inselartikel haben eine bekannte Aktion, sonst hat sie niemand', () => {
     for (const type of BUILDING_TYPES) {
       if (type.category === 'island') {

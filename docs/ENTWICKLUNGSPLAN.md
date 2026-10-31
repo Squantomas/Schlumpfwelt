@@ -53,7 +53,10 @@ Bau-Materialien (Holz, Stein) werden fürs Bauen verbraucht, Endprodukte (Möbel
 - Neue Schlümpfe kommen per Boot, nachdem man sie im Shop eingeladen hat. Voraussetzung: ein freies Haus
 
 ### Shop
-Häuser (verschiedene Pilzhaus-Varianten), Deko (Blumen, Brunnen, Zäune, Bänke, Laternen), Produktionsgebäude, Schlümpfe, Insel-Erweiterungen.
+Ein Feld über der Insel mit vier Reitern: **Häuser** (Pilzhaus-Varianten: klein in Rot/Blau/Gelb, groß, mit Garten), **Deko** (Blumen, Beet, Busch, Zaun, Bank, Laterne, Teich, Brunnen), **Gebäude** (die sechs Produktionsgebäude), **Insel** (Baum pflanzen, Fels setzen, Strand aufschütten, Wiese anlegen – die Vorstufe der Insel-Erweiterungen aus M10). Später kommen die Schlümpfe zum Einladen dazu (M6). Alle Artikel, Preise, Reihenfolge und Bedingungen stehen in `src/data/buildings.json`.
+- **Kaufen = Platzieren:** Ein Tipp auf eine Karte schließt den Shop und startet das Platzieren; bezahlt wird erst beim Setzen (✓), es gibt keinen Besitz-Bestand. Zu teure Karten sind grau, aber wählbar (der Hinweis sagt, was fehlt); gesperrte Karten zeigen ein Schloss und die Bedingung.
+- **Freischaltungen** laufen automatisch über den Dorf-Fortschritt, ohne zweite Währung und ohne Extra-Zahlung: „N Gebäude vom Typ X stehen“ (z. B. Schreinerei und Steinbruch nach dem ersten Holzfäller), „N Häuser stehen“, „der Markt hat N Taler verdient“. Ist eine Bedingung einmal erfüllt, bleibt der Artikel für immer frei. Neues im Shop wird gemeldet (Meldung, Stern). Was man zum Weiterkommen braucht (Holzfäller, Beerengarten, Markt), ist nie gesperrt.
+- **Insel gestalten:** Baum und Fels (Wiese → Wald/Fels, zählen für Holzfäller und Steinbruch; nur selbst Gepflanztes lässt sich mit Erstattung wieder abreißen), Strand aufschütten (Wasser am Land, endgültig) und Wiese anlegen (Strand → Wiese, endgültig); die Insel bleibt von Wasser umgeben.
 
 ### Tageslimit
 - Eltern-Menü mit PIN: Minuten pro Tag
@@ -103,7 +106,7 @@ Jeder Meilenstein endet mit einer Version, die auf GitHub Pages läuft und auf d
 | **M1** | Die Insel | Kachel-Insel (Wasser, Strand, Wiese, Wald, Fels), Kamera mit Touch und Maus |
 | **M2** | Gestalten | Wege, Häuser, Deko setzen, verschieben, abreißen – **schon allein ein Spielzeug** |
 | **M3** | Wirtschaft | Produktionsgebäude, Lager, Markt → Geld, Baukosten |
-| **M4** | Shop | Häuser, Deko, Gebäude kaufen und freischalten |
+| **M4** | Shop | Reiter Häuser, Deko, Gebäude, Insel; Freischaltungen über Dorf-Fortschritt; Insel gestalten (Baum, Fels, Strand, Wiese) |
 | **M5** | Speichern | IndexedDB-Autosave, Export/Import, als Web-App installierbar |
 | **M6** | Schlümpfe | Namen, Berufe, laufen auf Wegen, tragen Waren, Einladen im Shop, Ankunft per Boot |
 | **M7** | Wohnen & Stimmung | Häuser zuweisen, Wegelänge, Essen, Deko-Bonus, Stimmung → Arbeitstempo |

@@ -257,7 +257,7 @@ export class ShopUI {
     }
 
     this.panel.clear();
-    this.panel.fillStyle(COLORS.panel, 0.9).fillRoundedRect(layout.rect.x, layout.rect.y, layout.rect.width, layout.rect.height, 22);
+    this.panel.fillStyle(COLORS.panel, 0.96).fillRoundedRect(layout.rect.x, layout.rect.y, layout.rect.width, layout.rect.height, 22);
     this.panel.lineStyle(3, COLORS.toolActiveRim, 0.75).strokeRoundedRect(layout.rect.x, layout.rect.y, layout.rect.width, layout.rect.height, 22);
 
     SHOP_CATEGORIES.forEach((category, index) => {
@@ -339,9 +339,10 @@ export class ShopUI {
     const w = Math.min(maxW, this.tipLabel.width + 28);
     const h = this.tipLabel.height + 18;
     const x = clamp(near.x + near.width / 2 - w / 2, layout.rect.x + 8, layout.rect.x + layout.rect.width - w - 8);
-    // Over the card if there is room above it inside the panel, else on the card's lower part.
-    const above = near.y - h - 4;
-    const y = above >= layout.rect.y + 4 ? above : Math.min(near.y + near.height - h - 4, layout.rect.y + layout.rect.height - h - 4);
+    // Below the card or above it, whichever has more room inside the panel; the tabs stay free as long as there is room below.
+    const roomAbove = near.y - (layout.grid.y - 4);
+    const roomBelow = layout.rect.y + layout.rect.height - (near.y + near.height);
+    const y = clamp(roomBelow >= h + 4 || roomBelow >= roomAbove ? near.y + near.height + 2 : near.y - h - 2, layout.grid.y - 4, layout.rect.y + layout.rect.height - h - 4);
     this.tip = { until: this.scene.time.now + TIP_MS, rect: { x, y, width: w, height: h }, text };
     this.drawTip();
   }
