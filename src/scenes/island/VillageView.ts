@@ -81,6 +81,9 @@ export class VillageView {
   private readonly rocking = new Set<number>();
   private signTick = -1;
   private inspectId: number | undefined;
+  /** The "no path" sign on the preview of a building that would have no path yet. */
+  private readonly previewSign: Phaser.GameObjects.Image;
+  private previewSignAt: { x: number; y: number; bottom: number } | undefined;
   /** The ✓ / ✕ signs of the preview, above the ghost. */
   private readonly badges: Phaser.GameObjects.Graphics;
   private readonly ghost: Phaser.GameObjects.Image;
@@ -99,7 +102,8 @@ export class VillageView {
     this.overlay = scene.add.graphics().setDepth(OVERLAY_DEPTH);
     this.ghost = scene.add.image(0, 0, PUFF_KEY).setDepth(GHOST_DEPTH).setVisible(false);
     this.badges = scene.add.graphics().setDepth(GHOST_DEPTH + 1);
-    layer.add([this.inspectOverlay, this.overlay, this.ghost, this.badges]);
+    this.previewSign = scene.add.image(0, 0, signTextureKey('path')).setOrigin(0.5, 1).setDepth(MARKER_DEPTH).setVisible(false);
+    layer.add([this.inspectOverlay, this.overlay, this.ghost, this.badges, this.previewSign]);
   }
 
   /** Number of signs ("this house needs a path") that are showing. */
@@ -282,6 +286,7 @@ export class VillageView {
       this.syncSigns(true);
     }
     this.updateProduction(seconds, zoom);
+    this.updatePreviewSign(seconds, zoom, minWorldY);
     for (const [id, marker] of this.markers) {
       marker.appear = marker.leaving ? marker.appear - step * 5 : Math.min(1, marker.appear + step * 4);
       if (marker.leaving && marker.appear <= 0) {
@@ -301,6 +306,20 @@ export class VillageView {
     if (lifted) {
       lifted.image.setAngle(Math.sin(seconds * 9) * 2.4).setY(lifted.baseY - 8 + Math.sin(seconds * 9) * 1.5);
     }
+  }
+
+  /** The sign on the ghost of a building that would stand without a path: the same size and bob as the real one. */
+  private updatePreviewSign(seconds: number, zoom: number, minWorldY: number): void {
+    const at = this.previewSignAt;
+    this.previewSign.setVisible(at !== undefined);
+    if (!at) {
+      return;
+    }
+    const fit = Phaser.Math.Clamp(MARKER_MIN_CSS_PX / (MARKER_BUBBLE * zoom), 1, MARKER_MAX_SCALE);
+    // Like the real signs: under the hint bar if the ghost is at the top of the screen.
+    this.previewSign
+      .setPosition(at.x, markerY(at.y + Math.sin(seconds * 3) * 4 * fit - 4, minWorldY, MARKER_SIZE.height * fit, at.bottom))
+      .setScale(fit / TEXTURE_SCALE);
   }
 
   /**
@@ -420,6 +439,7 @@ export class VillageView {
     const g = this.overlay.clear();
     this.badges.clear();
     this.ghost.setVisible(false);
+    this.previewSignAt = undefined;
     this.resetHighlights();
 
     switch (preview.kind) {
@@ -428,6 +448,9 @@ export class VillageView {
       case 'place': {
         this.drawNearby(g, preview.typeId, preview.x, preview.y);
         this.showGhost(preview.typeId, preview.x, preview.y, preview.result === 'ok');
+        if (preview.result === 'ok' && !preview.connected) {
+          this.showPreviewSign(preview.typeId, preview.x, preview.y);
+        }
         break;
       }
       case 'path': {
@@ -445,6 +468,9 @@ export class VillageView {
         if (preview.target) {
           this.drawNearby(g, preview.typeId, preview.target.x, preview.target.y);
           this.showGhost(preview.typeId, preview.target.x, preview.target.y, preview.target.result === 'ok');
+          if (preview.target.result === 'ok' && !preview.target.connected) {
+            this.showPreviewSign(preview.typeId, preview.target.x, preview.target.y);
+          }
         }
         break;
       }
@@ -468,6 +494,14 @@ export class VillageView {
         }
         break;
       }
+    }
+  }
+
+  /** The "no path" sign over the ghost, if the building needs a path (houses and production buildings). */
+  private showPreviewSign(typeId: string, x: number, y: number): void {
+    const type = buildingType(typeId);
+    if (type?.needsPath) {
+      this.previewSignAt = { x: (x + type.footprint.w / 2) * TILE_SIZE, y: y * TILE_SIZE - type.look.rise * 0.62, bottom: (y + type.footprint.h) * TILE_SIZE };
     }
   }
 

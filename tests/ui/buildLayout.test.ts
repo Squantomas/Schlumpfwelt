@@ -176,6 +176,20 @@ describe('Lagerleiste', () => {
   });
 });
 
+describe('Infokarte auf sehr niedrigen Schirmen', () => {
+  it('meldet „passt nicht“, wenn zwischen Lagerleiste und Werkzeugleiste zu wenig Platz ist (die Szene zeigt dann den Satz als Hinweis)', () => {
+    const layout = layoutBuildUi({ width: 700, height: 250, toolCount: 6, stockCount: 6, infoOpen: true, variantCount: 0, pickerOpen: true, hasPreview: false, hintHeight: 0, hintAtTop: false });
+    expect(layout.card?.fits).toBe(false);
+  });
+
+  it('passt auf allen gängigen Handy-Größen, auch quer mit 375 px Höhe', () => {
+    for (const [width, height] of [[568, 320], [640, 360], [667, 375], [812, 375], [740, 360]] as const) {
+      const layout = layoutBuildUi({ width, height, toolCount: 6, stockCount: 6, infoOpen: true, variantCount: 0, pickerOpen: true, hasPreview: false, hintHeight: 0, hintAtTop: false });
+      expect(layout.card?.fits, `${String(width)}×${String(height)}`).toBe(true);
+    }
+  });
+});
+
 describe('Infokarte', () => {
   it.each(MORE_SCREENS)('liegt bei %i×%i frei von Lagerleiste, Zoom-Knöpfen und Werkzeugleiste', (width, height) => {
     const layout = layoutBuildUi({ width, height, toolCount: 6, stockCount: 6, infoOpen: true, variantCount: 0, pickerOpen: true, hasPreview: false, hintHeight: 0, hintAtTop: false });

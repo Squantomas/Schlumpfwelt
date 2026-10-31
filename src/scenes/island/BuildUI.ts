@@ -83,6 +83,8 @@ export class BuildUI {
   /** The text of the hint bar as last set (the hint is only worked out when something changed). */
   private currentHint = '';
   private cardTick = -1;
+  /** The status sentence shown as a hint when the info card does not fit on a very low screen. */
+  private cardFallback: string | undefined;
   private zoomSpots: Record<string, UiSpot> = {};
   private spotsJson = '{}';
   private spotsDirty = true;
@@ -169,6 +171,9 @@ export class BuildUI {
         const notice = this.tool.confirm();
         if (notice) {
           this.showNotice(notice, this.tool.hintParams);
+        } else {
+          // Built: an old note ("Hier geht das nicht.") must not stay on.
+          this.notice = undefined;
         }
         this.refresh();
       },
@@ -358,6 +363,12 @@ export class BuildUI {
     }
   }
 
+  /** What the building is doing, in one sentence (for the card and for the hint if the card does not fit). */
+  private cardSentence(buildingId: number): string | undefined {
+    const status = cardStatus(this.getState(), buildingId);
+    return status ? t(status.text, status.params) : undefined;
+  }
+
   /** Opens, moves or closes the info card of the building the child tapped. */
   private applyCard(layout: BuildLayout): void {
     const id = this.tool.inspectedId;
@@ -437,9 +448,9 @@ export class BuildUI {
   }
 
   private hintText(): string | undefined {
-    // The info card says everything itself: no extra note beside it.
+    // The info card says everything itself: no extra note beside it (and if it does not fit, its sentence is the hint).
     if (this.tool.inspectedId !== undefined) {
-      return undefined;
+      return this.cardFallback;
     }
     if (this.notice && this.scene.time.now < this.notice.until) {
       return this.notice.text;
@@ -454,6 +465,8 @@ export class BuildUI {
     if (this.tool.tool !== this.lastTool) {
       this.lastTool = this.tool.tool;
       this.pickerOpen = true;
+      // A note about the last tool does not belong to the next one.
+      this.notice = undefined;
     }
     const hasPreview = this.tool.hasPreview;
     if (hasPreview && !this.hadPreview) {
@@ -465,20 +478,25 @@ export class BuildUI {
       button.setHighlighted(this.tool.tool === id);
     }
     const category = this.tool.variantCategory;
-    this.applyLayout(
-      layoutBuildUi({
-        width: this.view.width,
-        height: this.view.height,
-        toolCount: TOOLS.length,
-        stockCount: ITEM_IDS.length,
-        infoOpen: this.tool.inspectedId !== undefined,
-        variantCount: category ? typesOf(category).length : 0,
-        pickerOpen: this.pickerOpen,
-        hasPreview,
-        hintHeight: this.measureHint(),
-        hintAtTop: this.tool.tool !== 'view',
-      }),
-    );
+    const input = {
+      width: this.view.width,
+      height: this.view.height,
+      toolCount: TOOLS.length,
+      stockCount: ITEM_IDS.length,
+      variantCount: category ? typesOf(category).length : 0,
+      pickerOpen: this.pickerOpen,
+      hasPreview,
+      hintAtTop: this.tool.tool !== 'view',
+    };
+    const inspected = this.tool.inspectedId;
+    this.cardFallback = undefined;
+    let layout = layoutBuildUi({ ...input, infoOpen: inspected !== undefined, hintHeight: this.measureHint() });
+    if (inspected !== undefined && layout.card && !layout.card.fits) {
+      // No room for the card (a very low screen): its sentence goes into the hint bar instead.
+      this.cardFallback = this.cardSentence(inspected);
+      layout = layoutBuildUi({ ...input, infoOpen: false, hintHeight: this.measureHint() });
+    }
+    this.applyLayout(layout);
     this.seenVersion = this.tool.version;
     this.spotsDirty = true;
     this.onChange();
@@ -500,7 +518,14 @@ export class BuildUI {
     const inspected = this.tool.inspectedId;
     if (inspected !== undefined && this.cardTick !== state.tick) {
       this.cardTick = state.tick;
-      this.card.setStatus(cardStatus(state, inspected));
+      if (this.cardFallback !== undefined) {
+        // The sentence is the hint now: follow it when it changes.
+        if (this.cardSentence(inspected) !== this.cardFallback) {
+          this.refresh();
+        }
+      } else {
+        this.card.setStatus(cardStatus(state, inspected));
+      }
     }
   }
 
