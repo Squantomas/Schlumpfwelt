@@ -13,6 +13,15 @@
  *   tile right next to its footprint (not diagonal) is a path tile. That the
  *   paths form one connected network is not required in M2.
  *
+ * Rules (M4):
+ * - A type that is still locked (`unlock` in `buildings.json`, see
+ *   `unlocks.ts`) can not be placed (`locked`). Moving a standing building
+ *   is always allowed.
+ * - Island items (category `island`: tree, rock, beach, meadow) are 1×1 and
+ *   change the terrain of the tile instead of adding a building (`island.ts`);
+ *   they use the same check. Water can only be filled where it touches land
+ *   (`noCoast`), and not right at the edge of the map (`outOfMap`).
+ *
  * Rules (M3):
  * - A building with `needsNearby` (lumberjack, quarry) needs trees / rocks
  *   within its radius, otherwise it can not be placed (`noNearby`).
@@ -25,7 +34,8 @@ import { buildingType, type BuildingType } from '../data/buildings';
 import { addAmounts, costOf, hasNearby, missingAmounts, newProducer, productionOf, refundFor, takeAmounts } from './economy';
 import type { DeepReadonly } from './readonly';
 import type { SimState } from './state';
-import { inBounds, terrainAt, type Terrain } from './world';
+import { isUnlocked } from './unlocks';
+import { ISLAND_EDGE, hasLandNeighbor, inBounds, terrainAt, type Terrain } from './world';
 
 export interface Tile {
   readonly x: number;
@@ -47,11 +57,13 @@ export interface PlacedBuilding {
  * - `outOfMap`: at least one tile is outside the map.
  * - `noNearby`: the building needs trees / rocks nearby and there are none.
  * - `cost`: the place is fine, but coins or goods are missing.
+ * - `locked`: the type is not unlocked yet.
+ * - `noCoast`: (island) the water to fill does not touch land.
  */
-export type PlacementResult = 'ok' | 'blocked' | 'terrain' | 'outOfMap' | 'noNearby' | 'cost';
+export type PlacementResult = 'ok' | 'blocked' | 'terrain' | 'outOfMap' | 'noNearby' | 'cost' | 'locked' | 'noCoast';
 
 /** What the placement rules need: a read-only view of the state is enough. */
-export type PlacementView = DeepReadonly<Pick<SimState, 'world' | 'buildings' | 'paths' | 'revision' | 'inventory'>>;
+export type PlacementView = DeepReadonly<Pick<SimState, 'world' | 'buildings' | 'paths' | 'revision' | 'inventory' | 'unlocked' | 'planted'>>;
 
 /**
  * The answer of {@link checkPlacement}: the result and, for `terrain`, the
@@ -163,7 +175,9 @@ export function buildingAtPoint(
  * `ignoreId` leaves one building out of the overlap check – the building that
  * is being moved may overlap its old place.
  *
- * Check order: unknown type → `blocked`, outside the map → `outOfMap`, wrong
+ * Check order: unknown type → `blocked`, still locked → `locked` (not when
+ * moving), outside the map (or, for island items, too near the edge) →
+ * `outOfMap`, wrong
  * ground → `terrain` (with the ground that is in the way), something in the
  * way → `blocked`, nothing to work with nearby → `noNearby`, too expensive →
  * `cost` (with the missing amounts). The cost is not checked when `free` is
@@ -182,11 +196,17 @@ export function checkPlacement(
   if (!type) {
     return { result: 'blocked' };
   }
+  if (ignoreId === undefined && !isUnlocked(state, typeId)) {
+    return { result: 'locked' };
+  }
   if (!Number.isInteger(x) || !Number.isInteger(y)) {
     return { result: 'outOfMap' };
   }
   const tiles = footprintTiles(type, x, y);
   if (tiles.some((tile) => !inBounds(state.world, tile.x, tile.y))) {
+    return { result: 'outOfMap' };
+  }
+  if (type.category === 'island' && (x < ISLAND_EDGE || y < ISLAND_EDGE || x >= state.world.width - ISLAND_EDGE || y >= state.world.height - ISLAND_EDGE)) {
     return { result: 'outOfMap' };
   }
   const wrong = tiles.map((tile) => terrainAt(state.world, tile.x, tile.y)).find((terrain) => !type.terrains.includes(terrain));
@@ -209,6 +229,9 @@ export function checkPlacement(
     if (overlaps) {
       return { result: 'blocked' };
     }
+  }
+  if (type.island?.action === 'fillLand' && !hasLandNeighbor(state.world, x, y)) {
+    return { result: 'noCoast' };
   }
   const nearby = productionOf(typeId)?.needsNearby;
   if (nearby && !hasNearby(state.world, type, x, y, nearby.terrain, nearby.radius)) {
@@ -301,8 +324,9 @@ export function lineTiles(from: Tile, to: Tile, horizontalFirst = true): Tile[] 
  * (only for the start village, which is part of the initial state).
  */
 export function addBuilding(state: SimState, typeId: string, x: number, y: number, pay = true): number | undefined {
-  // Paths are not buildings: they go through `addPaths`.
-  if (buildingType(typeId)?.category === 'path') {
+  // Paths are not buildings: they go through `addPaths`; island items change the terrain (`island.ts`).
+  const category = buildingType(typeId)?.category;
+  if (category === 'path' || category === 'island') {
     return undefined;
   }
   if (canPlace(state, typeId, x, y, undefined, !pay) !== 'ok') {

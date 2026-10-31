@@ -11,6 +11,7 @@ import { createStartInventory, type Inventory, type ProducerState } from './econ
 import { generateIsland } from './islandGen';
 import { refreshStatuses } from './production';
 import { normalizeSeed } from './random';
+import { checkUnlocks } from './unlocks';
 import type { World } from './world';
 
 export interface SimState {
@@ -32,6 +33,21 @@ export interface SimState {
   inventory: Inventory;
   /** The working state of every production building, in the order they were built. */
   production: ProducerState[];
+  /** Coins the market has earned in total (never goes down; the progress for the unlocks that ask for money). */
+  earnedCoins: number;
+  /**
+   * Ids of the types that are unlocked because the village reached their
+   * condition (`unlock` in `buildings.json`), in the order they were reached.
+   * Types without a condition are free from the start and not listed. A type
+   * stays unlocked for good, also after the buildings that unlocked it are gone.
+   */
+  unlocked: string[];
+  /**
+   * Tiles (as tile indices, ascending, no duplicates) where the player planted a
+   * tree or set a rock: only those can be demolished again (and give the cost back).
+   * Trees and rocks the island grew by itself stay.
+   */
+  planted: number[];
   /**
    * Counts every change of buildings or paths. Scenes compare it with the
    * value they last drew and only redraw when it differs.
@@ -55,9 +71,13 @@ export function createInitialState(seed: number = DEFAULT_SEED): SimState {
     paths: [],
     inventory: createStartInventory(),
     production: [],
+    earnedCoins: 0,
+    unlocked: [],
+    planted: [],
     revision: 0,
   };
   buildStartVillage(state);
+  checkUnlocks(state);
   return state;
 }
 

@@ -18,6 +18,7 @@
       "terrains": ["grass"],
       "needsPath": true,
       "cost": { "coins": 40, "wood": 8 },
+      "shop": { "category": "houses" },
       "look": { "shape": "mushroomHouse", "palette": "red", "rise": 84 }
     },
     {
@@ -28,6 +29,7 @@
       "terrains": ["grass"],
       "needsPath": true,
       "cost": { "coins": 40, "wood": 8 },
+      "shop": { "category": "houses" },
       "look": { "shape": "mushroomHouse", "palette": "blue", "rise": 84 }
     },
     {
@@ -38,7 +40,32 @@
       "terrains": ["grass"],
       "needsPath": true,
       "cost": { "coins": 40, "wood": 8 },
+      "shop": { "category": "houses" },
       "look": { "shape": "mushroomHouse", "palette": "yellow", "rise": 84 }
+    },
+    {
+      "id": "house-big",
+      "category": "house",
+      "nameKey": "build.houseBig",
+      "footprint": { "w": 3, "h": 3 },
+      "terrains": ["grass"],
+      "needsPath": true,
+      "cost": { "coins": 90, "wood": 16 },
+      "shop": { "category": "houses" },
+      "unlock": { "kind": "houses", "count": 2 },
+      "look": { "shape": "mushroomHouse", "palette": "green", "rise": 130, "scale": 1.5 }
+    },
+    {
+      "id": "house-garden",
+      "category": "house",
+      "nameKey": "build.houseGarden",
+      "footprint": { "w": 3, "h": 2 },
+      "terrains": ["grass"],
+      "needsPath": true,
+      "cost": { "coins": 70, "wood": 10 },
+      "shop": { "category": "houses" },
+      "unlock": { "kind": "earned", "coins": 150 },
+      "look": { "shape": "gardenHouse", "palette": "pink", "rise": 84 }
     },
     {
       "id": "flower",
@@ -48,6 +75,7 @@
       "terrains": ["grass"],
       "needsPath": false,
       "cost": { "coins": 3 },
+      "shop": { "category": "deco" },
       "look": { "shape": "flower", "rise": 22 }
     },
     {
@@ -58,6 +86,7 @@
       "terrains": ["grass"],
       "needsPath": false,
       "cost": { "coins": 4 },
+      "shop": { "category": "deco" },
       "look": { "shape": "bush", "rise": 18 }
     },
     {
@@ -68,6 +97,7 @@
       "terrains": ["grass"],
       "needsPath": false,
       "cost": { "coins": 3, "wood": 1 },
+      "shop": { "category": "deco" },
       "look": { "shape": "fence", "rise": 14 }
     },
     {
@@ -78,6 +108,8 @@
       "terrains": ["grass"],
       "needsPath": false,
       "cost": { "coins": 8, "wood": 2 },
+      "shop": { "category": "deco" },
+      "unlock": { "kind": "earned", "coins": 40 },
       "look": { "shape": "bench", "rise": 18 }
     },
     {
@@ -88,6 +120,8 @@
       "terrains": ["grass"],
       "needsPath": false,
       "cost": { "coins": 10, "stone": 1 },
+      "shop": { "category": "deco" },
+      "unlock": { "kind": "earned", "coins": 100 },
       "look": { "shape": "lantern", "rise": 46 }
     },
     {
@@ -98,7 +132,33 @@
       "terrains": ["grass"],
       "needsPath": false,
       "cost": { "coins": 40, "stone": 5 },
+      "shop": { "category": "deco" },
+      "unlock": { "kind": "earned", "coins": 250 },
       "look": { "shape": "fountain", "rise": 40 }
+    },
+    {
+      "id": "flowerbed",
+      "category": "deco",
+      "nameKey": "build.flowerbed",
+      "footprint": { "w": 2, "h": 1 },
+      "terrains": ["grass"],
+      "needsPath": false,
+      "cost": { "coins": 8 },
+      "shop": { "category": "deco" },
+      "unlock": { "kind": "houses", "count": 2 },
+      "look": { "shape": "flowerbed", "rise": 30 }
+    },
+    {
+      "id": "pond",
+      "category": "deco",
+      "nameKey": "build.pond",
+      "footprint": { "w": 2, "h": 2 },
+      "terrains": ["grass"],
+      "needsPath": false,
+      "cost": { "coins": 20, "stone": 2 },
+      "shop": { "category": "deco" },
+      "unlock": { "kind": "count", "building": "quarry", "count": 1 },
+      "look": { "shape": "pond", "rise": 24 }
     },
     {
       "id": "lumberjack",
@@ -108,6 +168,7 @@
       "terrains": ["grass"],
       "needsPath": true,
       "cost": { "coins": 15 },
+      "shop": { "category": "production" },
       "production": { "intervalTicks": 50, "outputs": { "wood": 1 }, "needsNearby": { "terrain": "forest", "radius": 4 } },
       "look": { "shape": "lumberjackHut", "rise": 64 }
     },
@@ -119,6 +180,7 @@
       "terrains": ["grass"],
       "needsPath": true,
       "cost": { "coins": 10, "wood": 2 },
+      "shop": { "category": "production" },
       "production": { "intervalTicks": 50, "outputs": { "berries": 1 } },
       "look": { "shape": "berryGarden", "rise": 38 }
     },
@@ -130,6 +192,8 @@
       "terrains": ["grass"],
       "needsPath": true,
       "cost": { "coins": 20, "wood": 6 },
+      "shop": { "category": "production" },
+      "unlock": { "kind": "count", "building": "lumberjack", "count": 1 },
       "production": { "intervalTicks": 80, "outputs": { "stone": 1 }, "needsNearby": { "terrain": "rock", "radius": 5 } },
       "look": { "shape": "quarry", "rise": 44 }
     },
@@ -141,6 +205,8 @@
       "terrains": ["grass"],
       "needsPath": true,
       "cost": { "coins": 30, "wood": 8, "stone": 2 },
+      "shop": { "category": "production" },
+      "unlock": { "kind": "count", "building": "lumberjack", "count": 1 },
       "production": { "intervalTicks": 200, "inputs": { "wood": 2 }, "outputs": { "furniture": 1 } },
       "look": { "shape": "carpenterShop", "rise": 70 }
     },
@@ -152,6 +218,8 @@
       "terrains": ["grass"],
       "needsPath": true,
       "cost": { "coins": 25, "wood": 6 },
+      "shop": { "category": "production" },
+      "unlock": { "kind": "count", "building": "berry-garden", "count": 1 },
       "production": { "intervalTicks": 120, "inputs": { "berries": 2 }, "outputs": { "cake": 1 } },
       "look": { "shape": "bakery", "rise": 78 }
     },
@@ -163,8 +231,59 @@
       "terrains": ["grass"],
       "needsPath": true,
       "cost": { "coins": 20, "wood": 8 },
+      "shop": { "category": "production" },
       "production": { "intervalTicks": 30, "sell": { "perCycle": 1 } },
       "look": { "shape": "market", "rise": 84 }
+    },
+    {
+      "id": "tree",
+      "category": "island",
+      "nameKey": "build.tree",
+      "footprint": { "w": 1, "h": 1 },
+      "terrains": ["grass"],
+      "needsPath": false,
+      "cost": { "coins": 5 },
+      "shop": { "category": "island" },
+      "island": { "action": "plantTree" },
+      "look": { "shape": "islandTree", "rise": 70 }
+    },
+    {
+      "id": "rock",
+      "category": "island",
+      "nameKey": "build.rock",
+      "footprint": { "w": 1, "h": 1 },
+      "terrains": ["grass"],
+      "needsPath": false,
+      "cost": { "coins": 10 },
+      "shop": { "category": "island" },
+      "island": { "action": "placeRock" },
+      "look": { "shape": "islandRock", "rise": 34 }
+    },
+    {
+      "id": "beach",
+      "category": "island",
+      "nameKey": "build.beach",
+      "footprint": { "w": 1, "h": 1 },
+      "terrains": ["water"],
+      "needsPath": false,
+      "cost": { "coins": 6 },
+      "shop": { "category": "island" },
+      "unlock": { "kind": "earned", "coins": 60 },
+      "island": { "action": "fillLand" },
+      "look": { "shape": "islandBeach", "rise": 0 }
+    },
+    {
+      "id": "meadow",
+      "category": "island",
+      "nameKey": "build.meadow",
+      "footprint": { "w": 1, "h": 1 },
+      "terrains": ["sand"],
+      "needsPath": false,
+      "cost": { "coins": 4 },
+      "shop": { "category": "island" },
+      "unlock": { "kind": "earned", "coins": 120 },
+      "island": { "action": "makeMeadow" },
+      "look": { "shape": "islandMeadow", "rise": 0 }
     }
   ]
 }

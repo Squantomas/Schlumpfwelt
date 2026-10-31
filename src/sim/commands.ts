@@ -1,4 +1,5 @@
 import { addBuilding, addPaths, demolishAt, relocateBuilding, type Tile } from './buildings';
+import { demolishPlanted, placeIslandItem } from './island';
 import type { SimState } from './state';
 
 /**
@@ -14,7 +15,11 @@ export type Command =
   | PlaceBuildingCommand
   | PlacePathsCommand
   | MoveBuildingCommand
-  | DemolishCommand;
+  | DemolishCommand
+  | PlantTreeCommand
+  | PlaceRockCommand
+  | FillLandCommand
+  | MakeMeadowCommand;
 
 export interface SetPausedCommand {
   readonly type: 'setPaused';
@@ -55,6 +60,44 @@ export interface DemolishCommand {
 }
 
 /**
+ * The island commands (shop tab "Insel", see `island.ts`): each changes the
+ * terrain of the tile (x, y) and takes the cost of its item from the store.
+ * Ignored if the item is still locked, the tile is not right for it or it
+ * is too expensive. They count as a change (`revision`).
+ *
+ * - `plantTree`: meadow → forest (a tree; demolishing it gives the cost back).
+ * - `placeRock`: meadow → rock (demolishing it gives the cost back).
+ * - `fillLand`: water that touches land → beach (final, no refund).
+ * - `makeMeadow`: beach → meadow (final, no refund).
+ */
+export interface PlantTreeCommand {
+  readonly type: 'plantTree';
+  readonly x: number;
+  readonly y: number;
+}
+
+export interface PlaceRockCommand {
+  readonly type: 'placeRock';
+  readonly x: number;
+  readonly y: number;
+}
+
+export interface FillLandCommand {
+  readonly type: 'fillLand';
+  readonly x: number;
+  readonly y: number;
+}
+
+export interface MakeMeadowCommand {
+  readonly type: 'makeMeadow';
+  readonly x: number;
+  readonly y: number;
+}
+
+/** The id of the shop item each island command belongs to. */
+export const ISLAND_COMMAND_ITEMS = { plantTree: 'tree', placeRock: 'rock', fillLand: 'beach', makeMeadow: 'meadow' } as const;
+
+/**
  * Applies a single command to the state (mutates `state`). Commands with
  * invalid data (unknown type or id, tile outside the map, not allowed there)
  * are ignored – they never throw and never change anything.
@@ -74,7 +117,16 @@ export function applyCommand(state: SimState, command: Command): void {
       relocateBuilding(state, command.id, command.x, command.y);
       return;
     case 'demolish':
-      demolishAt(state, command.x, command.y);
+      // A building first, then a path, then a tree or rock the player planted.
+      if (!demolishAt(state, command.x, command.y)) {
+        demolishPlanted(state, command.x, command.y);
+      }
+      return;
+    case 'plantTree':
+    case 'placeRock':
+    case 'fillLand':
+    case 'makeMeadow':
+      placeIslandItem(state, ISLAND_COMMAND_ITEMS[command.type], command.x, command.y);
       return;
     default:
       return assertNever(command);

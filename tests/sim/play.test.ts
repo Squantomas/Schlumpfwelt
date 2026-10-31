@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { BUILDING_TYPES, typesOf } from '../../src/data/buildings';
+import { BUILDING_TYPES, LOCKED_TYPE_IDS, buildingType, typesOf } from '../../src/data/buildings';
 import { MAX_AMOUNT } from '../../src/data/goods';
 import { PRODUCER_STATUSES, canAfford, costOf, productionOf } from '../../src/sim/economy';
 import { Rng } from '../../src/sim/random';
 import type { DeepReadonly } from '../../src/sim/readonly';
 import { Simulation } from '../../src/sim/simulation';
+import { isUnlocked } from '../../src/sim/unlocks';
 import { createInitialState, type SimState } from '../../src/sim/state';
 import { Bot } from './bot';
 
@@ -27,7 +28,18 @@ const WISHES = [
   'fountain',
   'market',
   'berry-garden',
+  'house-big',
+  'house-garden',
+  'flowerbed',
+  'pond',
+  'tree',
+  'rock',
+  'beach',
+  'meadow',
 ];
+
+/** Alles, was ein Gebäude auf die Karte stellt (Inselartikel verändern nur das Gelände). */
+const BUILDING_WISHES = WISHES.filter((id) => buildingType(id)?.category !== 'island');
 
 /** Runs the bot for `ticks` ticks: every two seconds it connects buildings and orders the next thing it can pay. */
 function play(sim: Simulation, bot: Bot, wanted: readonly string[], ticks: number): void {
@@ -58,7 +70,7 @@ describe('Der Bot kann nie festsitzen', () => {
         expect(bot.builtAt.get(id), `${id} wurde bestellt`).toBeDefined();
       }
       // Alles steht auch wirklich, und nichts arbeitet ohne Weg.
-      for (const id of WISHES) {
+      for (const id of BUILDING_WISHES) {
         expect(sim.state.buildings.some((b) => b.type === id), `${id} steht`).toBe(true);
       }
       expect(Math.max(...bot.builtAt.values())).toBeLessThan(15 * MINUTE);
@@ -68,6 +80,23 @@ describe('Der Bot kann nie festsitzen', () => {
       expect(sim.state.inventory['coins']).toBeGreaterThanOrEqual(0);
     });
   }
+
+  it('schaltet beim Spielen alles frei, was eine Bedingung hat – nichts bleibt für immer gesperrt', () => {
+    const sim = new Simulation(createInitialState(1));
+    const bot = new Bot(sim);
+    play(sim, bot, WISHES, 15 * MINUTE);
+    for (const id of LOCKED_TYPE_IDS) {
+      expect(sim.state.unlocked, id).toContain(id);
+    }
+  });
+
+  it('hat in den ersten Minuten schon Neues im Shop: die ersten Freischaltungen kommen nach höchstens 3 Spielminuten', () => {
+    const sim = new Simulation(createInitialState(1));
+    const bot = new Bot(sim);
+    const atStart = sim.state.unlocked.length;
+    play(sim, bot, WISHES, 3 * MINUTE);
+    expect(sim.state.unlocked.length).toBeGreaterThanOrEqual(atStart + 4);
+  });
 
   it('verdient sein erstes Geld früh: nach anderthalb Minuten hat die Bäckerei ihre Taler schon fast wieder eingespielt', () => {
     const sim = new Simulation(createInitialState(1));
@@ -158,7 +187,7 @@ describe('Nie festsitzen, auch ohne Abreißen', () => {
     const types = [...typesOf('house'), ...typesOf('deco')].map((type) => type.id);
     let built = 0;
     for (let round = 0; round < 200; round += 1) {
-      const affordable = types.filter((id) => canAfford(sim.state, id));
+      const affordable = types.filter((id) => isUnlocked(sim.state, id) && canAfford(sim.state, id));
       if (affordable.length === 0) {
         break;
       }
@@ -188,7 +217,7 @@ describe('Nie festsitzen, auch ohne Abreißen', () => {
       // Festgespielt: Haus und Zäune haben alles aufgebraucht, nichts davon ist mehr bezahlbar.
       expect(sim.state.buildings.length).toBeGreaterThan(startBuildings);
       for (const id of [...typesOf('house'), ...typesOf('deco')].map((type) => type.id)) {
-        expect(canAfford(sim.state, id), `${id} ist nach dem Verbauen noch bezahlbar`).toBe(false);
+        expect(isUnlocked(sim.state, id) && canAfford(sim.state, id), `${id} ist nach dem Verbauen noch bezahlbar`).toBe(false);
       }
       // Das Startdorf steht noch: Beerengarten und Markt.
       expect(sim.state.buildings.some((b) => b.type === 'berry-garden')).toBe(true);
@@ -225,6 +254,18 @@ describe('Invarianten bei beliebigen Befehlen', () => {
     }
     const producing = state.buildings.filter((b) => productionOf(b.type)).map((b) => b.id);
     expect(state.production.map((p) => p.buildingId), label).toEqual(producing);
+    // Gepflanzte Kacheln: aufsteigend, ohne Doppelte, und noch Wald oder Fels.
+    expect([...state.planted].sort((a, b) => a - b), label).toEqual(state.planted);
+    expect(new Set(state.planted).size, label).toBe(state.planted.length);
+    for (const index of state.planted) {
+      expect(['forest', 'rock'], label).toContain(state.world.tiles[index]);
+    }
+    // Freigeschaltet ist nur, was eine Bedingung hat, höchstens einmal; verdiente Taler sind ganz und wachsen nur.
+    expect(new Set(state.unlocked).size, label).toBe(state.unlocked.length);
+    for (const id of state.unlocked) {
+      expect(LOCKED_TYPE_IDS, label).toContain(id);
+    }
+    expect(Number.isInteger(state.earnedCoins) && state.earnedCoins >= 0, label).toBe(true);
     for (const producer of state.production) {
       const building = state.buildings.find((b) => b.id === producer.buildingId);
       const rules = building ? productionOf(building.type) : undefined;
@@ -242,7 +283,7 @@ describe('Invarianten bei beliebigen Befehlen', () => {
       for (let step = 0; step < 1500; step += 1) {
         const x = 12 + rng.int(24);
         const y = 12 + rng.int(24);
-        switch (rng.int(6)) {
+        switch (rng.int(10)) {
           case 0:
           case 1:
             sim.send({ type: 'placeBuilding', buildingType: ids[rng.int(ids.length)] ?? 'flower', x, y });
@@ -259,6 +300,18 @@ describe('Invarianten bei beliebigen Befehlen', () => {
           }
           case 4:
             sim.send({ type: 'demolish', x, y });
+            break;
+          case 6:
+            sim.send({ type: 'plantTree', x, y });
+            break;
+          case 7:
+            sim.send({ type: 'placeRock', x, y });
+            break;
+          case 8:
+            sim.send({ type: 'fillLand', x: x - 8 - rng.int(6), y: y - 8 - rng.int(6) });
+            break;
+          case 9:
+            sim.send({ type: 'makeMeadow', x: x - 8 - rng.int(6), y: y - 8 - rng.int(6) });
             break;
           default:
             sim.send({ type: 'placeBuilding', buildingType: 'house-red', x: Number.NaN, y });

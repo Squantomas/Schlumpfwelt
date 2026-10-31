@@ -16,12 +16,42 @@ import type { Terrain } from '../sim/world';
  * terrain within `radius` tiles around the footprint (the trees of a
  * lumberjack); they are not used up.
  *
+ * `shop` (everything but paths) says in which tab of the shop a type is
+ * sold; the order of the file is the order in the shop. `unlock` (optional)
+ * is the progress the village needs before the type can be built (see
+ * `src/sim/unlocks.ts`); without it a type is free from the start. `island`
+ * (category `island`) says which change of the map a type makes: it changes
+ * the terrain instead of putting a building on it (see `src/sim/island.ts`).
+ *
  * `look` only holds parameters for the placeholder graphics (shape name,
  * palette name from `style.ts`, height above the footprint in world pixels);
  * real graphics replace the placeholders in M8.
  */
 
-export type BuildingCategory = 'path' | 'house' | 'deco' | 'production';
+export type BuildingCategory = 'path' | 'house' | 'deco' | 'production' | 'island';
+
+/** The tabs of the shop, in the order they are shown. */
+export const SHOP_CATEGORIES = ['houses', 'deco', 'production', 'island'] as const;
+
+export type ShopCategory = (typeof SHOP_CATEGORIES)[number];
+
+/**
+ * What a village has to reach before a type is unlocked – simple counts a child
+ * can follow:
+ * - `count`: at least `count` buildings of the type `building` are standing,
+ * - `houses`: at least `count` houses (of any kind) are standing,
+ * - `earned`: the market has earned at least `coins` coins in total.
+ * Once reached, the type stays unlocked for good.
+ */
+export type UnlockDef =
+  | { readonly kind: 'count'; readonly building: string; readonly count: number }
+  | { readonly kind: 'houses'; readonly count: number }
+  | { readonly kind: 'earned'; readonly coins: number };
+
+/** The changes of the map the island category makes. */
+export const ISLAND_ACTIONS = ['plantTree', 'placeRock', 'fillLand', 'makeMeadow'] as const;
+
+export type IslandAction = (typeof ISLAND_ACTIONS)[number];
 
 /** Amounts of coins and goods by id, e.g. `{ coins: 20, wood: 5 }`. */
 export type CostMap = Readonly<Record<string, number>>;
@@ -53,16 +83,46 @@ export interface BuildingType {
   /** What it costs to build (empty for paths). */
   readonly cost: CostMap;
   readonly production?: ProductionDef;
+  /** Where the shop sells it (not for paths). */
+  readonly shop?: { readonly category: ShopCategory };
+  /** What has to be reached before it can be built; without it the type is free from the start. */
+  readonly unlock?: UnlockDef;
+  /** Island category only: the change of the map. */
+  readonly island?: { readonly action: IslandAction };
   readonly look: {
     readonly shape: string;
     readonly palette?: string;
     /** How far the picture reaches up over the footprint, in world pixels. */
     readonly rise: number;
+    /** Draw the placeholder picture of a house this many times bigger (big houses). */
+    readonly scale?: number;
   };
 }
 
 /** Shapes the placeholder graphics can draw (`look.shape`). */
-export const BUILDING_SHAPES = ['path', 'mushroomHouse', 'flower', 'bush', 'fence', 'bench', 'lantern', 'fountain', 'lumberjackHut', 'berryGarden', 'quarry', 'carpenterShop', 'bakery', 'market'] as const;
+export const BUILDING_SHAPES = [
+  'path',
+  'mushroomHouse',
+  'gardenHouse',
+  'flower',
+  'bush',
+  'fence',
+  'bench',
+  'lantern',
+  'fountain',
+  'flowerbed',
+  'pond',
+  'lumberjackHut',
+  'berryGarden',
+  'quarry',
+  'carpenterShop',
+  'bakery',
+  'market',
+  'islandTree',
+  'islandRock',
+  'islandBeach',
+  'islandMeadow',
+] as const;
 
 export const BUILDING_TYPES: readonly BuildingType[] = buildingsJson.types as readonly unknown[] as readonly BuildingType[];
 
@@ -77,3 +137,42 @@ export function buildingType(id: string): BuildingType | undefined {
 export function typesOf(category: BuildingCategory): readonly BuildingType[] {
   return BUILDING_TYPES.filter((type) => type.category === category);
 }
+
+/** The types sold in a tab of the shop, in the order of the file. */
+export function shopItems(category: ShopCategory): readonly BuildingType[] {
+  return BUILDING_TYPES.filter((type) => type.shop?.category === category);
+}
+
+/** The shop tab a type is sold in, or `undefined` (paths, unknown ids). */
+export function shopCategoryOf(typeId: string): ShopCategory | undefined {
+  return byId.get(typeId)?.shop?.category;
+}
+
+/**
+ * The unlock condition of a type with sanitized numbers (a whole number of at
+ * least 1, a known building that is not the type itself), or `undefined` if
+ * the type is free – or its condition is broken: a broken entry never locks a
+ * type for good. A test also fails on broken entries.
+ */
+export function unlockOf(typeId: string): UnlockDef | undefined {
+  const def = byId.get(typeId)?.unlock as Partial<Record<string, unknown>> | undefined;
+  if (!def) {
+    return undefined;
+  }
+  const whole = (value: unknown): value is number => typeof value === 'number' && Number.isInteger(value) && value >= 1;
+  switch (def['kind']) {
+    case 'count':
+      return typeof def['building'] === 'string' && def['building'] !== typeId && byId.has(def['building']) && whole(def['count'])
+        ? { kind: 'count', building: def['building'], count: def['count'] }
+        : undefined;
+    case 'houses':
+      return whole(def['count']) ? { kind: 'houses', count: def['count'] } : undefined;
+    case 'earned':
+      return whole(def['coins']) ? { kind: 'earned', coins: def['coins'] } : undefined;
+    default:
+      return undefined;
+  }
+}
+
+/** The ids of all types that have to be unlocked, in the order of the file. */
+export const LOCKED_TYPE_IDS: readonly string[] = BUILDING_TYPES.filter((type) => unlockOf(type.id) !== undefined).map((type) => type.id);

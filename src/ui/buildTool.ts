@@ -17,6 +17,7 @@ import type { SimState } from '../sim/state';
 import { ITEM_IDS } from '../data/goods';
 import { canAfford, missingFor, refundFor } from '../sim/economy';
 import { findRoute, type RouteFailure } from '../sim/route';
+import type { Terrain } from '../sim/world';
 import type { Point } from './cameraMath';
 import { listText, missingParams, totalUnits } from './costText';
 import { TILE_SIZE } from './style';
@@ -97,11 +98,19 @@ export function anchorFor(typeId: string, tile: Tile): Tile {
   return { x: tile.x - Math.floor((type.footprint.w - 1) / 2), y: tile.y - (type.footprint.h - 1) };
 }
 
-/** The sentence that explains why something can not be built there. */
-export function problemHint(problem: PlacementProblem, forPath = false): TextKey | undefined {
+/**
+ * The sentence that explains why something can not be built there. `typeId`
+ * (optional) is the thing that was meant: island items say it in their own
+ * words ("Das geht nur auf der Wiese.").
+ */
+export function problemHint(problem: PlacementProblem, forPath = false, typeId?: string): TextKey | undefined {
   switch (problem.result) {
     case 'ok':
       return undefined;
+    case 'locked':
+      return 'hint.locked';
+    case 'noCoast':
+      return 'hint.islandNoCoast';
     case 'blocked':
       return 'hint.occupied';
     case 'outOfMap':
@@ -110,7 +119,11 @@ export function problemHint(problem: PlacementProblem, forPath = false): TextKey
       return problem.terrain === 'rock' ? 'hint.noRock' : 'hint.noForest';
     case 'cost':
       return totalUnits(problem.missing ?? {}) === 1 ? 'hint.missingOne' : 'hint.missing';
-    case 'terrain':
+    case 'terrain': {
+      const island = typeId === undefined ? undefined : islandHint(typeId, problem.terrain);
+      if (island) {
+        return island;
+      }
       switch (problem.terrain) {
         case 'water':
           return 'hint.water';
@@ -124,6 +137,23 @@ export function problemHint(problem: PlacementProblem, forPath = false): TextKey
         case undefined:
           return 'hint.cantBuild';
       }
+    }
+  }
+}
+
+/** What an island item says when the ground under it is wrong (`undefined`: not an island item). */
+function islandHint(typeId: string, terrain: Terrain | undefined): TextKey | undefined {
+  switch (buildingType(typeId)?.island?.action) {
+    case 'plantTree':
+    case 'placeRock':
+      // On water the plain "Hier ist Wasser." says it best; a tree or rock already there is "occupied".
+      return terrain === 'water' ? 'hint.water' : terrain === 'forest' || terrain === 'rock' ? 'hint.occupied' : 'hint.islandGrassOnly';
+    case 'fillLand':
+      return 'hint.islandWaterOnly';
+    case 'makeMeadow':
+      return terrain === 'water' ? 'hint.water' : 'hint.islandSandOnly';
+    case undefined:
+      return undefined;
   }
 }
 
