@@ -9,7 +9,7 @@ import { format, formatNumber, placeholdersOf, t, themeValues, type TextKey } fr
  * Placeholders that are filled at runtime via `t(key, params)` instead of the
  * theme. Add new names here when a text needs one (e.g. `count`).
  */
-const RUNTIME_PLACEHOLDERS = new Set<string>(['count', 'name', 'list', 'way', 'good', 'current', 'needed', 'news', 'valuable', 'job', 'color', 'house']);
+const RUNTIME_PLACEHOLDERS = new Set<string>(['count', 'name', 'list', 'way', 'good', 'current', 'needed', 'news', 'valuable', 'job', 'color', 'house', 'activity']);
 
 const keys = Object.keys(texts) as TextKey[];
 

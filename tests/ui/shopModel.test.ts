@@ -2,8 +2,10 @@ import { describe, expect, it } from 'vitest';
 import { BUILDING_TYPES, SHOP_CATEGORIES, buildingType, shopItems, unlockOf } from '../../src/data/buildings';
 import { t } from '../../src/data/texts';
 import { createInitialState } from '../../src/sim/state';
-import { nameList, newItemsText, progressText, shopCard, shopCards, unlockIcons, unlockSentenceText } from '../../src/ui/shopModel';
-import { setStore } from '../sim/helpers';
+import { MAX_RESIDENTS } from '../../src/sim/limits';
+import type { SimState } from '../../src/sim/state';
+import { nameList, newItemsText, noRoomSentence, progressText, roomText, shopCard, shopCards, unlockIcons, unlockSentenceText } from '../../src/ui/shopModel';
+import { grassState, run, setStore } from '../sim/helpers';
 
 describe('shopCards', () => {
   it('liefert zu jedem Reiter eine Karte je Artikel, in der Reihenfolge der Datei', () => {
@@ -132,3 +134,52 @@ describe('Meldung „Neu im Shop“', () => {
     expect(newItemsText([...longest.slice(0, 2), 'carpenter']).length).toBeLessThanOrEqual(110);
   });
 });
+
+describe('Einladen im Shop (M6)', () => {
+  it('am Start sind alle Häuser voll: die Karte hat keinen Platz, sagt warum und zeigt Bewohner/Platz', () => {
+    const state = createInitialState(1);
+    const card = shopCard(state, 'invite');
+    expect(card.state).toBe('noRoom');
+    expect(card.room).toEqual({ residents: 2, capacity: 2, reason: 'noHouse' });
+    expect(noRoomSentence(card)).toBe(t('shop.noHouse'));
+    expect(card.room ? roomText(card.room) : '').toBe('2/2');
+  });
+
+  it('mit einem freien Haus ist sie kaufbar oder zu teuer – wie jede Karte', () => {
+    const state = grassState();
+    run(state, { type: 'placeBuilding', buildingType: 'house-big', x: 3, y: 3 });
+    const ok = shopCard(state, 'invite');
+    expect(ok.state).toBe('ok');
+    expect(ok.room).toEqual({ residents: 0, capacity: 4 });
+    expect(noRoomSentence(ok)).toBe('');
+    setStore(state, { coins: 5 });
+    const dear = shopCard(state, 'invite');
+    expect(dear.state).toBe('dear');
+    expect(dear.missing).toEqual({ coins: 25 });
+  });
+
+  it('kein Platz geht vor „zu teuer“', () => {
+    const state = createInitialState(1);
+    setStore(state, {});
+    expect(shopCard(state, 'invite').state).toBe('noRoom');
+  });
+
+  it('ist das Dorf voll (500 Bewohner), sagt die Karte das', () => {
+    const state = grassState();
+    run(state, { type: 'placeBuilding', buildingType: 'house-big', x: 3, y: 3 });
+    const one = state.residents[0];
+    state.residents = Array.from({ length: MAX_RESIDENTS }, (_, i) => ({ ...(one ?? fakeResident()), id: i + 1, home: null }));
+    const card = shopCard(state, 'invite');
+    expect(card.state).toBe('noRoom');
+    expect(card.room?.reason).toBe('full');
+    expect(noRoomSentence(card)).toBe(t('shop.residentsFull'));
+  });
+
+  it('die Einladung steht als erste Karte im Reiter Häuser', () => {
+    expect(shopItems('houses')[0]?.id).toBe('invite');
+  });
+});
+
+function fakeResident(): SimState['residents'][number] {
+  return { id: 1, name: 'Lumo', hat: 0, home: null, job: null, at: 0, route: [], step: 0, doing: 'stay', goal: 'visit', place: null, timer: 1, carrying: null, seen: 0, trips: 0 };
+}

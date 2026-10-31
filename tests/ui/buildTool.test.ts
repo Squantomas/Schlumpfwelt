@@ -1328,3 +1328,133 @@ describe('Hinweise ohne falsche Anleitung (T3, T8)', () => {
     expect(tool.hint).toBe('hint.missing');
   });
 });
+
+describe('Bewohner (M6)', () => {
+  /** Grass with a red house (room for 2) and a path to it. */
+  const withHouse = (): ReturnType<typeof setup> => {
+    const ctx = setup();
+    run(ctx.state, { type: 'placeBuilding', buildingType: 'house-red', x: 3, y: 3 }, { type: 'placePaths', tiles: [{ x: 3, y: 5 }, { x: 4, y: 5 }] });
+    return ctx;
+  };
+
+  it('Einladen: die Karte startet sofort die Vorschau (ohne Platz), ✓ sendet inviteResident und geht zurück aufs Anschauen', () => {
+    const { state, tool, sent } = withHouse();
+    expect(tool.chooseItem('invite')).toBeUndefined();
+    expect(tool.tool).toBe('place');
+    expect(tool.item).toBe('invite');
+    const preview = tool.preview();
+    expect(preview.kind).toBe('invite');
+    expect(preview.kind === 'invite' ? preview.result : '').toBe('ok');
+    expect(preview.kind === 'invite' ? preview.home : undefined).toBe(state.buildings[0]?.id);
+    expect(tool.hasPreview).toBe(true);
+    expect(tool.canConfirm).toBe(true);
+    expect(tool.hint).toBe('hint.invite');
+    const coins = state.inventory['coins'] ?? 0;
+    expect(tool.confirm()).toBeUndefined();
+    expect(sent.at(-1)).toEqual({ type: 'inviteResident', typeId: 'invite' });
+    expect(state.residents).toHaveLength(1);
+    expect(state.inventory['coins']).toBe(coins - 30);
+    expect(tool.tool).toBe('view');
+    expect(tool.hasPreview).toBe(false);
+  });
+
+  it('ein Tipp auf die Insel ändert an der Einladung nichts; ✕ beendet sie', () => {
+    const { tool, sent } = withHouse();
+    tool.chooseItem('invite');
+    const before = tool.preview();
+    expect(tool.tap({ x: 8, y: 8 })).toBeUndefined();
+    expect(tool.preview()).toEqual(before);
+    tool.cancel();
+    expect(tool.tool).toBe('view');
+    expect(sent.some((command) => command.type === 'inviteResident')).toBe(false);
+  });
+
+  it('ohne freies Haus wird die Einladung nicht gewählt und sagt warum', () => {
+    const { tool } = setup();
+    expect(tool.chooseItem('invite')).toBe('hint.noHouse');
+    expect(tool.tool).toBe('view');
+    const full = withHouse();
+    full.tool.chooseItem('invite');
+    full.tool.confirm();
+    full.tool.chooseItem('invite');
+    full.tool.confirm();
+    expect(full.state.residents).toHaveLength(2);
+    expect(full.tool.chooseItem('invite')).toBe('hint.noHouse');
+    expect(full.tool.tool).toBe('view');
+  });
+
+  it('wird das Haus während der Vorschau voll, ist ✓ aus und der Hinweis sagt es', () => {
+    const { state, tool } = withHouse();
+    tool.chooseItem('invite');
+    run(state, { type: 'inviteResident', typeId: 'invite' }, { type: 'inviteResident', typeId: 'invite' });
+    expect(tool.canConfirm).toBe(false);
+    expect(tool.hint).toBe('hint.noHouse');
+    expect(tool.confirm()).toBe('hint.noHouse');
+  });
+
+  it('zu wenig Taler: wählbar, aber ✓ ist aus und der Hinweis nennt, was fehlt', () => {
+    const { state, tool, sent } = withHouse();
+    setStore(state, { coins: 10 });
+    expect(tool.chooseItem('invite')).toBeUndefined();
+    expect(tool.canConfirm).toBe(false);
+    expect(tool.hint).toBe('hint.missing');
+    expect(t(tool.hint ?? 'hint.place', tool.hintParams)).toContain('20');
+    expect(tool.confirm()).toBe('hint.missing');
+    expect(sent.some((command) => command.type === 'inviteResident')).toBe(false);
+  });
+
+  it('Bewohner antippen öffnet seine Karte; ein Gebäude, ein anderes Werkzeug oder closeInfo schließen sie', () => {
+    const { state, tool } = withHouse();
+    run(state, { type: 'inviteResident', typeId: 'invite' });
+    const id = state.residents[0]?.id ?? -1;
+    tool.inspectResident(id);
+    expect(tool.inspectedResidentId).toBe(id);
+    expect(tool.cardOpen).toBe(true);
+    tool.closeInfo();
+    expect(tool.inspectedResidentId).toBeUndefined();
+    expect(tool.cardOpen).toBe(false);
+    tool.inspectResident(id);
+    // A tap on the island (nothing there) closes it.
+    tool.tap({ x: 12, y: 12 });
+    expect(tool.inspectedResidentId).toBeUndefined();
+    tool.inspectResident(id);
+    tool.selectTool('path');
+    expect(tool.inspectedResidentId).toBeUndefined();
+    tool.exitTool();
+    expect(tool.inspectedResidentId).toBeUndefined();
+  });
+
+  it('die Karte eines Gebäudes und die eines Bewohners sind nie gleichzeitig offen', () => {
+    const { state, tool } = withHouse();
+    run(state, { type: 'placeBuilding', buildingType: 'berry-garden', x: 8, y: 3 }, { type: 'placePaths', tiles: [{ x: 8, y: 5 }] });
+    const garden = state.buildings.find((b) => b.type === 'berry-garden')?.id ?? -1;
+    const worker = state.residents[0]?.id ?? -1;
+    expect(worker).toBeGreaterThan(0);
+    tool.inspectResident(worker);
+    tool.inspect(garden);
+    expect(tool.inspectedId).toBe(garden);
+    expect(tool.inspectedResidentId).toBeUndefined();
+    tool.inspectResident(worker);
+    expect(tool.inspectedId).toBeUndefined();
+    expect(tool.inspectedResidentId).toBe(worker);
+  });
+
+  it('öffnet keine Karte für unbekannte Bewohner und nicht außerhalb des Anschauens', () => {
+    const { state, tool } = withHouse();
+    tool.inspectResident(99);
+    expect(tool.inspectedResidentId).toBeUndefined();
+    run(state, { type: 'inviteResident', typeId: 'invite' });
+    tool.selectTool('demolish');
+    tool.inspectResident(state.residents[0]?.id ?? -1);
+    expect(tool.inspectedResidentId).toBeUndefined();
+  });
+
+  it('schließt die Karte, wenn es den Bewohner nicht mehr gibt (ein anderes Dorf geladen)', () => {
+    const { state, tool } = withHouse();
+    run(state, { type: 'inviteResident', typeId: 'invite' });
+    tool.inspectResident(state.residents[0]?.id ?? -1);
+    state.residents = [];
+    tool.refresh();
+    expect(tool.inspectedResidentId).toBeUndefined();
+  });
+});

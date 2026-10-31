@@ -148,6 +148,7 @@
   "resident.hat": "{hat}: {color}",
   "resident.home": "Zuhause: {house}",
   "resident.homeless": "Sucht noch ein Zuhause.",
+  "resident.sentence": "{name}: {activity}",
   "activity.boat": "Kommt gerade mit dem Boot.",
   "activity.toWork": "Geht zur Arbeit.",
   "activity.work": "Ist fleißig bei der Arbeit.",
