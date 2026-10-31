@@ -8,6 +8,22 @@ import { Bot } from './bot';
 
 const SECOND = 10;
 
+/**
+ * Lässt den Bot `ticks` Ticks lang spielen, genau ein Tick pro Durchlauf: alle zwei Sekunden verbindet er Gebäude, einen Tick
+ * später bestellt er das Nächste (die Befehle gelten jeweils zu Beginn des nächsten Ticks). `onTick` sieht den Stand nach jedem Tick.
+ */
+function playBot(sim: Simulation, bot: Bot, wishes: readonly string[], ticks: number, onTick?: (tick: number) => void): void {
+  for (let i = 0; i < ticks; i += 1) {
+    if (i % 20 === 0) {
+      bot.connectAll();
+    } else if (i % 20 === 1) {
+      bot.buildNext(wishes);
+    }
+    sim.update(sim.tickMs);
+    onTick?.(sim.state.tick);
+  }
+}
+
 /** Taler, die das Startdorf ohne jede Hilfe nach `seconds` Sekunden gesammelt hat. */
 function coinsAfter(sim: Simulation, seconds: number): number {
   for (let i = 0; i < seconds * SECOND; i += 1) {
@@ -34,7 +50,7 @@ describe('Einkommen am Start (Korrekturrunde 1, T2)', () => {
       coinsAfter(sim, 1);
       seconds += 1;
     }
-    expect(seconds).toBeGreaterThanOrEqual(70);
+    expect(seconds).toBeGreaterThanOrEqual(80);
     expect(seconds).toBeLessThanOrEqual(95);
   });
 
@@ -58,38 +74,25 @@ describe('Einkommen am Start (Korrekturrunde 1, T2)', () => {
     const plain = new Simulation(createInitialState(1));
     const chain = new Simulation(createInitialState(1));
     const bot = new Bot(chain);
-    for (let i = 0; i < 240 * SECOND; i += 1) {
-      if (i % 20 === 0) {
-        bot.connectAll();
-        chain.update(chain.tickMs);
-        bot.buildNext(['bakery']);
-      }
-      chain.update(chain.tickMs);
-    }
+    playBot(chain, bot, ['bakery'], 240 * SECOND);
     coinsAfter(plain, 240);
     expect(chain.state.earnedCoins).toBeGreaterThan(plain.state.earnedCoins * 1.25);
   });
 });
 
 describe('Freischaltung über verdiente Taler (T2)', () => {
-  it('ist auch für jemanden erreichbar, der nur Bäckerei und Häuser baut: erste nach 2 Minuten, die letzte zwischen 4 und 15 Minuten', () => {
+  it('ist auch für jemanden erreichbar, der nur Bäckerei und Häuser baut: erste nach 2 Minuten, die letzte zwischen 5 und 15 Minuten', () => {
     const sim = new Simulation(createInitialState(1));
     const bot = new Bot(sim);
     const wishes = ['bakery', 'house-blue', 'house-yellow', 'house-red'];
     const at = new Map<string, number>();
-    for (let i = 0; i < 15 * 600; i += 1) {
-      if (i % 20 === 0) {
-        bot.connectAll();
-        sim.update(sim.tickMs);
-        bot.buildNext(wishes);
-      }
-      sim.update(sim.tickMs);
+    playBot(sim, bot, wishes, 15 * 600, (tick) => {
       for (const id of sim.state.unlocked) {
         if (!at.has(id)) {
-          at.set(id, i / 600);
+          at.set(id, tick / 600);
         }
       }
-    }
+    });
     const earned = LOCKED_TYPE_IDS.filter((id) => unlockOf(id)?.kind === 'earned');
     expect(earned.length).toBeGreaterThanOrEqual(5);
     for (const id of earned) {
@@ -97,7 +100,7 @@ describe('Freischaltung über verdiente Taler (T2)', () => {
     }
     const times = earned.map((id) => at.get(id) ?? Number.POSITIVE_INFINITY);
     expect(Math.min(...times)).toBeLessThanOrEqual(2);
-    expect(Math.max(...times)).toBeGreaterThanOrEqual(4);
+    expect(Math.max(...times)).toBeGreaterThanOrEqual(5);
     expect(Math.max(...times)).toBeLessThanOrEqual(15);
   });
 
