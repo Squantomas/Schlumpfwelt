@@ -56,7 +56,9 @@ async function start(root: HTMLElement): Promise<void> {
   const autosave = begin.autosave ? new Autosave(store, () => simulation.state) : undefined;
   holder.autosave = autosave;
   if (autosave) {
-    saveWhenLeaving(autosave);
+    saveWhenLeaving(autosave, () => {
+      simulation.applyPending();
+    });
   }
   const session = new GameSession(simulation, store, autosave, begin.kind, begin.notice);
   const view = measureViewport(root);

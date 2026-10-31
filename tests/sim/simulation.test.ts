@@ -145,4 +145,21 @@ describe('Simulation', () => {
     other.inventory['coins'] = 1;
     expect(sim.state.inventory['coins']).toBe(4321);
   });
+
+  it('applyPending wendet wartende Befehle sofort an, ohne dass ein Tick vergeht', () => {
+    const sim = new Simulation(createInitialState(1));
+    sim.update(100);
+    const tick = sim.state.tick;
+    sim.send({ type: 'setPaused', paused: true });
+    expect(sim.state.paused).toBe(false);
+    sim.applyPending();
+    expect(sim.state.paused).toBe(true);
+    expect(sim.state.tick).toBe(tick);
+    // Nothing is applied twice.
+    sim.send({ type: 'setPaused', paused: false });
+    sim.update(100);
+    expect(sim.state.paused).toBe(false);
+    sim.applyPending();
+    expect(sim.state.paused).toBe(false);
+  });
 });

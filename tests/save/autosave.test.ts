@@ -294,7 +294,7 @@ describe('Speichern beim Verlassen der Seite', () => {
     autosave.update(0);
     const doc = Object.assign(new EventTarget(), { visibilityState: 'visible' }) as unknown as Document;
     const win = new EventTarget() as unknown as Window;
-    const stop = saveWhenLeaving(autosave, doc, win);
+    const stop = saveWhenLeaving(autosave, () => undefined, doc, win);
 
     state.tick = 7;
     (doc as unknown as { visibilityState: string }).visibilityState = 'visible';
@@ -418,5 +418,54 @@ describe('Autosave: ein anderes Fenster hat übernommen (N1, N4)', () => {
     store.finish();
     await settle();
     expect(store.writes).toHaveLength(1);
+  });
+
+  it('prepare läuft vor dem Speichern: ein Befehl, dessen Tick nicht mehr kam, ist im gespeicherten Stand', async () => {
+    const state = createInitialState(2);
+    const store = new MemoryStore();
+    const autosave = new Autosave(store, () => state);
+    autosave.update(0);
+    const doc = Object.assign(new EventTarget(), { visibilityState: 'visible' }) as unknown as Document;
+    const win = new EventTarget() as unknown as Window;
+    // The command is "applied" by the prepare step (in the game: `simulation.applyPending()`).
+    const stop = saveWhenLeaving(
+      autosave,
+      () => {
+        state.revision += 1;
+        state.inventory['coins'] = 4242;
+      },
+      doc,
+      win,
+    );
+    win.dispatchEvent(new Event('pagehide'));
+    await settle();
+    expect(store.writes).toBe(1);
+    const saved = (await store.load()) as { inventory: Record<string, number> };
+    expect(saved.inventory['coins']).toBe(4242);
+    stop();
+  });
+
+  it('flush beim Verlassen startet neben einem laufenden Schreibvorgang sofort einen zweiten (die Seite erlebt den Nachschlag nicht mehr)', async () => {
+    const state = createInitialState(2);
+    const store = new SlowStore();
+    const autosave = new Autosave(store, () => state);
+    autosave.update(0);
+    state.revision += 1;
+    autosave.update(100);
+    expect(store.writes).toHaveLength(1);
+    // A second building while the first write is still running, then the page is left.
+    state.revision += 1;
+    state.tick += 3;
+    const done = autosave.flush();
+    expect(store.writes).toHaveLength(2);
+    expect((store.writes[1] as { revision: number }).revision).toBe(state.revision);
+    store.finish();
+    await done;
+    await settle();
+    // Nothing more to write afterwards.
+    autosave.update(5000);
+    await settle();
+    expect(store.writes).toHaveLength(2);
+    expect(autosave.stats.saves).toBe(2);
   });
 });

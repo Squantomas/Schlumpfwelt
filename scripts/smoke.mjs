@@ -86,6 +86,7 @@ const KEEP_SCREENSHOTS = new Set([
   'tablet-menu-handy-quer',
   'tablet-menu-handy-hochkant',
   'tablet-offline',
+  'tablet-weiterspielen',
 ]);
 
 /** Kachelgröße und Wasser-Rand der Kamera (siehe `TILE_SIZE` und `camera.json`). */
@@ -2047,7 +2048,10 @@ async function testShopSmall({ page, check, shot, size, input, name }) {
 const SAVE_URL = `${URL}?seed=1`;
 const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 
-/** Der Spielstand (`main`) oder eine Kopie (`backup`, `backup-latest`) in der echten IndexedDB der Seite (`null`, wenn nichts da ist). */
+/**
+ * Der Spielstand (`main`: das Dorf des neuesten Fensters, siehe `indexedDbStore.ts`) oder eine Kopie (`backup`, `backup-latest`)
+ * in der echten IndexedDB der Seite (`null`, wenn nichts da ist).
+ */
 async function readRecord(page, key = 'main') {
   return page.evaluate(
     (name) =>
@@ -2061,19 +2065,32 @@ async function readRecord(page, key = 'main') {
             resolve(null);
             return;
           }
-          const request = db.transaction('saves').objectStore('saves').get(name);
-          request.onsuccess = () => {
+          const objects = db.transaction('saves').objectStore('saves');
+          const get = (k) =>
+            new Promise((res, rej) => {
+              const request = objects.get(k);
+              request.onsuccess = () => res(request.result);
+              request.onerror = () => rej(request.error);
+            });
+          (async () => {
+            let value;
+            if (name === 'main') {
+              const owner = await get('owner');
+              if (typeof owner === 'string') value = await get(`data:${owner}`);
+              value ??= await get('main');
+            } else {
+              value = await get(name);
+            }
             db.close();
-            resolve(request.result ?? null);
-          };
-          request.onerror = () => reject(request.error);
+            resolve(value ?? null);
+          })().catch(reject);
         };
       }),
     key,
   );
 }
 
-/** Schreibt einen Spielstand (oder einen kaputten) in die IndexedDB der Seite. */
+/** Schreibt einen Spielstand (oder einen kaputten) so in die IndexedDB der Seite, wie es ein Spiel vor der Fensterregel getan hätte (Schlüssel `main`, kein Besitzer). */
 async function writeRecord(page, value) {
   await page.evaluate(
     (data) =>
@@ -2084,7 +2101,14 @@ async function writeRecord(page, value) {
         open.onsuccess = () => {
           const db = open.result;
           const transaction = db.transaction('saves', 'readwrite');
-          transaction.objectStore('saves').put(data, 'main');
+          const objects = transaction.objectStore('saves');
+          const keys = objects.getAllKeys();
+          keys.onsuccess = () => {
+            for (const key of keys.result) {
+              if (key === 'owner' || (typeof key === 'string' && key.startsWith('data:'))) objects.delete(key);
+            }
+            objects.put(data, 'main');
+          };
           transaction.oncomplete = () => {
             db.close();
             resolve();
@@ -2406,7 +2430,7 @@ async function testSaving({ browser, page, check, shot, size, input, name, profi
   check(count(village, 'flower') === count(beforeClose, 'flower') + 1, `Hartes Schließen: ${count(village, 'flower')} statt ${count(beforeClose, 'flower') + 1} Blumen – der letzte Bau ging verloren`);
 
   // --- Zwei Fenster: das neueste speichert, das alte sagt es und schreibt nichts mehr (N1) ---
-  step('Zwei Fenster: das neue übernimmt, das alte schreibt nichts mehr');
+  step('Zwei Fenster: das neue übernimmt, das alte zeigt „Hier weiterspielen“');
   await overview();
   await placeSmall('flower', [0.5, 0.3], 'die Blume im ersten Fenster', (v, v0) => count(v, 'flower') === count(v0, 'flower') + 1);
   await exitTool();
@@ -2427,8 +2451,18 @@ async function testSaving({ browser, page, check, shot, size, input, name, profi
   const other = await waitForVillage(second, (v) => v.buildings.length > 0 && v.save.store !== undefined, 'das Dorf im zweiten Fenster', 30_000);
   check(other.save.start === 'loaded' && other.save.autosave === true && other.save.lost === false, `Zweites (neues) Fenster: ${JSON.stringify(other.save)}`);
   check(count(other, 'flower') === flowersA, `Zweites Fenster: ${count(other, 'flower')} statt ${flowersA} Blumen – der letzte Stand des ersten ging verloren`);
-  const alt = await waitForVillage(page, (v) => v.save.lost === true, 'die Meldung „anderes Fenster“ im ersten Fenster', 15_000);
-  check(/jetzt in einem anderen Fenster/.test(alt.hint) && alt.save.autosave === false, `Erstes (altes) Fenster: Hinweis „${alt.hint}“, ${JSON.stringify(alt.save)}`);
+  const alt = await waitForVillage(page, (v) => v.save.lost === true && v.menu === 'lost' && 'lost-play' in v.ui, 'die Ebene „Hier weiterspielen“ im ersten Fenster', 15_000);
+  check(alt.save.autosave === false, `Erstes (altes) Fenster: ${JSON.stringify(alt.save)}`);
+  check(alt.ui['lost-play'].w >= 80 && alt.ui['lost-play'].h >= 80, `Ebene: der Knopf ist ${alt.ui['lost-play'].w}×${alt.ui['lost-play'].h} px groß, erwartet mindestens 80 px`);
+  const lostPanel = alt.ui['lost-panel'];
+  check(lostPanel.x - lostPanel.w / 2 >= 0 && lostPanel.x + lostPanel.w / 2 <= size.width && lostPanel.y - lostPanel.h / 2 >= 0 && lostPanel.y + lostPanel.h / 2 <= size.height, 'Ebene: das Feld ragt aus dem Bild');
+  await shot(`${name}-weiterspielen`);
+  // Die Ebene schluckt alle Tipps: weder die Werkzeugleiste noch die Welt reagieren, es kann nichts gebaut werden.
+  await input.tap(alt.ui['tool-shop']);
+  await input.tap({ x: size.width / 2, y: size.height / 2 });
+  await sleep(700);
+  const covered = await readVillage(page);
+  check(covered.shop === 'closed' && covered.tool === 'view' && covered.lastTap === alt.lastTap && covered.menu === 'lost', `Ebene: ein Tipp darunter hat etwas bewirkt (Shop ${covered.shop}, Werkzeug ${covered.tool}, Tipp ${covered.lastTap}, Menü ${covered.menu})`);
   // Das neue Fenster baut und speichert …
   const second2 = buildHelpers({ page: second, check, size, input: profile.context.hasTouch ? { tap: (p2) => second.touchscreen.tap(p2.x, p2.y) } : { tap: (p2) => second.mouse.click(p2.x, p2.y) }, name });
   await second2.pickItem('flower');
@@ -2440,21 +2474,34 @@ async function testSaving({ browser, page, check, shot, size, input, name, profi
     await waitForVillage(second, (v) => v.preview === 'place:ok', 'grüne Vorschau im zweiten Fenster');
     await second2.confirm((v) => count(v, 'flower') === flowersA + 1, 'die Blume im zweiten Fenster');
   }
-  const recordNew = await waitForRecord(page, (r) => r.buildings.filter((b) => b.type === 'flower').length === flowersA + 1, 'die Blume des zweiten Fensters in der IndexedDB');
-  // … das alte baut noch etwas, aber nichts davon wird geschrieben.
-  await placeSmall('bush', [0.35, 0.62], 'den Busch im alten Fenster', (v, v0) => count(v, 'bush') === count(v0, 'bush') + 1);
-  await exitTool();
-  await sleep(3000);
-  const recordAfter = await readRecord(page);
-  check(recordAfter.buildings.length === recordNew.buildings.length && !recordAfter.buildings.some((b) => !recordNew.buildings.some((n) => n.id === b.id && n.type === b.type)), 'Altes Fenster: sein Bau wurde in den Spielstand des neuen Fensters geschrieben');
+  await waitForRecord(page, (r) => r.buildings.filter((b) => b.type === 'flower').length === flowersA + 1, 'die Blume des zweiten Fensters in der IndexedDB');
+  await sleep(1500);
   check((await readVillage(page)).save.saves === alt.save.saves, 'Altes Fenster: meldet weitere Schreibvorgänge');
+  // Das zweite Fenster geht zu: das erste bleibt „verloren“, bis das Kind „Hier weiterspielen“ tippt – dann lädt es neu, übernimmt
+  // und liest den Stand des zweiten Fensters.
   await second.close();
   for (const entry of secondProblems) problems.push(entry);
-  // Neuladen des alten Fensters: nichts geht verloren (die Blumen beider Fenster, kein Busch des alten).
+  await sleep(500);
+  check((await readVillage(page)).menu === 'lost', 'Ebene: sie ist nach dem Schließen des zweiten Fensters verschwunden (das erste Fenster speichert nicht)');
+  await input.tap(alt.ui['lost-play']);
+  await page.waitForSelector('html[data-scene="boot"]', { state: 'attached', timeout: 40_000 });
+  await page.waitForTimeout(500);
+  if (profile.context.hasTouch) await page.touchscreen.tap(size.width / 2, size.height * 0.54);
+  else await page.mouse.click(size.width / 2, size.height * 0.54);
+  await page.waitForSelector('html[data-scene="island"]', { state: 'attached', timeout: 40_000 });
+  village = await waitForSave((v) => v.buildings.length > 0, 'das Dorf nach „Hier weiterspielen“', 30_000);
+  check(village.save.start === 'loaded' && village.save.autosave === true && village.save.lost === false && village.menu === 'closed', `Nach „Hier weiterspielen“: ${JSON.stringify(village.save)}, Menü ${village.menu}`);
+  check(count(village, 'flower') === flowersA + 1, `Nach „Hier weiterspielen“: ${count(village, 'flower')} statt ${flowersA + 1} Blumen (der Stand des zweiten Fensters)`);
+  // … und es speichert wieder: der nächste Bau geht auch bei hartem Schließen nicht verloren.
+  step('Hartes Schließen gleich nach der Übernahme');
+  await overview();
+  const beforeTake = await readVillage(page);
+  await placeSmall('flower', [0.45, 0.32], 'die Blume nach der Übernahme', (v, v0) => count(v, 'flower') === count(v0, 'flower') + 1);
+  await sleep(250);
+  await page.goto('about:blank');
   await enterIsland(page, profile, waitForScene, SAVE_URL);
-  village = await waitForSave((v) => v.buildings.length > 0, 'das Dorf nach den zwei Fenstern');
-  check(village.save.start === 'loaded' && village.save.autosave === true && village.save.lost === false, `Nach den zwei Fenstern: ${JSON.stringify(village.save)}`);
-  check(count(village, 'flower') === flowersA + 1, `Nach den zwei Fenstern: ${count(village, 'flower')} statt ${flowersA + 1} Blumen`);
+  village = await waitForSave((v) => v.buildings.length > 0, 'das Dorf nach Übernahme und hartem Schließen');
+  check(count(village, 'flower') === count(beforeTake, 'flower') + 1, `Hartes Schließen nach der Übernahme: ${count(village, 'flower')} statt ${count(beforeTake, 'flower') + 1} Blumen – der Bau ging verloren`);
 
   // --- Kaputter Spielstand beim Start ---
   step('Start mit kaputtem Spielstand');

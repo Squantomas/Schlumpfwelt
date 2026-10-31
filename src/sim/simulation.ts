@@ -48,6 +48,22 @@ export class Simulation {
     this.clock.reset();
   }
 
+  /**
+   * Applies the commands that wait for the next tick right now (without letting time pass). For the moment a page is
+   * left: a building that was ordered a moment ago, and whose frame never came, is part of what is saved then.
+   */
+  applyPending(): void {
+    const commands = this.queue;
+    this.queue = [];
+    for (const command of commands) {
+      applyCommand(this.current, command);
+    }
+    if (commands.length > 0) {
+      refreshStatuses(this.current);
+      checkUnlocks(this.current);
+    }
+  }
+
   /** Queues a command; it takes effect at the start of the next tick. */
   send(command: Command): void {
     this.queue.push(command);

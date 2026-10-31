@@ -115,7 +115,11 @@ export class Autosave {
     }
   }
 
-  /** The page is being left or hidden: save at once if anything changed since the last save. */
+  /**
+   * The page is being left or hidden: save at once if anything changed since the last save. If a write is running, a second
+   * one is started **right away** instead of waiting for it – a page that is closed does not live to see the follow-up, and
+   * IndexedDB runs transactions in the order they were made, so the newest state is the one that stays.
+   */
   flush(): Promise<void> {
     if (this.lost) {
       return Promise.resolve();
@@ -124,10 +128,38 @@ export class Autosave {
     if (!this.seen) {
       this.remember(state, this.lastNow);
     }
-    if (state.tick !== this.savedTick || state.revision !== this.savedRevision || this.inFlight) {
+    if (this.inFlight) {
+      return this.writeAlongside();
+    }
+    if (state.tick !== this.savedTick || state.revision !== this.savedRevision) {
       return this.write('ifChanged');
     }
     return Promise.resolve();
+  }
+
+  /** A write next to the one that runs (only when leaving the page, see {@link Autosave.flush}). */
+  private async writeAlongside(): Promise<void> {
+    const state = this.read();
+    const { tick, revision } = state;
+    const data = toSaveData(state);
+    const startedAt = this.lastNow;
+    try {
+      await this.store.save(data);
+    } catch (error) {
+      if (error instanceof OwnerLostError) {
+        this.lost = true;
+        this.again = 'no';
+      } else {
+        this.failures += 1;
+      }
+      return;
+    }
+    this.saves += 1;
+    if (revision >= this.savedRevision && tick >= this.savedTick) {
+      this.savedTick = tick;
+      this.savedRevision = revision;
+      this.lastSaveAt = startedAt;
+    }
   }
 
   /** Saves right now, whatever changed (after a file was loaded). */
@@ -200,8 +232,10 @@ export class Autosave {
       }
       this.owed = false;
       this.saves += 1;
-      this.savedTick = tick;
-      this.savedRevision = revision;
+      if (revision >= this.savedRevision && tick >= this.savedTick) {
+        this.savedTick = tick;
+        this.savedRevision = revision;
+      }
       this.lastSaveAt = startedAt;
       kind = this.again;
     }
