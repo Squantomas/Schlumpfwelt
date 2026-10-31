@@ -26,6 +26,7 @@
 import { buildingType } from '../data/buildings';
 import worldData from '../data/world.json';
 import { MAX_AMOUNT } from '../data/goods';
+import { MAX_BUILDINGS, MAX_ID, MAX_PRODUCERS } from './limits';
 import { footprintTiles, normalizePaths, tileIndex } from './buildings';
 import type { PlacedBuilding } from './buildings';
 import { PRODUCER_STATUSES, newProducer, normalizeInventory, productionOf, type ProducerState, type ProducerStatus } from './economy';
@@ -48,13 +49,11 @@ export const SAVE_VERSION = 2;
  * Limits against absurd files (a loaded village must never make the game stand still): a map side in tiles is at
  * least this small / at most twice the side of the island of `world.json` (room for the expansions of M10), a
  * village has at most this many buildings and production buildings (the real limit is the room on the map, a
- * child's village has dozens), ids stay in the range of 32 bit, and every counter stays a safe whole number.
+ * child's village has dozens), ids stay below 2³¹ (`limits.ts`), and every counter stays a safe whole number.
  */
 const MIN_SIDE = 8;
 const MAX_SIDE = 2 * Math.max(worldData.width, worldData.height);
-const MAX_BUILDINGS = 1000;
-const MAX_PRODUCERS = 200;
-const MAX_ID = 2 ** 31 - 1;
+
 
 /** Why a save could not be read. */
 export type SaveRejection = 'notSave' | 'tooNew' | 'broken';
@@ -231,7 +230,7 @@ function stateFromCurrent(data: Readonly<SaveRecord>): SimState | undefined {
   state.paths = normalizePaths(pathsRaw.filter((index): index is number => typeof index === 'number')).filter(
     (index) => index < area && !covered.has(index) && pathType?.terrains.includes(world.tiles[index] ?? 'water') === true,
   );
-  state.nextBuildingId = Math.min(MAX_ID + 1, Math.max(wholeNumber(data['nextBuildingId'], 1), 1, ...state.buildings.map((b) => b.id + 1)));
+  state.nextBuildingId = Math.min(MAX_ID, Math.max(wholeNumber(data['nextBuildingId'], 1), 1, ...state.buildings.map((b) => b.id + 1)));
   state.production = readProduction(data['production'], state.buildings);
 
   refreshStatuses(state);
@@ -273,7 +272,7 @@ function readBuildings(raw: readonly unknown[], world: World): PlacedBuilding[] 
       continue;
     }
     const { id, type, x, y } = entry;
-    if (typeof id === 'number' && Number.isInteger(id) && id >= 1 && id <= MAX_ID && typeof type === 'string' && typeof x === 'number' && typeof y === 'number' && Number.isInteger(x) && Number.isInteger(y)) {
+    if (typeof id === 'number' && Number.isInteger(id) && id >= 1 && id < MAX_ID && typeof type === 'string' && typeof x === 'number' && typeof y === 'number' && Number.isInteger(x) && Number.isInteger(y)) {
       candidates.push({ id, type, x, y });
     }
   }

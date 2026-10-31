@@ -34,6 +34,7 @@ import { buildingType, type BuildingType } from '../data/buildings';
 import { addAmounts, costOf, hasNearby, missingAmounts, newProducer, productionOf, refundFor, takeAmounts } from './economy';
 import type { DeepReadonly } from './readonly';
 import type { SimState } from './state';
+import { MAX_BUILDINGS, MAX_ID, MAX_PRODUCERS } from './limits';
 import { isUnlocked } from './unlocks';
 import { ISLAND_EDGE, hasLandNeighbor, inBounds, terrainAt, type Terrain } from './world';
 
@@ -59,11 +60,12 @@ export interface PlacedBuilding {
  * - `cost`: the place is fine, but coins or goods are missing.
  * - `locked`: the type is not unlocked yet.
  * - `noCoast`: (island) the water to fill does not touch land.
+ * - `full`: the village has as many buildings (or production buildings) as it may have (`limits.ts`).
  */
-export type PlacementResult = 'ok' | 'blocked' | 'terrain' | 'outOfMap' | 'noNearby' | 'cost' | 'locked' | 'noCoast';
+export type PlacementResult = 'ok' | 'blocked' | 'terrain' | 'outOfMap' | 'noNearby' | 'cost' | 'locked' | 'noCoast' | 'full';
 
 /** What the placement rules need: a read-only view of the state is enough. */
-export type PlacementView = DeepReadonly<Pick<SimState, 'world' | 'buildings' | 'paths' | 'revision' | 'inventory' | 'unlocked' | 'planted'>>;
+export type PlacementView = DeepReadonly<Pick<SimState, 'world' | 'buildings' | 'paths' | 'revision' | 'inventory' | 'unlocked' | 'planted' | 'nextBuildingId'>>;
 
 /**
  * The answer of {@link checkPlacement}: the result and, for `terrain`, the
@@ -199,6 +201,10 @@ export function checkPlacement(
   if (ignoreId === undefined && !isUnlocked(state, typeId)) {
     return { result: 'locked' };
   }
+  // The same limits the loading of a village uses: what is built must still be there after a reload.
+  if (ignoreId === undefined && type.category !== 'path' && type.category !== 'island' && isVillageFull(state, typeId)) {
+    return { result: 'full' };
+  }
   if (!Number.isInteger(x) || !Number.isInteger(y)) {
     return { result: 'outOfMap' };
   }
@@ -244,6 +250,14 @@ export function checkPlacement(
     }
   }
   return { result: 'ok' };
+}
+
+/** Is there no room for one more building of this type (too many buildings, too many production buildings, no id left)? */
+export function isVillageFull(state: Pick<PlacementView, 'buildings' | 'nextBuildingId'>, typeId: string): boolean {
+  if (state.buildings.length >= MAX_BUILDINGS || state.nextBuildingId >= MAX_ID) {
+    return true;
+  }
+  return productionOf(typeId) !== undefined && state.buildings.filter((b) => productionOf(b.type) !== undefined).length >= MAX_PRODUCERS;
 }
 
 export function canPlace(state: PlacementView, typeId: string, x: number, y: number, ignoreId?: number, free?: boolean): PlacementResult {

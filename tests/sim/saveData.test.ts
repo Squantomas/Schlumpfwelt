@@ -557,3 +557,21 @@ describe('Spielstand: Obergrenzen gegen absurde Dateien (R6, R7)', () => {
     expect(result.ok && result.state.buildings.length).toBe(1000);
   });
 });
+
+describe('Spielstand: nextBuildingId bleibt unter dem Id-Limit (N2)', () => {
+  it('eine Datei mit nextBuildingId 1e15 verliert beim Neuladen keine Gebäude, auch nicht die danach gebauten', () => {
+    const data = toSaveData(createInitialState(4));
+    data.nextBuildingId = 1e15;
+    const loaded = fromSaveData(data);
+    expect(loaded.ok).toBe(true);
+    if (!loaded.ok) {
+      return;
+    }
+    expect(loaded.state.nextBuildingId).toBe(2 ** 31 - 1);
+    const count = loaded.state.buildings.length;
+    expect(count).toBeGreaterThan(0);
+    // The village is "full" for new buildings (no id left), and what is there survives another round trip.
+    const again = fromSaveData(JSON.parse(JSON.stringify(toSaveData(loaded.state))) as unknown);
+    expect(again.ok && again.state.buildings.length).toBe(count);
+  });
+});

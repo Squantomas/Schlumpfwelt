@@ -13,6 +13,9 @@ import {
   unconnectedBuildings,
 } from '../../src/sim/buildings';
 import { applyCommand, type Command } from '../../src/sim/commands';
+import { MAX_BUILDINGS, MAX_PRODUCERS } from '../../src/sim/limits';
+import { t } from '../../src/data/texts';
+import { problemHint } from '../../src/ui/buildTool';
 import { createInitialState } from '../../src/sim/state';
 import { grassState, pathAt, run, setTerrainAt } from './helpers';
 
@@ -595,5 +598,48 @@ describe('Zustand und Determinismus', () => {
     for (const building of state.buildings) {
       expect(canPlace(state, building.type, building.x, building.y, building.id)).toBe('ok');
     }
+  });
+});
+
+describe('Dorf voll (N3): dieselben Grenzen wie beim Laden', () => {
+  it('ab 1000 Gebäuden meldet checkPlacement „full“, Wege und Inselartikel und Verschieben gehen weiter', () => {
+    const state = grassState(64);
+    for (let i = 0; i < MAX_BUILDINGS; i += 1) {
+      state.buildings.push({ id: i + 1, type: 'flower', x: i % 64, y: Math.floor(i / 64) });
+    }
+    state.nextBuildingId = MAX_BUILDINGS + 1;
+    expect(checkPlacement(state, 'flower', 40, 40)).toEqual({ result: 'full' });
+    expect(canPlace(state, 'house-red', 40, 40)).toBe('full');
+    // Moving a building is still fine, and so are paths and island items.
+    expect(canPlace(state, 'flower', 41, 41, 1)).toBe('ok');
+    expect(canPlace(state, 'path', 40, 40)).toBe('ok');
+    expect(canPlace(state, 'tree', 40, 40)).toBe('ok');
+    // The command does nothing.
+    run(state, { type: 'placeBuilding', buildingType: 'flower', x: 40, y: 40 });
+    expect(state.buildings).toHaveLength(MAX_BUILDINGS);
+    // After demolishing one there is room again.
+    run(state, { type: 'demolish', x: 0, y: 0 });
+    expect(canPlace(state, 'flower', 40, 40)).toBe('ok');
+  });
+
+  it('ab 200 Produktionsgebäuden ist nur für Produktionsgebäude Schluss', () => {
+    const state = grassState(64);
+    for (let i = 0; i < MAX_PRODUCERS; i += 1) {
+      state.buildings.push({ id: i + 1, type: 'market', x: (i % 16) * 3, y: Math.floor(i / 16) * 3 });
+    }
+    state.nextBuildingId = MAX_PRODUCERS + 1;
+    expect(canPlace(state, 'bakery', 50, 50)).toBe('full');
+    expect(canPlace(state, 'flower', 50, 50)).toBe('ok');
+  });
+
+  it('wenn keine Id mehr frei ist, ist das Dorf voll', () => {
+    const state = grassState();
+    state.nextBuildingId = 2 ** 31 - 1;
+    expect(canPlace(state, 'flower', 5, 5)).toBe('full');
+  });
+
+  it('der Hinweis ist kindgerecht', () => {
+    expect(problemHint({ result: 'full' })).toBe('hint.full');
+    expect(t('hint.full')).toContain('voll');
   });
 });
