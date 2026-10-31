@@ -71,7 +71,12 @@ export class Bot {
       return candidates[0]?.tile;
     }
     const net = this.network();
-    return candidates.find(({ tile }) => this.routeTo(net, typeId, tile.x, tile.y) !== undefined)?.tile;
+    // First a place the path network reaches; if there is none (the middle is walled in), any place will do:
+    // a single path stone right next to the building is enough for `isConnected`.
+    return (
+      candidates.find(({ tile }) => this.routeTo(net, typeId, tile.x, tile.y) !== undefined)?.tile ??
+      candidates.find(({ tile }) => this.routeTo(net, typeId, tile.x, tile.y, true) !== undefined)?.tile
+    );
   }
 
   /** Breadth-first distances (and the way back) from every path tile over free tiles a path could be laid on. */
@@ -101,7 +106,7 @@ export class Bot {
   }
 
   /** The tiles to lay so that a building at (x, y) is next to the network, or `[]` if it is already, or `undefined` if that is not possible. */
-  private routeTo(net: { dist: Map<string, number>; from: Map<string, Tile> }, typeId: string, x: number, y: number): Tile[] | undefined {
+  private routeTo(net: { dist: Map<string, number>; from: Map<string, Tile> }, typeId: string, x: number, y: number, isolated = false): Tile[] | undefined {
     const type = buildingType(typeId);
     if (!type) {
       return undefined;
@@ -116,8 +121,8 @@ export class Bot {
         bestDistance = d;
       }
     }
-    if (net.dist.size === 0) {
-      // No path anywhere yet: the first piece goes right next to the building.
+    if (net.dist.size === 0 || (isolated && !best)) {
+      // No path anywhere yet (or none that can be reached): the first piece goes right next to the building.
       const first = this.borderTiles(typeId, x, y).find((tile) => canPlacePath(this.sim.state, tile.x, tile.y) === 'ok');
       return first ? [first] : undefined;
     }
@@ -164,7 +169,7 @@ export class Bot {
     const net = this.network();
     for (const id of unconnected) {
       const building = state.buildings.find((b) => b.id === id);
-      const route = building ? this.routeTo(net, building.type, building.x, building.y) : undefined;
+      const route = building ? (this.routeTo(net, building.type, building.x, building.y) ?? this.routeTo(net, building.type, building.x, building.y, true)) : undefined;
       if (route && route.length > 0) {
         this.sim.send({ type: 'placePaths', tiles: route });
       }

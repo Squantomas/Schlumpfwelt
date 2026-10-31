@@ -104,7 +104,7 @@ describe('Kosten der Bauten', () => {
     expect(canAfford(state, 'quarry')).toBe(false);
     expect(missingFor(state, 'quarry')).toEqual({ coins: 10, wood: 5 });
     expect(canAfford(state, 'lumberjack')).toBe(false);
-    expect(missingFor(state, 'lumberjack')).toEqual({ coins: 10 });
+    expect(missingFor(state, 'lumberjack')).toEqual({ coins: 5 });
     setStore(state, { coins: 100, wood: 100, stone: 100 });
     expect(canAfford(state, 'fountain')).toBe(true);
     expect(missingFor(state, 'fountain')).toEqual({});

@@ -176,9 +176,9 @@ describe('Nie festsitzen, auch ohne Abreißen', () => {
     return built;
   }
 
-  // Seed 2 fehlt mit Absicht: Der Verbau-Bot baut dort die Mitte mit Zäunen zu und findet danach keinen erreichbaren Platz mehr –
-  // ein Platzproblem des Bots (ein Kind würde einfach abreißen), kein Problem der Wirtschaft.
-  for (const seed of [1, 3, 4, 5, 6, 7, 8]) {
+  // Findet der Bot in der zugebauten Mitte keinen erreichbaren Platz mehr, legt er einen Wegstein direkt neben das Gebäude
+  // (das reicht für `isConnected`) – so läuft auch Seed 2.
+  for (const seed of [1, 2, 3, 4, 5, 6, 7, 8]) {
     it(`kommt nach dem Verbauen von allem Geld und Holz ohne Abriss wieder dazu, jeden Typ zu bauen (Seed ${String(seed)})`, () => {
       const sim = new Simulation(createInitialState(seed));
       const spender = new Bot(sim);
