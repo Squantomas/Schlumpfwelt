@@ -35,6 +35,48 @@ export function saveFileName(date: Date = new Date()): string {
   return `${fileSafe(themeValues.get('gameName') ?? '')}-${day}.json`;
 }
 
+/** What happened when the file was handed to the person. */
+export type DeliverResult = 'shared' | 'downloaded' | 'cancelled' | 'failed';
+
+/** The parts of `navigator` that tell an iPad or iPhone (an iPad asks for the desktop site and says "MacIntel"). */
+export interface DeviceInfo {
+  readonly userAgent: string;
+  readonly platform: string;
+  readonly maxTouchPoints: number;
+}
+
+/** iPad, iPhone, iPod: there the share sheet ("Save to Files") works where a download from the home screen app does not. */
+export function isAppleTouchDevice(info: DeviceInfo): boolean {
+  return /iPad|iPhone|iPod/.test(info.userAgent) || (info.platform === 'MacIntel' && info.maxTouchPoints > 1);
+}
+
+/**
+ * Gives the file to the person: on an iPad or iPhone through the share sheet (a download from the home screen app is
+ * unreliable there), everywhere else as a download. Closing the sheet is not an error (`cancelled`). Has to be called
+ * from the tap itself (the first thing it does is to ask for the sheet).
+ */
+export async function deliverTextFile(fileName: string, text: string): Promise<DeliverResult> {
+  try {
+    if (isAppleTouchDevice(navigator) && typeof navigator.canShare === 'function') {
+      const file = new File([text], fileName, { type: 'application/json' });
+      if (navigator.canShare({ files: [file] })) {
+        try {
+          await navigator.share({ files: [file] });
+          return 'shared';
+        } catch (error) {
+          if (error instanceof DOMException && error.name === 'AbortError') {
+            return 'cancelled';
+          }
+          // Not possible after all: the download below is the second try.
+        }
+      }
+    }
+  } catch {
+    // Fall through to the download.
+  }
+  return downloadTextFile(fileName, text) ? 'downloaded' : 'failed';
+}
+
 /** Offers the text as a download (a file the parents can keep). Works with a tap; returns whether the browser took it. */
 export function downloadTextFile(fileName: string, text: string): boolean {
   try {
@@ -57,12 +99,17 @@ export function downloadTextFile(fileName: string, text: string): boolean {
   }
 }
 
+/** Closes the chooser that is open now (if any) and answers it with "cancelled". */
+let dropOpenChooser: (() => void) | undefined;
+
 /**
  * Opens the file chooser of the device and reads the chosen file as text. Has
  * to be called from the tap itself (browsers only open the chooser then).
  * Files over {@link MAX_SAVE_BYTES} are not read.
  */
 export function pickTextFile(): Promise<PickResult> {
+  // An earlier chooser that never answered (some old tablets report neither a file nor "cancelled") is given up.
+  dropOpenChooser?.();
   return new Promise((resolve) => {
     let input: HTMLInputElement;
     try {
@@ -82,8 +129,15 @@ export function pickTextFile(): Promise<PickResult> {
       }
       finished = true;
       input.remove();
+      if (dropOpenChooser === giveUp) {
+        dropOpenChooser = undefined;
+      }
       resolve(result);
     };
+    const giveUp = (): void => {
+      finish({ kind: 'cancelled' });
+    };
+    dropOpenChooser = giveUp;
     input.addEventListener('change', () => {
       const file = input.files?.[0];
       if (!file) {

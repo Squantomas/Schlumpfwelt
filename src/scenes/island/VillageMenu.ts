@@ -1,11 +1,12 @@
 import Phaser from 'phaser';
 import { t, type TextKey } from '../../data/texts';
-import { downloadTextFile, pickTextFile, saveFileName } from '../../save/saveFile';
+import { deliverTextFile, pickTextFile, saveFileName } from '../../save/saveFile';
 import type { GameSession } from '../../save/session';
 import { loadFromText, saveToText } from '../../sim/saveData';
 import type { SimState } from '../../sim/state';
 import type { Rect } from '../../ui/cameraMath';
 import { createLabel, setLabelSize } from '../../ui/label';
+import { LatestOnly } from '../../ui/latestOnly';
 import { MenuFlow, rejectionText } from '../../ui/menuFlow';
 import { MENU_CLOSE, menuLayout, type MenuLayout } from '../../ui/menuLayout';
 import { RoundButton } from '../../ui/RoundButton';
@@ -125,8 +126,8 @@ export class VillageMenu {
   private readonly cancelButton: RoundButton;
   private size: ViewSize = { width: 1, height: 1 };
   private layoutData: MenuLayout | undefined;
-  /** The file chooser is open: a second tap on "Aus Datei laden" does not open another. */
-  private choosing = false;
+  /** Only the newest file chooser counts: one that never answers (old tablets) does not block the button. */
+  private readonly picks = new LatestOnly();
 
   constructor(
     scene: Phaser.Scene,
@@ -190,11 +191,13 @@ export class VillageMenu {
   }
 
   open(): void {
+    this.picks.cancel();
     this.flow.open();
     this.refresh();
   }
 
   close(): void {
+    this.picks.cancel();
     this.flow.close();
     this.refresh();
   }
@@ -239,20 +242,23 @@ export class VillageMenu {
   }
 
   private saveFile(): void {
-    const ok = downloadTextFile(saveFileName(), saveToText(this.session.simulation.state));
-    this.flow.say(ok ? 'menu.fileSaved' : 'menu.fileFailed');
-    this.refresh();
+    // Called from the tap itself: the share sheet of an iPad only opens then.
+    const delivering = deliverTextFile(saveFileName(), saveToText(this.session.simulation.state));
+    void delivering.then((result) => {
+      if (!this.flow.isOpen || result === 'cancelled') {
+        return;
+      }
+      this.flow.say(result === 'failed' ? 'menu.fileFailed' : 'menu.fileSaved');
+      this.refresh();
+    });
   }
 
   private chooseFile(): void {
-    if (this.choosing) {
-      return;
-    }
-    this.choosing = true;
+    // A new tap replaces an older chooser, even if that one never answered.
+    const token = this.picks.start();
     void pickTextFile().then((picked) => {
-      this.choosing = false;
-      // The player may have closed the menu meanwhile: then the answer is of no use.
-      if (!this.flow.isOpen) {
+      // The player may have closed the menu or tapped again meanwhile: then the answer is of no use.
+      if (!this.picks.isCurrent(token) || !this.flow.isOpen) {
         return;
       }
       switch (picked.kind) {
