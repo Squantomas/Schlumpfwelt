@@ -711,7 +711,7 @@ describe('Gebäude-Werkzeug und Kosten (M3)', () => {
     expect(tool.preview()).toMatchObject({ kind: 'place', result: 'cost', missing: { wood: 3 } });
     expect(tool.canConfirm).toBe(false);
     expect(tool.hint).toBe('hint.missing');
-    expect(t(tool.hint ?? 'hint.missing', tool.hintParams)).toBe('Dir fehlen 3 Holz. Warte auf den Markt oder reiß etwas ab – du bekommst alles zurück.');
+    expect(t(tool.hint ?? 'hint.missing', tool.hintParams)).toBe('Dir fehlen 3 Holz. Holz bringt der Holzfäller – oder reiß etwas ab.');
     expect(tool.confirm()).toBe('hint.missing');
     expect(sent).toHaveLength(0);
   });
@@ -723,10 +723,10 @@ describe('Gebäude-Werkzeug und Kosten (M3)', () => {
     tool.selectTool('house');
     tool.tap({ x: 6, y: 6 });
     expect(tool.hint).toBe('hint.missingOne');
-    expect(t(tool.hint ?? 'hint.missing', tool.hintParams)).toBe('Dir fehlt 1 Holz. Warte auf den Markt oder reiß etwas ab – du bekommst alles zurück.');
+    expect(t(tool.hint ?? 'hint.missing', tool.hintParams)).toBe('Dir fehlt 1 Holz. Holz bringt der Holzfäller – oder reiß etwas ab.');
     setStore(state, { coins: 10 });
     tool.tap({ x: 6, y: 6 });
-    expect(t(tool.hint ?? 'hint.missing', tool.hintParams)).toBe('Dir fehlen 30 Taler und 8 Holz. Warte auf den Markt oder reiß etwas ab – du bekommst alles zurück.');
+    expect(t(tool.hint ?? 'hint.missing', tool.hintParams)).toBe('Dir fehlen 30 Taler und 8 Holz. Taler bringt der Markt – oder reiß etwas ab.');
   });
 
   it('sagt schon beim Wählen einer zu teuren Variante, was fehlt, und wird beim Auffüllen wieder frei', () => {
@@ -739,7 +739,7 @@ describe('Gebäude-Werkzeug und Kosten (M3)', () => {
     expect(tool.hint).toBe('hint.place');
     tool.selectVariant('house-red');
     expect(tool.hint).toBe('hint.missing');
-    expect(t(tool.hint ?? 'hint.missing', tool.hintParams)).toBe('Dir fehlen 3 Holz. Warte auf den Markt oder reiß etwas ab – du bekommst alles zurück.');
+    expect(t(tool.hint ?? 'hint.missing', tool.hintParams)).toBe('Dir fehlen 3 Holz. Holz bringt der Holzfäller – oder reiß etwas ab.');
     state.inventory['wood'] = 8;
     expect(tool.variantAffordable).toBe(true);
     expect(tool.hint).toBe('hint.place');
@@ -915,6 +915,7 @@ describe('Vorschau folgt dem Lager (Korrekturrunde 1)', () => {
     expect(tool.canConfirm).toBe(false);
     const before = tool.version;
     state.inventory['coins'] = 100;
+    tool.sync();
     expect(tool.version).toBeGreaterThan(before);
     expect(tool.preview()).toMatchObject({ kind: 'place', result: 'ok' });
     expect(tool.canConfirm).toBe(true);
@@ -942,19 +943,23 @@ describe('Vorschau folgt dem Lager (Korrekturrunde 1)', () => {
     tool.tap({ x: 6, y: 6 });
     const first = tool.preview();
     const version = tool.version;
+    tool.sync();
     expect(tool.preview()).toBe(first);
     expect(tool.version).toBe(version);
   });
 
-  it('zählt Lageränderungen nur, solange ein Werkzeug an ist', () => {
+  it('zählt Lageränderungen erst bei sync() und nur, solange ein Werkzeug an ist', () => {
     const state = grassState();
     const { tool } = setup(state);
     const before = tool.version;
     state.inventory['coins'] = 1;
+    tool.sync();
     expect(tool.version).toBe(before);
     tool.selectTool('house');
     const inTool = tool.version;
     state.inventory['coins'] = 2;
+    expect(tool.version).toBe(inTool);
+    tool.sync();
     expect(tool.version).toBeGreaterThan(inTool);
   });
 

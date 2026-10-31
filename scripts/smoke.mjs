@@ -1230,7 +1230,7 @@ async function testEconomy({ page, check, shot, size, input, name }) {
   village = await confirm((v) => typeCount(v, 'lumberjack') === 1, 'der Holzfäller');
   const lumberjack = village.buildings.find((b) => b.type === 'lumberjack');
   check(lumberjack.connected, 'Holzfäller steht nicht am Weg');
-  village = await waitStock((stock) => stock.coins <= woodBefore.coins - 20 + 12 && stock.coins >= woodBefore.coins - 20, 'abgebuchte Kosten des Holzfällers (nur Taler)', 8000);
+  village = await waitStock((stock) => stock.coins <= woodBefore.coins - 15 + 12 && stock.coins >= woodBefore.coins - 15, 'abgebuchte Kosten des Holzfällers (nur Taler)', 8000);
   const afterLumberjack = village.stock;
   check(afterLumberjack.wood >= woodBefore.wood, `Holzfäller: Holz ${afterLumberjack.wood} gesunken, er soll nur Taler kosten`);
   // Nach ein paar Sekunden liefert er: das Lager steigt, und der Holzfäller meldet „working“.
@@ -1277,11 +1277,11 @@ async function testEconomy({ page, check, shot, size, input, name }) {
   village = await readVillage(page);
   await tapTile({ x: lumberjack.x, y: lumberjack.y + 1 });
   village = await waitForVillage(page, (v) => v.preview === 'demolish:4', 'die rote Markierung am Holzfäller');
-  check(/zurück/.test(village.hint) && /20 Taler/.test(village.hint), `Abreißen: Hinweis „${village.hint}“ nennt die Erstattung nicht`);
+  check(/zurück/.test(village.hint) && /15 Taler/.test(village.hint), `Abreißen: Hinweis „${village.hint}“ nennt die Erstattung nicht`);
   const beforeDemolish = village.stock;
   await tapUi('confirm');
   village = await waitForVillage(page, (v) => typeCount(v, 'lumberjack') === 0, 'den abgerissenen Holzfäller');
-  village = await waitStock((stock) => stock.coins >= beforeDemolish.coins + 20, 'die Erstattung im Lager', 8000);
+  village = await waitStock((stock) => stock.coins >= beforeDemolish.coins + 15, 'die Erstattung im Lager', 8000);
   await sleep(300);
   await shot(`${name}-erstattung`);
   await exitTool();

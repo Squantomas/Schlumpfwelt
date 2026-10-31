@@ -1,5 +1,5 @@
 import { ITEM_IDS, itemNames } from '../data/goods';
-import { t } from '../data/texts';
+import { t, type TextKey, type TextParams } from '../data/texts';
 
 /**
  * Texts for amounts of coins and goods: "3 Holz", "20 Taler und 3 Holz".
@@ -34,4 +34,17 @@ export function listText(amounts: Readonly<Record<string, number>>): string {
 /** The number of units in a list of amounts. */
 export function totalUnits(amounts: Readonly<Record<string, number>>): number {
   return Object.values(amounts).reduce((sum, amount) => sum + amount, 0);
+}
+
+/** The way out for the first thing that is missing: coins come from the market, wood from the lumberjack, stone from the quarry. */
+const WAYS: Readonly<Record<string, TextKey>> = { coins: 'way.coins', wood: 'way.wood', stone: 'way.stone' };
+
+export function wayOutText(missing: Readonly<Record<string, number>>): string {
+  const first = ITEM_IDS.find((id) => (missing[id] ?? 0) > 0 && WAYS[id] !== undefined);
+  return t(WAYS[first ?? 'coins'] ?? 'way.coins');
+}
+
+/** The values for "Dir fehlen {list}. {way}": what is missing and what to do about the first thing. */
+export function missingParams(missing: Readonly<Record<string, number>>): TextParams {
+  return { list: listText(missing), way: wayOutText(missing) };
 }

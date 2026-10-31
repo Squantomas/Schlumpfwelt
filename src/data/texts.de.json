@@ -60,8 +60,8 @@
   "good.cakeMany": "Beerenkuchen",
   "amount.format": "{count} {name}",
   "list.and": "und",
-  "hint.missing": "Dir fehlen {list}. Warte auf den Markt oder reiß etwas ab – du bekommst alles zurück.",
-  "hint.missingOne": "Dir fehlt {list}. Warte auf den Markt oder reiß etwas ab – du bekommst alles zurück.",
+  "hint.missing": "Dir fehlen {list}. {way}",
+  "hint.missingOne": "Dir fehlt {list}. {way}",
   "hint.noForest": "Hier sind keine Bäume in der Nähe.",
   "hint.noRock": "Hier sind keine Felsen in der Nähe.",
   "hint.refund": "Du bekommst {list} zurück. Dann ✓.",
@@ -75,5 +75,8 @@
   "status.idle": "Noch nichts zu verkaufen.",
   "effect.plus": "+{count}",
   "hint.noPathWork": "Ohne Weg kann es nicht arbeiten. Bau danach einen Weg dorthin.",
-  "hint.noPathHouse": "Dieses Haus braucht einen Weg. Bau danach einen Weg dorthin."
+  "hint.noPathHouse": "Dieses Haus braucht einen Weg. Bau danach einen Weg dorthin.",
+  "way.coins": "Taler bringt der Markt – oder reiß etwas ab.",
+  "way.wood": "Holz bringt der Holzfäller – oder reiß etwas ab.",
+  "way.stone": "Steine bringt der Steinbruch – oder reiß etwas ab."
 }

@@ -504,6 +504,8 @@ export class BuildUI {
 
   /** Once per frame: follow changes of the tool and the store, and let notices run out. */
   update(): void {
+    // Look at the store first: a change counts as a change of the tool (see `BuildTool.sync`).
+    this.tool.sync();
     const state = this.getState();
     const expired = this.notice !== undefined && this.scene.time.now >= this.notice.until;
     if (expired) {

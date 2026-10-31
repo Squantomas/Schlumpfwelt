@@ -18,7 +18,7 @@ import { ITEM_IDS } from '../data/goods';
 import { canAfford, missingFor, refundFor } from '../sim/economy';
 import { findRoute, type RouteFailure } from '../sim/route';
 import type { Point } from './cameraMath';
-import { listText, totalUnits } from './costText';
+import { listText, missingParams, totalUnits } from './costText';
 import { TILE_SIZE } from './style';
 
 /**
@@ -129,7 +129,7 @@ export function problemHint(problem: PlacementProblem, forPath = false): TextKey
 
 /** The values for the placeholders of the hint of a problem (`{list}` of the missing amounts for `cost`). */
 export function problemParams(problem: PlacementProblem): TextParams | undefined {
-  return problem.result === 'cost' ? { list: listText(problem.missing ?? {}) } : undefined;
+  return problem.result === 'cost' ? missingParams(problem.missing ?? {}) : undefined;
 }
 
 /** A demolished building and what the player got back for it (for the little display where it stood). */
@@ -163,11 +163,11 @@ export class BuildTool {
   }
 
   /**
-   * Counts every change of tool, variant, preview or – while a building tool
-   * is on – of the store (for redrawing): a preview that was red because
-   * something was missing turns green when it arrives, and the other way round.
+   * Looks at the store: while a building tool is on, a change of any amount counts as a change of the tool (for redrawing),
+   * so a preview that was red because something was missing turns green when it arrives, and the other way round.
+   * Call once per frame before reading {@link version}. (`preview()` also knows the store by itself.)
    */
-  get version(): number {
+  sync(): void {
     const key = this.storeKey();
     if (key !== this.lastStoreKey) {
       this.lastStoreKey = key;
@@ -175,6 +175,10 @@ export class BuildTool {
         this.changes += 1;
       }
     }
+  }
+
+  /** Counts every change of tool, variant, preview and (see {@link sync}) store, for redrawing. */
+  get version(): number {
     return this.changes;
   }
 
@@ -326,7 +330,7 @@ export class BuildTool {
         return totalUnits(preview.refund) > 0 ? { list: listText(preview.refund) } : undefined;
       case 'none': {
         const variant = this.variant;
-        return variant && this.variantChosen && !this.variantAffordable ? { list: listText(missingFor(this.getState(), variant)) } : undefined;
+        return variant && this.variantChosen && !this.variantAffordable ? missingParams(missingFor(this.getState(), variant)) : undefined;
       }
       case 'path':
         return undefined;
