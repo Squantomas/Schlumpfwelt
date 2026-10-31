@@ -86,3 +86,14 @@ export function menuLayout(width: number, height: number, mode: MenuLayoutMode):
   }
   return { veil: { x: 0, y: 0, width, height }, panel, title, close, text, save, load, confirm, cancel, titleFont, textFont };
 }
+
+/**
+ * The middle of the title: the middle of the panel where the (centred) title stays clear of the ✕, otherwise – on a
+ * narrow screen – the middle of the room left of the ✕ (a title slightly left of the middle looks better than one
+ * under the button).
+ */
+export function menuTitleCenterX(layout: MenuLayout, textWidth: number): number {
+  const panelCenter = layout.panel.x + layout.panel.width / 2;
+  const room = layout.close ? layout.close.x - GAP : layout.panel.x + layout.panel.width - PAD;
+  return panelCenter + textWidth / 2 <= room ? panelCenter : layout.title.x + layout.title.width / 2;
+}

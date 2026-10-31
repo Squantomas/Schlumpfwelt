@@ -8,7 +8,7 @@ import type { Rect } from '../../ui/cameraMath';
 import { createLabel, setLabelSize } from '../../ui/label';
 import { LatestOnly } from '../../ui/latestOnly';
 import { MenuFlow, rejectionText } from '../../ui/menuFlow';
-import { MENU_CLOSE, menuLayout, type MenuLayout } from '../../ui/menuLayout';
+import { MENU_CLOSE, menuLayout, menuTitleCenterX, type MenuLayout } from '../../ui/menuLayout';
 import { RoundButton } from '../../ui/RoundButton';
 import { COLORS } from '../../ui/style';
 import { drawFileIcon } from '../../ui/toolIcons';
@@ -330,7 +330,7 @@ export class VillageMenu {
     this.panel.lineStyle(3, COLORS.toolActiveRim, 0.75).strokeRoundedRect(panel.x, panel.y, panel.width, panel.height, 22);
 
     setLabelSize(this.title, layout.titleFont, layout.title.width);
-    this.title.setPosition(layout.title.x + layout.title.width / 2, layout.title.y + layout.title.height / 2);
+    this.title.setPosition(menuTitleCenterX(layout, this.title.width), layout.title.y + layout.title.height / 2);
 
     // The sentence: wrapped to the room, smaller letters until it fits the height.
     const text = layout.text;

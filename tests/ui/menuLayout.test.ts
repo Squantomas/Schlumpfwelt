@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Rect } from '../../src/ui/cameraMath';
-import { MENU_MARGIN, menuIsLow, menuLayout, type MenuLayout, type MenuLayoutMode } from '../../src/ui/menuLayout';
+import { MENU_MARGIN, menuIsLow, menuLayout, menuTitleCenterX, type MenuLayout, type MenuLayoutMode } from '../../src/ui/menuLayout';
 import { MIN_TAP_SIZE } from '../../src/ui/style';
 
 const SCREENS: readonly (readonly [number, number])[] = [
@@ -104,5 +104,17 @@ describe('menuLayout: nichts überlappt, nichts ragt über den Rand, alles groß
     const ask = menuLayout(800, 600, 'confirm');
     expect(ask.confirm?.width).toBeGreaterThan(ask.cancel?.width ?? 0);
     expect((ask.confirm?.x ?? 0) > (ask.cancel?.x ?? 0)).toBe(true);
+  });
+
+  it('K5: der Titel sitzt in der Mitte des Felds, wo er neben dem ✕ Platz hat, sonst in der Mitte links vom ✕', () => {
+    const wide = menuLayout(1024, 768, 'menu');
+    expect(menuTitleCenterX(wide, 280)).toBe(wide.panel.x + wide.panel.width / 2);
+    const narrow = menuLayout(320, 568, 'menu');
+    const x = menuTitleCenterX(narrow, 200);
+    expect(x).toBe(narrow.title.x + narrow.title.width / 2);
+    expect(x + 100).toBeLessThanOrEqual((narrow.close?.x ?? 0) + 0.001);
+    // Without the ✕ (the question) the title is always in the middle.
+    const ask = menuLayout(320, 568, 'confirm');
+    expect(menuTitleCenterX(ask, 200)).toBe(ask.panel.x + ask.panel.width / 2);
   });
 });
