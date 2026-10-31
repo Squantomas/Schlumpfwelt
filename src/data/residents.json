@@ -1,0 +1,24 @@
+{
+  "hats": ["red", "blue", "yellow", "green", "orange", "purple", "pink", "teal"],
+  "walk": {
+    "stepsPerTile": 60,
+    "pathSpeed": 12,
+    "groundSpeed": 7,
+    "cost": {
+      "path": 1,
+      "ground": 3,
+      "rough": 5,
+      "building": 14
+    }
+  },
+  "boat": {
+    "speed": 24
+  },
+  "routine": {
+    "workTicks": 450,
+    "restTicks": 120,
+    "visitTicks": 90,
+    "waitTicks": 40,
+    "tripsBeforeRest": 3
+  }
+}
