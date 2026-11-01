@@ -3,7 +3,7 @@ import { SHOP_CATEGORIES, buildingType, shopItems, type BuildingType } from '../
 import { ITEM_IDS } from '../../data/goods';
 import { t, type TextKey, type TextParams } from '../../data/texts';
 import type { Rect } from '../../ui/cameraMath';
-import { TOOLS, type BuildTool, type BuildToolState, type ToolId } from '../../ui/buildTool';
+import { TOOLS, type BuildTool, type BuildToolState, type ToolId, type ToolbarToolId } from '../../ui/buildTool';
 import { CHIP_H, CHIP_W, EXIT_RADIUS, HINT_MAX_HEIGHT_NARROW, HINT_MIN_HEIGHT, hintBarGeometry, layoutBuildUi, type BuildLayout } from '../../ui/buildLayout';
 import { CANCEL_DIAMETER, CONFIRM_DIAMETER } from '../../ui/confirmLayout';
 import { createLabel, setLabelSize } from '../../ui/label';
@@ -85,7 +85,7 @@ export class BuildUI {
   private readonly exitButton: RoundButton;
   private readonly confirmButton: RoundButton;
   private readonly cancelButton: RoundButton;
-  private readonly toolButtons = new Map<Exclude<ToolId, 'view' | 'place'>, SquareButton>();
+  private readonly toolButtons = new Map<ToolbarToolId, SquareButton>();
   private readonly chipButtons = new Map<string, SquareButton>();
   private readonly shopStar: Phaser.GameObjects.Graphics;
   /** The gear under the zoom buttons: opens the menu (save and load a file). Only while looking. */

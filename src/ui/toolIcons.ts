@@ -1,13 +1,13 @@
 import type Phaser from 'phaser';
 import type { ShopCategory } from '../data/buildings';
-import type { ToolId } from './buildTool';
+import type { ToolbarToolId } from './buildTool';
 import { COLORS, HOUSE_PALETTES } from './style';
 
 /**
  * Little pictures for the toolbar, drawn with Phaser graphics around (0, 0)
  * inside a box of `s × s` CSS px. Placeholders until the real graphics (M8).
  */
-export function drawToolIcon(g: Phaser.GameObjects.Graphics, tool: Exclude<ToolId, 'view' | 'place'>, s: number): void {
+export function drawToolIcon(g: Phaser.GameObjects.Graphics, tool: ToolbarToolId, s: number): void {
   g.clear();
   switch (tool) {
     case 'path':

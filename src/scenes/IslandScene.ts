@@ -897,5 +897,7 @@ function describePreview(preview: Preview): string {
       return `demolish:${String(preview.tiles.length)}`;
     case 'invite':
       return `invite:${preview.result}`;
+    case 'home':
+      return `home:${preview.result}:${String(preview.used)}/${String(preview.capacity)}${preview.carried ? ':carried' : ''}`;
   }
 }
