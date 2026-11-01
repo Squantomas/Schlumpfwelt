@@ -65,6 +65,7 @@ import {
   RING_OUTER_FRACTION,
   RING_SIZE,
   ROCK_KEYS,
+  SHORE_WAVE_KEY,
   TEXTURE_SCALE,
   TREE_KEYS,
 } from './island/objectTextures';
@@ -131,6 +132,23 @@ interface Glint {
   readonly phase: number;
 }
 
+/** A small wave that runs up to the beach (M9): from `start` towards the land (`dx`, `dy`), then fades. */
+interface Wave {
+  readonly sprite: Phaser.GameObjects.Image;
+  readonly phase: number;
+  readonly x: number;
+  readonly y: number;
+  readonly dx: number;
+  readonly dy: number;
+}
+
+/** Waves: one run takes this long (s); a wave starts this far out in the water (world px) and runs to the beach. */
+const WAVE_SECONDS = 4.2;
+const WAVE_RUN = 16;
+/** Trees sway a little (degrees) – only those in view, and not when they are tiny far out. */
+const TREE_SWAY_DEG = 1.3;
+const TREE_SWAY_MIN_ZOOM = 0.4;
+
 /**
  * The island: ground baked into one texture, trees and rocks as sprites
  * sorted by their y position, a camera you can drag, pinch and wheel-zoom.
@@ -151,6 +169,9 @@ export class IslandScene extends Phaser.Scene {
   private worldCamera!: Phaser.Cameras.Scene2D.Camera;
   private controller!: WorldCameraController;
   private glints: Glint[] = [];
+  private waves: Wave[] = [];
+  /** The trees, for their swaying (M9); a cleared tree is destroyed and dropped here on the next frame. */
+  private swayingTrees: { readonly sprite: Phaser.GameObjects.Image; readonly phase: number }[] = [];
   /** The ground patterns and stamps (M9), taken from the loaded pictures in `create`. */
   private groundArt: GroundArt | undefined;
   /** Tree and rock sprites by tile index (`y * width + x`); M2/M3 remove them when forest is cleared. */
@@ -236,6 +257,8 @@ export class IslandScene extends Phaser.Scene {
     // A restarted scene starts clean (the instance is reused).
     this.groundArt = this.collectGroundArt();
     this.glints = [];
+    this.waves = [];
+    this.swayingTrees = [];
     this.objects.clear();
     this.ringTween = undefined;
     this.ringFade = undefined;
@@ -286,6 +309,7 @@ export class IslandScene extends Phaser.Scene {
     this.buildGround(seed);
     this.buildObjects(seed);
     this.buildGlints(seed);
+    this.buildWaves(seed);
     this.village = new VillageView(this, this.worldLayer, this.simulation);
     this.village.sync();
     this.residentView = new ResidentView(this, this.worldLayer, this.simulation);
@@ -571,6 +595,8 @@ export class IslandScene extends Phaser.Scene {
       const wave = 0.5 + 0.5 * Math.sin(seconds * 1.6 + phase);
       sprite.setAlpha(0.15 + 0.45 * wave).setScale((0.8 + 0.3 * wave) / TEXTURE_SCALE);
     }
+    this.updateWaves(seconds);
+    this.updateTreeSway(seconds);
     this.updateTutorial(time);
   }
 
@@ -1030,6 +1056,9 @@ export class IslandScene extends Phaser.Scene {
     const flip = r(5) < 0.5 ? size : -size;
     const sprite = this.add.image(groundX, groundY, key).setOrigin(origin.x, origin.y).setScale(flip, size).setDepth(groundY);
     this.worldLayer.add(sprite);
+    if (isTree) {
+      this.swayingTrees.push({ sprite, phase: r(6) * Math.PI * 2 });
+    }
     this.objects.set(y * world.width + x, sprite);
     if (animate) {
       sprite.setScale(flip * 0.3, size * 0.3);
@@ -1103,6 +1132,12 @@ export class IslandScene extends Phaser.Scene {
       }
       return true;
     });
+    // The waves follow the new coast.
+    for (const wave of this.waves) {
+      wave.sprite.destroy();
+    }
+    this.waves = [];
+    this.buildWaves(seed);
     if (landChanged) {
       // New land is somewhere the camera may look at.
       this.cameraBounds.centerRegions = landRegions(world, TILE_SIZE, CAMERA_CONFIG.landMarginTiles);
@@ -1143,6 +1178,71 @@ export class IslandScene extends Phaser.Scene {
           .setDepth(1);
         this.worldLayer.add(sprite);
         this.glints.push({ sprite, phase: hash2(seed + 4245, x, y) * Math.PI * 2 });
+      }
+    }
+  }
+
+  /** Small waves that run up to the beach now and then: on some sea tiles next to land (M9, only a picture). */
+  private buildWaves(seed: number): void {
+    const { world } = this.simulation.state;
+    const sides: readonly [number, number][] = [
+      [0, -1],
+      [1, 0],
+      [0, 1],
+      [-1, 0],
+    ];
+    for (let y = 0; y < world.height; y += 1) {
+      for (let x = 0; x < world.width; x += 1) {
+        if (terrainAt(world, x, y) !== 'water' || hash2(seed + 5151, x, y) > 0.3) {
+          continue;
+        }
+        const side = sides.find(([dx, dy]) => isLand(terrainAt(world, x + dx, y + dy)));
+        if (!side) {
+          continue;
+        }
+        const [dx, dy] = side;
+        // The edge of the land tile, a little out in the water (the foam line).
+        const edgeX = (x + 0.5 + dx * 0.5) * TILE_SIZE - dx * 6;
+        const edgeY = (y + 0.5 + dy * 0.5) * TILE_SIZE - dy * 6;
+        const sprite = this.add
+          .image(edgeX, edgeY, SHORE_WAVE_KEY)
+          .setAngle(dx === 0 ? (dy < 0 ? 0 : 180) : dx > 0 ? 90 : -90)
+          .setScale(1 / TEXTURE_SCALE)
+          .setAlpha(0)
+          .setDepth(1);
+        this.worldLayer.add(sprite);
+        this.waves.push({ sprite, phase: hash2(seed + 5152, x, y), x: edgeX, y: edgeY, dx, dy });
+      }
+    }
+  }
+
+  private updateWaves(seconds: number): void {
+    for (const wave of this.waves) {
+      const run = (seconds / WAVE_SECONDS + wave.phase) % 1;
+      const back = (1 - run) * WAVE_RUN;
+      wave.sprite
+        .setPosition(wave.x - wave.dx * back, wave.y - wave.dy * back)
+        .setAlpha(Math.sin(run * Math.PI) * 0.85)
+        .setScale((0.75 + 0.35 * run) / TEXTURE_SCALE, 1 / TEXTURE_SCALE);
+    }
+  }
+
+  /** Trees in view sway a little around their foot (only the picture). */
+  private updateTreeSway(seconds: number): void {
+    if (this.swayingTrees.some(({ sprite }) => !sprite.active)) {
+      this.swayingTrees = this.swayingTrees.filter(({ sprite }) => sprite.active);
+    }
+    if (this.controller.view.zoom < TREE_SWAY_MIN_ZOOM) {
+      return;
+    }
+    const view = this.worldCamera.worldView;
+    const left = view.x - TILE_SIZE;
+    const right = view.right + TILE_SIZE;
+    const top = view.y - TILE_SIZE;
+    const bottom = view.bottom + TILE_SIZE * 2;
+    for (const { sprite, phase } of this.swayingTrees) {
+      if (sprite.x >= left && sprite.x <= right && sprite.y >= top && sprite.y <= bottom) {
+        sprite.setAngle(Math.sin(seconds * 0.9 + phase) * TREE_SWAY_DEG);
       }
     }
   }

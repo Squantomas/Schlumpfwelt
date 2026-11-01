@@ -45,6 +45,9 @@ const SIGN_CYCLE = 15;
 const SIGN_SECONDS = 2.4;
 const SIGN_SIZE = 24;
 const SIGN_MIN_CSS = 16;
+/** The "z" of sleep (M9): bigger than the mood signs and at least this many CSS px, so it reads on the tablet from afar. */
+const SLEEP_SIZE = 40;
+const SLEEP_MIN_CSS = 30;
 /** A carried resident hangs this far above the finger (CSS px), so the finger does not hide them. */
 const CARRY_LIFT_CSS = 18;
 /**
@@ -203,6 +206,7 @@ export class ResidentView {
     this.drawn.clear();
     const carrySize = clamp(CARRY_MIN_CSS / Math.max(zoom, 0.01), CARRY_SIZE, CARRY_SIZE * 2);
     const signSize = clamp(SIGN_MIN_CSS / Math.max(zoom, 0.01), SIGN_SIZE, SIGN_SIZE * 2.5);
+    const sleepSize = clamp(SLEEP_MIN_CSS / Math.max(zoom, 0.01), SLEEP_SIZE, SLEEP_SIZE * 3);
     // The moods: all at once when the village changed (a flower was put down), else each resident once a second.
     const allMoods = state.revision !== this.moodRevision;
     const newTick = state.tick !== this.moodTick;
@@ -311,7 +315,7 @@ export class ResidentView {
       }
       const sleep = sleepOf(state, resident);
       if (sleep !== 'awake') {
-        this.drawSleeper(figure, resident.id, resident.home, sleep, footX, footY, seconds, signSize, sleepingHomes, spots);
+        this.drawSleeper(figure, resident.id, resident.home, sleep, footX, footY, seconds, sleepSize, sleepingHomes, spots);
         continue;
       }
       figure.inBedSince = undefined;

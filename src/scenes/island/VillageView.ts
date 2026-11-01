@@ -12,16 +12,19 @@ import { COLORS, TILE_SIZE } from '../../ui/style';
 import {
   MARKER_BUBBLE,
   MARKER_SIZE,
+  CHIMNEYS,
   PUFF_KEY,
   buildingOrigin,
   buildingTextureKey,
   pathTextureKey,
 } from './buildingTextures';
 import { goodTextureKey, signTextureKey } from './goodTextures';
-import { TEXTURE_SCALE } from './objectTextures';
+import { SMOKE_KEY, TEXTURE_SCALE } from './objectTextures';
 import { addGraphics } from '../../ui/FastGraphics';
 
 const PATH_DEPTH = 2;
+/** At most this many curls of smoke at a time (they are used again). */
+const MAX_SMOKES = 36;
 const OVERLAY_DEPTH = 800_000;
 const GHOST_DEPTH = 800_001;
 const PUFF_DEPTH = 900_000;
@@ -55,7 +58,26 @@ interface BuildingSprite {
   x: number;
   y: number;
   baseY: number;
+  /** Sways in the wind (flowers, bushes), or puffs smoke from this point (relative to the front of the footprint). */
+  readonly sways: boolean;
+  readonly chimney: { readonly x: number; readonly y: number } | undefined;
 }
+
+/** A curl of smoke over a chimney (M9): it rises, grows and fades; finished ones wait hidden to be used again. */
+interface Smoke {
+  readonly image: Phaser.GameObjects.Image;
+  x: number;
+  y: number;
+  born: number;
+  drift: number;
+}
+
+/** Smoke: a new curl every this many seconds per working chimney, each rising this long. */
+const SMOKE_EVERY = 1.1;
+const SMOKE_LIFE = 3.2;
+const SMOKE_RISE = 46;
+/** Deco that sways gently in the wind (M9): flowers, bushes, the young tree of the island tab. */
+const SWAYING = new Set(['flower', 'bush', 'flowerbed', 'islandTree']);
 
 interface Marker {
   readonly image: Phaser.GameObjects.Image;
@@ -109,6 +131,9 @@ export class VillageView {
   /** How many live in the house a resident would move into, and how many fit ("2/2", M7). */
   private readonly homeLabel: Phaser.GameObjects.Text;
   private homeLabelAt: { readonly houseId: number; readonly x: number; readonly y: number } | undefined;
+  /** The curls of smoke in the air and the next one per building (seconds of the smooth simulation time). */
+  private readonly smokes: Smoke[] = [];
+  private readonly nextSmoke = new Map<number, number>();
   private revision = -1;
   private liftedId: number | undefined;
   private tintedId: number | undefined;
@@ -194,7 +219,7 @@ export class VillageView {
           .setScale(1 / TEXTURE_SCALE)
           .setDepth(baseY - 4);
         this.layer.add(image);
-        entry = { image, typeId: type.id, x: building.x, y: building.y, baseY };
+        entry = { image, typeId: type.id, x: building.x, y: building.y, baseY, sways: SWAYING.has(type.look.shape), chimney: CHIMNEYS[type.look.shape] };
         this.sprites.set(building.id, entry);
         if (animate) {
           this.popIn(image);
@@ -316,6 +341,8 @@ export class VillageView {
       this.syncSigns(true);
     }
     this.updateProduction(seconds, zoom);
+    this.updateSmoke(seconds);
+    this.updateSway(seconds);
     this.updatePreviewSign(seconds, zoom, minWorldY);
     for (const [id, marker] of this.markers) {
       marker.appear = marker.leaving ? marker.appear - step * 5 : Math.min(1, marker.appear + step * 4);
@@ -412,11 +439,84 @@ export class VillageView {
 
       const rocks = producer.status === 'working' && this.liftedId !== producer.buildingId;
       if (rocks) {
+        this.smokeFrom(producer.buildingId, sprite, seconds);
+      } else {
+        this.nextSmoke.delete(producer.buildingId);
+      }
+      if (rocks) {
         const phase = seconds * 5.5 + producer.buildingId;
         sprite.image.setAngle(Math.sin(phase) * 1.1).setY(sprite.baseY - Math.max(0, Math.sin(phase * 2)) * 1.6);
         this.rocking.add(producer.buildingId);
       } else if (this.rocking.delete(producer.buildingId) && this.liftedId !== producer.buildingId) {
         sprite.image.setAngle(0).setY(sprite.baseY);
+      }
+    }
+  }
+
+  /** A working building with a chimney sends up a curl of smoke now and then (only a picture, M9). */
+  private smokeFrom(id: number, sprite: BuildingSprite, seconds: number): void {
+    const { chimney } = sprite;
+    if (!chimney) {
+      return;
+    }
+    const due = this.nextSmoke.get(id);
+    if (due === undefined) {
+      // The first curl comes at a time of its own, so neighbouring chimneys do not puff together.
+      this.nextSmoke.set(id, seconds + (id % 7) * 0.15);
+      return;
+    }
+    if (seconds < due || seconds > due + SMOKE_EVERY * 4) {
+      if (seconds > due) {
+        // After a pause (the night, a hidden page) start again instead of catching up.
+        this.nextSmoke.set(id, seconds + SMOKE_EVERY);
+      }
+      return;
+    }
+    this.nextSmoke.set(id, due + SMOKE_EVERY);
+    let smoke = this.smokes.find((entry) => !entry.image.visible);
+    if (!smoke) {
+      if (this.smokes.length >= MAX_SMOKES) {
+        return;
+      }
+      smoke = { image: this.scene.add.image(0, 0, SMOKE_KEY).setVisible(false), x: 0, y: 0, born: 0, drift: 0 };
+      this.layer.add(smoke.image);
+      this.smokes.push(smoke);
+    }
+    const x = sprite.image.x + chimney.x;
+    const y = sprite.baseY + chimney.y;
+    smoke.x = x;
+    smoke.y = y;
+    smoke.born = seconds;
+    smoke.drift = ((id * 13) % 5) - 2;
+    smoke.image.setVisible(true).setPosition(x, y).setDepth(sprite.baseY - 3).setAlpha(0).setScale(0.4 / TEXTURE_SCALE);
+  }
+
+  private updateSmoke(seconds: number): void {
+    for (const smoke of this.smokes) {
+      if (!smoke.image.visible) {
+        continue;
+      }
+      const age = (seconds - smoke.born) / SMOKE_LIFE;
+      if (age >= 1 || age < 0) {
+        smoke.image.setVisible(false);
+        continue;
+      }
+      const alpha = Math.min(1, age * 5) * (1 - age) * 0.85;
+      smoke.image
+        .setPosition(smoke.x + Math.sin(age * 5 + smoke.drift) * 4 + smoke.drift * age * 6, smoke.y - SMOKE_RISE * age)
+        .setScale((0.45 + age * 0.75) / TEXTURE_SCALE)
+        .setAlpha(alpha);
+    }
+  }
+
+  /** Flowers, bushes and young trees sway a little in the wind (only the picture). */
+  private updateSway(seconds: number): void {
+    for (const [id, sprite] of this.sprites) {
+      if (id === this.liftedId) {
+        continue;
+      }
+      if (sprite.sways) {
+        sprite.image.setAngle(Math.sin(seconds * 1.4 + id * 1.7) * 2.2);
       }
     }
   }
@@ -686,10 +786,13 @@ export class VillageView {
     }
   }
 
+  /** A new or moved building pops in with a little hop (M9). */
   private popIn(image: Phaser.GameObjects.Image): void {
     const scale = 1 / TEXTURE_SCALE;
     image.setScale(scale * 0.7);
     this.scene.tweens.add({ targets: image, scaleX: scale, scaleY: scale, duration: 260, ease: 'Back.easeOut' });
+    const ground = image.y;
+    this.scene.tweens.add({ targets: image, y: ground - 12, duration: 140, ease: 'Sine.easeOut', yoyo: true, onComplete: () => image.setY(ground) });
   }
 
   /** A short cloud of puffs around a point; `size` is about the number of tiles it spreads over. */
