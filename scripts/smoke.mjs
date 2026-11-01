@@ -3778,7 +3778,10 @@ async function testHomes({ context, page, check, shot, size, input, cdp, name, p
   checkCard(v, size, 'Karte mit Stimmung');
   check(v.ui.card.mood === 'happy' && v.ui.card.rows === 6, `Karte: Stimmung „${v.ui.card.mood}“ mit ${v.ui.card.rows} Zeilen, erwartet fröhlich mit 6 Zeilen`);
   let move = v.ui['card-move'];
-  check(move?.enabled === true && move.w >= 72 && move.h >= 48 && move.font >= 12 && spotInside(move, v.ui.card), `Karte: „Umziehen“ ${JSON.stringify(move)} (mindestens 72×48 px, Schrift 12 px, in der Karte ${JSON.stringify(v.ui.card)})`);
+  check(move?.enabled === true && move.w >= 72 && move.h >= 48 && move.font >= 14 && spotInside(move, v.ui.card), `Karte: „Umziehen“ ${JSON.stringify(move)} (mindestens 72×48 px, Schrift 14 px, in der Karte ${JSON.stringify(v.ui.card)})`);
+  // Das Wort „Umziehen“ ist so groß wie die Zeilen der Karte (höchstens 1 px kleiner, wo der Knopf es begrenzt).
+  check(move.font >= Math.min(v.ui.card.font, 19) - 1, `Karte: „Umziehen“ in ${move.font} px, die Zeilen in ${v.ui.card.font} px`);
+  console.log(`  [${name}] Karte: Zeilen ${v.ui.card.font} px, „Umziehen“ ${move.w}×${move.h} px mit ${move.font} px`);
   await sleep(400);
   await shot(`${name}-stimmung-karte`);
   await closeCard('Karte des Gärtners');
@@ -3840,7 +3843,7 @@ async function testHomes({ context, page, check, shot, size, input, cdp, name, p
    * rückt 24 px weiter (mehr als ein Tipp): Trägt er ihn dann nicht, ging der Bewohner gerade los – der Finger hat nur
    * die Kamera ein Stück gezogen, ein neuer Versuch folgt.
    */
-  const carry = async (who, house, what, { to: point, shotName } = {}) => {
+  const carry = async (who, house, what, { to: point, shotName, secondFinger = false } = {}) => {
     let camBefore = await cameraAtRest();
     let from;
     let nudged;
@@ -3869,18 +3872,46 @@ async function testHomes({ context, page, check, shot, size, input, cdp, name, p
     const to = house ? screenOfBuilding(camBefore, size, house) : point;
     let during;
     let camCarrying;
+    // Korrekturrunde 1: über einem Haus mit Platz ist es erst gelb (`ready` false, Vorschau „…:wait“) und wird nach
+    // einem kurzen Verweilen grün – erst dann zieht Loslassen um.
+    let sawWait = false;
+    let sliding;
+    const peek = () =>
+      page.evaluate(() => {
+        const d = document.documentElement.dataset;
+        return { drag: d.drag ? JSON.parse(d.drag) : undefined, preview: d.preview ?? '' };
+      });
     try {
       for (let i = 1; i <= 10; i += 1) {
         const t = i / 10;
         await pointer.move({ x: nudged.x + (to.x - nudged.x) * t, y: nudged.y + (to.y - nudged.y) * t });
         await sleep(45);
+        const seen = await peek();
+        if (house && seen.drag?.house === house.id && seen.drag.result === 'ok' && seen.drag.ready === false && seen.preview.endsWith(':carried:wait')) sawWait = true;
       }
       await sleep(250);
-      during = await waitForVillage(page, (x) => x.drag?.resident === who.id && x.drag.house === house?.id, `${who.name} getragen über ${house ? house.type : 'der Wiese'} (${what})`, 4000).catch((error) => error);
+      during = await waitForVillage(
+        page,
+        (x) => x.drag?.resident === who.id && x.drag.house === house?.id && (x.drag.result !== 'ok' || x.drag.ready === true),
+        `${who.name} getragen über ${house ? house.type : 'der Wiese'} (${what})`,
+        4000,
+      ).catch((error) => error);
       camCarrying = await readCamera(page);
       if (shotName && !(during instanceof Error)) {
         await sleep(300);
         await shot(shotName);
+      }
+      if (secondFinger && cdp && !(during instanceof Error)) {
+        // K2: ein zweiter Finger beendet das Tragen – die Figur gleitet zurück, statt zu springen.
+        sliding = sampleResident(who.id, 1500);
+        await cdp.send('Input.dispatchTouchEvent', {
+          type: 'touchStart',
+          touchPoints: [
+            { x: to.x, y: to.y, id: 0 },
+            { x: Math.min(size.width - 20, to.x + 160), y: Math.min(size.height - 20, to.y + 60), id: 1 },
+          ],
+        });
+        await sleep(200);
       }
     } finally {
       await pointer.up();
@@ -3889,17 +3920,108 @@ async function testHomes({ context, page, check, shot, size, input, cdp, name, p
     if (during instanceof Error) throw during;
     check(Math.abs(during.drag.sx - to.x) <= 3 && Math.abs(during.drag.sy - to.y) <= 3, `${what}: der Finger steht laut data-drag bei ${during.drag.sx},${during.drag.sy}, nicht bei ${to.x.toFixed(0)},${to.y.toFixed(0)}`);
     check(Math.abs(camCarrying.x - camBefore.x) < 1 && Math.abs(camCarrying.y - camBefore.y) < 1 && camCarrying.zoom === camBefore.zoom, `${what}: die Kamera hat sich beim Tragen bewegt (${camBefore.x},${camBefore.y} → ${camCarrying.x},${camCarrying.y})`);
-    return { during, after: await readVillage(page) };
+    return { during, after: await readVillage(page), sawWait, slide: sliding ? jumpsOf(await sliding) : undefined };
   };
+
+  /**
+   * W1 (Korrekturrunde 1): ein schnelles Wischen, das auf dem Bewohner `who` beginnt und über das Haus `house` (mit
+   * Platz) geht und dort sofort endet – wie ein Kind, das eigentlich das Bild schieben wollte. Niemand zieht um; der Satz
+   * sagt, dass man kurz halten soll (das belegt, dass der Bewohner wirklich getragen wurde). Ging der Bewohner gerade los
+   * (der Finger zog nur die Kamera), folgt ein neuer Versuch.
+   */
+  const swipe = async (who, house, what) => {
+    for (let attempt = 1; ; attempt += 1) {
+      const view = await cameraAtRest();
+      const ui = (await readVillage(page)).ui;
+      const { found } = await waitForResidents(page, (s) => standingOnScreen(s, ui, size, NO_OFFSET, new Set(), (r) => r.id === who.id), `${who.name} stehend im Bild (${what})`, 90_000);
+      const from = { x: found.sx, y: found.sy };
+      const to = screenOfBuilding(view, size, house);
+      // Headless zeichnet nur 3–8 Bilder pro Sekunde, die Schritte des Fingers kommen dort im Takt der Bilder an: Vier
+      // Zwischenschritte standen zusammen länger als 250 ms über dem Haus (ein erster Entwurf dieses Tests zog so um).
+      // Deshalb kommen der Schritt aufs Haus und das Loslassen ohne Pause hintereinander – wie ein schnelles Wischen.
+      const started = Date.now();
+      await pointer.down(from);
+      await sleep(60);
+      await Promise.all([pointer.move(to), pointer.up()]);
+      const took = Date.now() - started;
+      const after = await waitForVillage(page, (x) => x.drag === undefined && x.hint !== '', `den Satz nach dem Wischen (${what})`, 3000).catch(() => readVillage(page));
+      if (after.hint.includes('kurz über dem Haus')) return { after, took };
+      if (attempt >= 4) throw new Error(`${what}: nach dem Wischen von ${who.name} steht „${after.hint}“ (Vorschau ${after.preview})`);
+      console.log(`  [${name}] (${what}: ${who.name} nicht getragen – „${after.hint}“; noch einmal)`);
+      await sleep(600);
+    }
+  };
+
+  /**
+   * Wo ein Bewohner gezeichnet wird (Fußpunkt, Welt-px) und ob er gerade gleitet (`glide`), in jedem Bild für `ms`
+   * Millisekunden – nur die Änderungen.
+   */
+  const sampleResident = (id, ms) =>
+    page.evaluate(
+      ({ id: who, ms: span }) =>
+        new Promise((resolve) => {
+          const points = [];
+          const started = performance.now();
+          // Einmal pro Bild (ein Zeitgeber käme zwischen langsamen Bildern oft nicht dran und verpasste welche).
+          const frame = () => {
+            const r = JSON.parse(document.documentElement.dataset.residents ?? '[]').find((x) => x.id === who);
+            const last = points[points.length - 1];
+            if (r && r.x !== undefined && (!last || last.x !== r.x || last.y !== r.y || last.glide !== r.glide)) points.push({ x: r.x, y: r.y, glide: r.glide });
+            if (performance.now() - started > span) resolve(points);
+            else requestAnimationFrame(frame);
+          };
+          frame();
+        }),
+      { id, ms },
+    );
+  /**
+   * Ob eine Figur gleitet statt springt, aus einer Folge von Punkten ({@link sampleResident}), die dort beginnt, wo sie
+   * war (getragen oder stehend). Headless zeichnet nur 3–8 Bilder pro Sekunde, ein Gleiten von 0,3–0,9 s fällt dort in
+   * ein bis drei Bilder – die Größe der Schritte sagt also nichts. Belegt wird es über `glide` in `data-residents`: Das
+   * erste gleitende Bild (`glide` 1) zeigt die Figur genau dort, wo sie im Bild davor stand (`startGap`; das erste Bild
+   * nach dem Loslassen zeigt sie am alten Ort), vorher macht sie keinen Satz, der weiter ist als ein Schritt beim Gehen
+   * (`jumped`: über 40 Welt-px von einem Bild zum nächsten), und am Ende steht sie wieder ohne Gleiten (`ended`). Dazu
+   * zum Nachlesen der größte Schritt und der ganze Weg (Welt-px).
+   */
+  const jumpsOf = (points) => {
+    const step = (i) => Math.hypot(points[i].x - points[i - 1].x, points[i].y - points[i - 1].y);
+    let biggest = 0;
+    for (let i = 1; i < points.length; i += 1) biggest = Math.max(biggest, step(i));
+    const first = points[0];
+    const last = points[points.length - 1];
+    const glideIndex = points.findIndex((p) => p.glide === 1);
+    let jumped = false;
+    for (let i = 1; i < (glideIndex < 0 ? points.length : glideIndex); i += 1) jumped ||= step(i) > 40;
+    return {
+      biggest,
+      total: first && last ? Math.hypot(last.x - first.x, last.y - first.y) : 0,
+      frames: points.length,
+      glided: glideIndex >= 0,
+      startGap: glideIndex > 0 ? step(glideIndex) : Number.POSITIVE_INFINITY,
+      jumped,
+      ended: last?.glide === 0,
+    };
+  };
+  /** Die Figur glitt vom alten Ort (höchstens `gap` Welt-px daneben) und sprang nicht. */
+  const glidOk = (slide, gap = 2) => slide !== undefined && slide.glided && !slide.jumped && slide.startGap <= gap && slide.ended;
+
+  // --- W1: ein schnelles Wischen vom Bewohner über ein Haus mit Platz zieht nicht um ---
+  step(`Wohnen: ${trader.name} per ${pointer.kind} schnell über das blaue Haus wischen`);
+  const swiped = await swipe(trader, blue, 'schnelles Wischen');
+  await sleep(800);
+  check((await residentById(trader.id))?.homeId === red.id, `Schnelles Wischen: ${trader.name} ist ins blaue Haus gezogen („${swiped.after.hint}“)`);
+  check(swiped.after.hint === `Halte ${trader.name} kurz über dem Haus, bis es grün wird.`, `Schnelles Wischen: Satz „${swiped.after.hint}“`);
+  console.log(`  [${name}] schnelles Wischen in ${swiped.took} ms: kein Umzug, „${swiped.after.hint}“`);
 
   // --- Ziehen auf ein Haus mit Platz: grün, „1/2“, der Bewohner zieht ein ---
   step(`Wohnen: ${trader.name} per ${pointer.kind} ins blaue Haus ziehen`);
   let carried = await carry(trader, blue, 'Ziehen ins Haus mit Platz', { shotName: `${name}-ziehen` });
-  check(carried.during.drag.result === 'ok' && carried.during.drag.used === 1 && carried.during.drag.capacity === 2, `Ziehen ins Haus mit Platz: ${JSON.stringify(carried.during.drag)}`);
+  check(carried.during.drag.result === 'ok' && carried.during.drag.ready === true && carried.during.drag.used === 1 && carried.during.drag.capacity === 2, `Ziehen ins Haus mit Platz: ${JSON.stringify(carried.during.drag)}`);
   check(carried.during.preview === 'home:ok:1/2:carried' && carried.during.homeLabel === '1/2', `Ziehen ins Haus mit Platz: Vorschau ${carried.during.preview}, über dem Haus „${carried.during.homeLabel}“`);
+  check(carried.sawWait, 'Ziehen ins Haus mit Platz: das Haus war nie erst gelb (Vorschau „…:carried:wait“), bevor es grün wurde');
   state = await waitForResidents(page, (s) => s.residents.find((r) => r.id === trader.id && r.homeId === blue.id), `${trader.name} im blauen Haus`, 4000);
   check(state.card === '' && carried.after.drag === undefined && carried.after.preview === 'none', `Nach dem Ziehen: Karte „${state.card}“, data-drag ${JSON.stringify(carried.after.drag)}, Vorschau ${carried.after.preview}`);
-  village = await waitForVillage(page, (x) => x.hint.includes(trader.name), `den Satz, dass ${trader.name} jetzt im blauen Haus wohnt`, 4000);
+  village = await waitForVillage(page, (x) => x.hint === `${trader.name} wohnt jetzt hier!`, `den Satz, dass ${trader.name} jetzt im blauen Haus wohnt`, 4000);
   check(state.found.mood === 'happy' && state.found.reason === 'reason.deco', `Nach dem Umzug ins blaue Haus (mit Blume): ${trader.name} ${state.found.mood}/${state.found.reason}`);
   console.log(`  [${name}] ${trader.name} per ${pointer.kind} ins blaue Haus getragen: „${village.hint}“`);
 
@@ -3921,7 +4043,21 @@ async function testHomes({ context, page, check, shot, size, input, cdp, name, p
   if (meadow) {
     carried = await carry(gardener, undefined, 'Ziehen auf die Wiese', { to: screenOfTile(cam, size, meadow) });
     check(carried.during.drag.result === undefined && carried.during.homeLabel === '' && carried.during.preview === 'none', `Ziehen auf die Wiese: ${JSON.stringify(carried.during.drag)}, Vorschau ${carried.during.preview}, „${carried.during.homeLabel}“`);
-    check((await residentById(gardener.id))?.homeId === red.id && !carried.after.hint.includes('wohnt jetzt'), `Ziehen auf die Wiese: ${gardener.name} ist umgezogen („${carried.after.hint}“)`);
+    check((await residentById(gardener.id))?.homeId === red.id, `Ziehen auf die Wiese: ${gardener.name} ist umgezogen („${carried.after.hint}“)`);
+    // T1: ein Satz sagt, wo man loslassen muss – er bleibt bis zum nächsten Tipp.
+    check(carried.after.hint === `Lass ${gardener.name} auf einem Haus los, dann ist es das neue Zuhause.`, `Ziehen auf die Wiese: Satz „${carried.after.hint}“`);
+    await sleep(1500);
+    const later = await readVillage(page);
+    check(later.hint === carried.after.hint, `Ziehen auf die Wiese: der Satz ist nach 1,5 s „${later.hint}“`);
+    if (cdp) {
+      step(`Wohnen: ein zweiter Finger beendet das Tragen von ${gardener.name}`);
+      cam = await cameraAtRest();
+      carried = await carry(gardener, undefined, 'Tragen mit zweitem Finger', { to: screenOfTile(cam, size, meadow), secondFinger: true });
+      const { slide } = carried;
+      check(carried.after.drag === undefined && (await residentById(gardener.id))?.homeId === red.id, `Zweiter Finger: data-drag ${JSON.stringify(carried.after.drag)}, ${gardener.name} wohnt nicht mehr im roten Haus`);
+      check(slide !== undefined && slide.total > TILE && glidOk(slide), `Zweiter Finger: ${gardener.name} sprang zurück (${JSON.stringify(slide)})`);
+      console.log(`  [${name}] zweiter Finger: ${gardener.name} gleitet ${slide?.total.toFixed(0)} Welt-px zurück (erstes gleitendes Bild ${slide?.startGap.toFixed(1)} px vom Ort des Tragens, ${slide?.frames} Bilder, größter Schritt ${slide?.biggest.toFixed(0)})`);
+    }
   } else {
     check(false, 'Ziehen auf die Wiese: keine freie Wiese im Bild');
   }
@@ -3947,6 +4083,56 @@ async function testHomes({ context, page, check, shot, size, input, cdp, name, p
   // --- Ein Haus weit weg von der Arbeit ---
   step('Wohnen: ein Haus weit weg vom Beerengarten');
   await zoom('zoom-out', 2);
+
+  // --- T2: weit draußen lässt sich niemand tragen – die Kamera zieht wie immer, und ein Satz sagt, warum ---
+  step(`Wohnen: weit draußen per ${pointer.kind} einen Bewohner ziehen`);
+  for (let attempt = 1; ; attempt += 1) {
+    const view = await cameraAtRest();
+    check(view.zoom < 0.5, `Weit draußen: Zoom ${view.zoom}, erwartet unter 0,5`);
+    const ui = (await readVillage(page)).ui;
+    const { found } = await waitForResidents(page, (s) => standingOnScreen(s, ui, size, NO_OFFSET, new Set()), 'einen stehenden Bewohner weit draußen', 90_000);
+    // Vom Bewohner zur Bildmitte ziehen: Der Mittelpunkt der Kamera wandert dabei zum Bewohner, also auf Land – dort
+    // hält ihn keine Grenze (der Mittelpunkt bleibt auf Land; ein erster Entwurf zog zur Mitte der Karte, und die
+    // Kamera kam quer nicht weiter, weil dort Wasser lag). Steht der Bewohner fast in der Mitte, geht es zur Inselmitte.
+    const toMiddle = { x: size.width / 2 - found.sx, y: size.height / 2 - found.sy };
+    const far = Math.hypot(toMiddle.x, toMiddle.y);
+    const middle = (MAP_TILES / 2) * TILE;
+    const length = Math.min(120, far);
+    const by = far >= 60 ? { x: (toMiddle.x / far) * length, y: (toMiddle.y / far) * length } : { x: Math.sign(view.x - middle || 1) * 120, y: Math.sign(view.y - middle || 1) * 40 };
+    let dragged;
+    try {
+      await pressAndMove(pointer, { x: found.sx, y: found.sy }, { x: found.sx + by.x, y: found.sy + by.y }, { steps: 8, pauseMs: 40 });
+      dragged = (await readVillage(page)).drag !== undefined;
+    } finally {
+      await pointer.up();
+    }
+    const after = await cameraAtRest();
+    const hint = (await readVillage(page)).hint;
+    const moved = Math.hypot((after.x - view.x) * view.zoom, (after.y - view.y) * view.zoom);
+    if (hint === `Zoom näher heran, dann kannst du ${found.name} tragen.` || attempt >= 3) {
+      check(!dragged, `Weit draußen: ${found.name} wurde bei Zoom ${view.zoom.toFixed(2)} getragen`);
+      check(hint === `Zoom näher heran, dann kannst du ${found.name} tragen.`, `Weit draußen: nach dem Ziehen auf ${found.name} steht „${hint}“`);
+      // Zum Vergleich derselbe Zug neben den Bewohnern: Weit draußen hält die Grenze die Kamera oft schon nach wenigen
+      // Pixeln (der Mittelpunkt bleibt auf Land, fast die ganze Insel ist im Bild). Der Zug auf dem Bewohner muss die
+      // Kamera genauso weit bewegen wie ein gewöhnlicher – wo die Grenze hält, hält sie beide.
+      const clear = await pointClearOfResidents(page, [0.35, 0.45, 0.55].flatMap((fy) => [0.3, 0.4, 0.5, 0.6].map((fx) => ({ x: size.width * fx, y: size.height * fy }))));
+      try {
+        await pressAndMove(pointer, clear, { x: clear.x + by.x, y: clear.y + by.y }, { steps: 8, pauseMs: 40 });
+      } finally {
+        await pointer.up();
+      }
+      const control = await cameraAtRest();
+      const controlMoved = Math.hypot((control.x - after.x) * view.zoom, (control.y - after.y) * view.zoom);
+      check(moved >= 0.8 * controlMoved - 10, `Weit draußen: der Zug auf ${found.name} zog die Kamera nur ${moved.toFixed(0)} px, derselbe Zug daneben ${controlMoved.toFixed(0)} px (Zoom ${view.zoom.toFixed(2)})`);
+      const px = (a, b) => `${((a.x - b.x) * view.zoom).toFixed(0)},${((a.y - b.y) * view.zoom).toFixed(0)}`;
+      console.log(
+        `  [${name}] weit draußen (Zoom ${view.zoom.toFixed(2)}, kleinster ${view.min.toFixed(2)}): Finger ${by.x.toFixed(0)},${by.y.toFixed(0)} px, Kamera auf ${found.name} ${moved.toFixed(0)} px (${px(view, after)}), daneben ${controlMoved.toFixed(0)} px (${px(after, control)}), „${hint}“`,
+      );
+      break;
+    }
+    console.log(`  [${name}] (weit draußen: ${found.name} nicht getroffen – „${hint}“; noch einmal)`);
+    await sleep(600);
+  }
   // Die Mitten mindestens 20 Kacheln auseinander: von Tür zu Tür sicher mehr als `farTiles` Schritte.
   const farSpot = await houseSpot((vv, x, y) => centerSteps({ x, y }, 2, garden, 2) >= 20 && decoDistance(vv, x, y, 2, 2) > 2 && freeGrass(vv, x + 2, y + 1));
   check(farSpot !== undefined, 'Wohnen: kein Platz für ein Haus weit weg vom Beerengarten');
@@ -3977,12 +4163,44 @@ async function testHomes({ context, page, check, shot, size, input, cdp, name, p
   // Ein Tipp neben das Haus sagt nur, was zu tun ist.
   await tapTile({ x: yellow.x + 2, y: yellow.y + 1 });
   await waitForVillage(page, (x) => x.tool === 'home' && x.hint.includes('Tippe auf ein Haus') && x.preview === 'none', 'den Satz nach einem Tipp auf die Wiese', 4000);
+  // T3: liegt das Haus halb unter der Hinweisleiste, fährt die Kamera nach dem Tipp sanft hin.
+  const rise = types.find((type) => type.id === 'house-yellow').look.rise;
+  const roofTop = (view) => screenOfTile(view, size, { x: yellow.x, y: yellow.y }).y - (TILE / 2 + rise) * view.zoom;
+  const houseBottom = (view) => screenOfTile(view, size, { x: yellow.x, y: yellow.y + 1 }).y + (TILE / 2) * view.zoom;
+  let band = (await readVillage(page)).ui.band;
+  let view = await cameraAtRest();
+  const shiftBy = band.y - band.h / 2 - 30 - roofTop(view);
+  const starts = [];
+  for (let fy = 0.4; fy <= 0.6; fy += 0.05) for (let fx = 0.3; fx <= 0.7; fx += 0.05) starts.push({ x: size.width * fx, y: size.height * fy });
+  const panStart = await pointClearOfResidents(page, starts);
+  try {
+    await pressAndMove(pointer, panStart, { x: panStart.x, y: panStart.y + shiftBy }, { steps: 10, pauseMs: 40 });
+  } finally {
+    await pointer.up();
+  }
+  view = await cameraAtRest();
+  band = (await readVillage(page)).ui.band;
+  const bandTop = band.y - band.h / 2;
+  check(roofTop(view) < bandTop, `Umziehen: das Dach des gelben Hauses (${roofTop(view).toFixed(0)}) liegt nicht unter der Hinweisleiste (bis ${bandTop.toFixed(0)})`);
   await tapTile({ x: yellow.x, y: yellow.y + 1 });
   v = await waitForVillage(page, (x) => x.preview === 'home:ok:0/2' && x.ui.confirm?.enabled === true, 'die grüne Vorschau auf dem gelben Haus', 4000);
   check(v.homeLabel === '0/2' && v.hint.includes(gardener.name), `Umziehen: über dem Haus „${v.homeLabel}“, Satz „${v.hint}“`);
+  await sleep(400);
+  const glided = await cameraAtRest();
+  band = (await readVillage(page)).ui.band;
+  check(
+    Math.abs(glided.y - view.y) * view.zoom > 40 && roofTop(glided) >= band.y - band.h / 2 && houseBottom(glided) <= band.y + band.h / 2,
+    `Umziehen: nach dem Tipp auf das Haus unter der Leiste fuhr die Kamera nicht hin (Dach bei ${roofTop(glided).toFixed(0)}, Fuß bei ${houseBottom(glided).toFixed(0)}, freier Teil ${(band.y - band.h / 2).toFixed(0)}–${(band.y + band.h / 2).toFixed(0)})`,
+  );
+  console.log(`  [${name}] Umziehen: Haus unter der Leiste angetippt, die Kamera fuhr ${((glided.y - view.y) * view.zoom).toFixed(0)} px – Dach jetzt bei ${roofTop(glided).toFixed(0)} px`);
   await sleep(300);
   await shot(`${name}-umziehen`);
+  // K1: nach ✓ gleitet die Figur vom alten Ort zur Tür des neuen Hauses, statt zu springen.
+  const sliding = sampleResident(gardener.id, 2500);
   await confirm((x) => x.tool === 'view', 'zurück auf „Anschauen“ nach dem Umzug');
+  const slide = jumpsOf(await sliding);
+  check(slide.total > 2 * TILE && glidOk(slide), `Umziehen: ${gardener.name} sprang nach ✓ (${JSON.stringify(slide)})`);
+  console.log(`  [${name}] Umziehen: ${gardener.name} gleitet ${slide.total.toFixed(0)} Welt-px (erstes gleitendes Bild ${slide.startGap.toFixed(1)} px vom alten Ort, ${slide.frames} Bilder, größter Schritt ${slide.biggest.toFixed(0)})`);
   state = await waitForResidents(page, (s) => s.card === String(gardener.id) && s.residents.find((r) => r.id === gardener.id && r.homeId === yellow.id), `${gardener.name} im gelben Haus, seine Karte offen`, 4000);
   check(state.found.mood === 'sad' && state.found.reason === 'reason.far', `Nach dem Umzug weit weg: ${gardener.name} ${state.found.mood}/${state.found.reason}, erwartet traurig (weiter Weg)`);
   v = await waitForVillage(page, (x) => x.ui.card?.mood === 'sad', 'die Karte mit der traurigen Stimmung', 4000);
@@ -4079,8 +4297,8 @@ async function testHomes({ context, page, check, shot, size, input, cdp, name, p
       const { card } = pv.ui;
       const button = pv.ui['card-move'];
       check(card.rows === rows && card.mood === 'happy', `Karte ${w}×${h}: ${card.rows} Zeilen, Stimmung „${card.mood}“ – erwartet ${rows} Zeilen, fröhlich (${target.name})`);
-      check(button !== undefined && button.h >= 48 && button.w >= 72 && button.font >= 12 && spotInside(button, card), `Karte ${w}×${h}: „Umziehen“ ${JSON.stringify(button)} in ${JSON.stringify(card)}`);
-      console.log(`  [${name}] Karte ${w}×${h}: ${card.w}×${card.h} px, ${card.rows} Zeilen zu ${card.font} px, „Umziehen“ ${button?.w}×${button?.h} px`);
+      check(button !== undefined && button.h >= 48 && button.w >= 72 && button.font >= 14 && spotInside(button, card), `Karte ${w}×${h}: „Umziehen“ ${JSON.stringify(button)} in ${JSON.stringify(card)}`);
+      console.log(`  [${name}] Karte ${w}×${h}: ${card.w}×${card.h} px, ${card.rows} Zeilen zu ${card.font} px, „Umziehen“ ${button?.w}×${button?.h} px mit ${button?.font} px`);
       await sleep(400);
       await shot(`${name}-stimmung-handy-${label}`);
       await closeCard(`${w}×${h}`);
