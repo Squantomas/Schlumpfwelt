@@ -2,7 +2,7 @@ import Phaser from 'phaser';
 import { COLORS, MIN_TAP_SIZE } from './style';
 import { addGraphics } from './FastGraphics';
 
-export type ButtonIcon = 'play' | 'plus' | 'minus' | 'check' | 'cross' | 'back' | 'left' | 'right' | 'gear';
+export type ButtonIcon = 'play' | 'plus' | 'minus' | 'check' | 'cross' | 'back' | 'left' | 'right' | 'gear' | 'lock';
 
 /** `confirm` is green (✓), `cancel` red (✕), `done` blue (leave the tool), `normal` yellow. */
 export type ButtonVariant = 'normal' | 'confirm' | 'cancel' | 'done';
@@ -146,6 +146,17 @@ export class RoundButton extends Phaser.GameObjects.Container {
         g.fillStyle(colors.icon).fillPoints(points, true);
         g.fillCircle(0, 0, inner);
         g.fillStyle(colors.face).fillCircle(0, 0, r * 0.16);
+        break;
+      }
+      case 'lock': {
+        // A padlock (M8, "Für Eltern"): shackle and body.
+        g.lineStyle(r * 0.13, colors.icon, 1);
+        g.beginPath();
+        g.arc(0, -r * 0.1, r * 0.22, Math.PI, 0, false);
+        g.strokePath();
+        g.fillStyle(colors.icon).fillRoundedRect(-r * 0.36, -r * 0.08, r * 0.72, r * 0.52, r * 0.1);
+        g.fillStyle(colors.face).fillCircle(0, r * 0.12, r * 0.08);
+        g.fillRect(-r * 0.03, r * 0.12, r * 0.06, r * 0.16);
         break;
       }
       case 'plus':

@@ -143,3 +143,20 @@ export function markSave(info: string): void {
 export function markPerf(info: string): void {
   document.documentElement.dataset.perf = info;
 }
+
+/**
+ * Publishes the guided start, the parents' menu and the daily limit (M8) for tests: `data-tutorial` (JSON: `status`,
+ * `step`, `index`, `shown` = its sentence is in the hint bar, and the hand `hx`/`hy` in CSS px with `below`),
+ * `data-parent` (`closed` or `<step>[:<sentence key>]`), `data-parent-text` (the sentence), `data-limit` (JSON:
+ * `phase` day/dusk/night/dawn, `used` and `allowed` seconds, `limit`, `extra`, `warned`, `day`, `store`, `pin`, …),
+ * `data-night` (JSON: how dark, warm and starry the layer is, and `blocks`) and `data-bedtime` (`1` at bedtime).
+ */
+export function markParent(info: { readonly tutorial: string; readonly parent: string; readonly parentText: string; readonly limit: string; readonly night: string; readonly bedtime: string }): void {
+  const data = document.documentElement.dataset;
+  data.tutorial = info.tutorial;
+  data.parent = info.parent;
+  data.parentText = info.parentText;
+  data.limit = info.limit;
+  data.night = info.night;
+  data.bedtime = info.bedtime;
+}

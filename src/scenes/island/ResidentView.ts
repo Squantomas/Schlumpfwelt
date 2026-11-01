@@ -1,7 +1,7 @@
 import type Phaser from 'phaser';
 import { moodOf, type Mood } from '../../sim/mood';
 import { hash2 } from '../../sim/random';
-import { boatPoint, residentPoint } from '../../sim/residents';
+import { boatPoint, residentPoint, sleepOf } from '../../sim/residents';
 import type { Simulation } from '../../sim/simulation';
 import type { Point } from '../../ui/cameraMath';
 import type { ResidentSpot } from '../../ui/residentHit';
@@ -17,6 +17,7 @@ import {
   RESIDENT_CARRY_Y,
   RESIDENT_ORIGIN,
   RESIDENT_RING_KEY,
+  SLEEP_KEY,
   moodTextureKey,
   residentTextureKey,
 } from './residentTextures';
@@ -54,6 +55,13 @@ const CARRY_LIFT_CSS = 18;
 const SLIDE_BACK = 0.28;
 const SLIDE_SPEED = 1400;
 const SLIDE_LONGEST = 0.9;
+/**
+ * Sleep (M8): a resident going to bed in their house fades out at the door in {@link SLEEP_FADE} seconds; over the
+ * door of a house where somebody sleeps three little "z" bob gently (one per house). Who sleeps outside (no home)
+ * lies down where they are, with the "z" over them.
+ */
+const SLEEP_FADE = 0.6;
+const SLEEP_LIE_ANGLE = 78;
 /** A carried resident is drawn in front of everything in the world (but below the tap ring). */
 const CARRIED_DEPTH = 990_000;
 /** Half the width of a figure (world px). */
@@ -78,6 +86,8 @@ interface Figure {
   /** 1: looks right, -1: looks left (keeps the last way they walked). */
   facing: number;
   depth: number;
+  /** Since when (seconds) they are in bed inside their house (M8), `undefined` while awake or asleep outside. */
+  inBedSince: number | undefined;
 }
 
 /** Where a resident is drawn (feet, world px), whether the carried good shows over their head and whether the mood sign does. */
@@ -210,6 +220,8 @@ export class ResidentView {
       this.lastCarried = undefined;
     }
     this.carriedBoxNow = undefined;
+    /** Houses whose "z" is drawn this frame (one per house). */
+    const sleepingHomes = new Set<number>();
 
     for (const resident of state.residents) {
       seen.add(resident.id);
@@ -231,6 +243,7 @@ export class ResidentView {
           back: undefined,
           facing: hash2(resident.id, 2, 9) < 0.5 ? -1 : 1,
           depth: Number.NaN,
+          inBedSince: undefined,
         };
         this.figures.set(resident.id, figure);
       }
@@ -296,6 +309,12 @@ export class ResidentView {
           figure.back = undefined;
         }
       }
+      const sleep = sleepOf(state, resident);
+      if (sleep !== 'awake') {
+        this.drawSleeper(figure, resident.id, resident.home, sleep, footX, footY, seconds, signSize, sleepingHomes, spots);
+        continue;
+      }
+      figure.inBedSince = undefined;
       const phase = seconds * 11 + resident.id * 1.3;
       let lift = 0;
       let angle = 0;
@@ -412,13 +431,54 @@ export class ResidentView {
     figure.carry.setVisible(true).setPosition(x, y).setDisplaySize(size, size).setDepth(depth + 0.01);
   }
 
-  /** The heart or cloud over a head (M7), made when first needed. */
-  private drawSign(figure: Figure, shown: boolean, x: number, y: number, depth: number, size: number): void {
+  /**
+   * A resident in bed (M8). Inside their house: they fade out at the door, then only the "z" over the door shows (one
+   * per house) – nobody can be tapped there. Outside: they lie where they are, with the "z" over them (and can still
+   * be tapped).
+   */
+  private drawSleeper(
+    figure: Figure,
+    id: number,
+    home: number | null,
+    sleep: 'inside' | 'outside',
+    footX: number,
+    footY: number,
+    seconds: number,
+    size: number,
+    homes: Set<number>,
+    spots: ResidentSpot[],
+  ): void {
+    figure.carry?.setVisible(false);
+    const bob = Math.sin(seconds * 2 + id) * 3;
+    if (sleep === 'inside') {
+      figure.inBedSince ??= seconds;
+      const fade = clamp(1 - (seconds - figure.inBedSince) / SLEEP_FADE, 0, 1);
+      figure.sprite.setVisible(fade > 0).setAlpha(fade).setAngle(0).setPosition(footX, footY);
+      const first = home !== null && !homes.has(home);
+      if (home !== null) {
+        homes.add(home);
+      }
+      this.drawSign(figure, first, footX, footY - RESIDENT_CARRY_Y - size / 2 + bob, footY, size, SLEEP_KEY);
+      this.drawn.set(id, { x: footX, y: footY, carry: false, sign: first, glide: false });
+      return;
+    }
+    figure.inBedSince = undefined;
+    figure.sprite.setVisible(true).setAlpha(1).setPosition(footX, footY).setAngle(SLEEP_LIE_ANGLE * figure.facing).setFlipX(figure.facing < 0);
+    if (figure.depth !== footY) {
+      figure.depth = footY;
+      figure.sprite.setDepth(footY);
+    }
+    this.drawSign(figure, true, footX + 14 * figure.facing, footY - 34 - size / 2 + bob, footY, size, SLEEP_KEY);
+    spots.push({ id, x: footX, y: footY });
+    this.drawn.set(id, { x: footX, y: footY, carry: false, sign: true, glide: false });
+  }
+
+  /** The heart or cloud over a head (M7), or the "z" of sleep (M8), made when first needed. */
+  private drawSign(figure: Figure, shown: boolean, x: number, y: number, depth: number, size: number, key: string = moodTextureKey(figure.mood)): void {
     if (!shown) {
       figure.sign?.setVisible(false);
       return;
     }
-    const key = moodTextureKey(figure.mood);
     if (!figure.sign) {
       figure.sign = this.scene.add.image(0, 0, key);
       this.layer.add(figure.sign);

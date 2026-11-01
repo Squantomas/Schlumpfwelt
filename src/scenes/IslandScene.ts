@@ -1,8 +1,12 @@
 import Phaser from 'phaser';
 import { CAMERA_CONFIG } from '../data/camera';
 import { buildingType } from '../data/buildings';
-import { buildingAt, isConnected } from '../sim/buildings';
-import { activityOf } from '../sim/residents';
+import { buildingAt, isConnected, type Tile } from '../sim/buildings';
+import { activityOf, allAsleep } from '../sim/residents';
+import { t, type TextKey } from '../data/texts';
+import type { TutorialStepId } from '../data/tutorial';
+import { DAY_CLOCK_OPTIONS, localDayKey, type DayEvent } from '../parent/dayClock';
+import type { ParentSession } from '../parent/parentSession';
 import { moodOf, workPaces } from '../sim/mood';
 import { hash2 } from '../sim/random';
 import type { GameSession } from '../save/session';
@@ -16,6 +20,20 @@ import { FrameStats } from '../ui/frameStats';
 import { simulationDelta } from '../ui/frameTime';
 import { glideAllowed, landingGlide, rectGlide } from '../ui/boatCamera';
 import { RESIDENT_BODY_Y, residentAt } from '../ui/residentHit';
+import {
+  TUTORIAL_DONE,
+  advanceTutorial,
+  currentStep,
+  pathTargets,
+  readTutorial,
+  skipTutorial,
+  startTutorial,
+  storeTutorial,
+  suggestPlace,
+  tutorialTarget,
+  villageCounts,
+  type TutorialRecord,
+} from '../ui/tutorial';
 import { moodReason } from '../ui/residentInfo';
 import { RoundButton } from '../ui/RoundButton';
 import { COLORS, TILE_SIZE, rgb } from '../ui/style';
@@ -34,13 +52,16 @@ import {
   registerIslandTextures,
 } from './island/objectTextures';
 import { LostOverlay } from './island/LostOverlay';
+import { NightLayer } from './island/NightLayer';
+import { ParentPanel } from './island/ParentPanel';
+import { TutorialGuide } from './island/TutorialGuide';
 import { registerResidentTextures } from './island/residentTextures';
 import { ResidentView } from './island/ResidentView';
 import { VillageMenu } from './island/VillageMenu';
 import { VillageView } from './island/VillageView';
 import { WorldCameraController } from './island/WorldCameraController';
 import { ISLAND_EVENTS, SCENES, type TileTapEvent } from './keys';
-import { markActiveScene, markCamera, markPerf, markSave, markTap, markVillage } from './sceneMarker';
+import { markActiveScene, markCamera, markParent, markPerf, markSave, markTap, markVillage } from './sceneMarker';
 
 /** Tap ring: how long it takes to grow and fade away (ms). */
 const RING_MS = 900;
@@ -59,6 +80,19 @@ const PERF_FRAMES = 300;
 const GRAB_MIN_ZOOM = 0.5;
 /** Room over the roof of a house for its "0/2" (world px), when the camera glides to a house chosen as a new home. */
 const HOUSE_LABEL_ROOM = 44;
+/** The local date is looked at this often (ms): a new day (also at midnight while playing) starts a new account. */
+const DAY_KEY_EVERY = 1000;
+
+/** The sentence of each step of the guided start (M8). */
+const TUTORIAL_TEXTS: Readonly<Record<TutorialStepId, TextKey>> = {
+  resident: 'tutorial.resident',
+  shop: 'tutorial.shop',
+  deco: 'tutorial.deco',
+  coins: 'tutorial.coins',
+  house: 'tutorial.house',
+  path: 'tutorial.path',
+  praise: 'tutorial.praise',
+};
 
 /** What a frame cost on the main thread (ms): the whole frame, the simulation in it, and drawing. */
 interface PerfMeter {
@@ -139,8 +173,27 @@ export class IslandScene extends Phaser.Scene {
   private previewText = 'none';
   private producers = '[]';
   private producersTick = -1;
+  /** M8: the parents' menu, the evening and the night, the hand of the guided start. */
+  private parentPanel!: ParentPanel;
+  private night!: NightLayer;
+  private guide!: TutorialGuide;
+  private tutorial: TutorialRecord = TUTORIAL_DONE;
+  /** Decoration, houses and houses without a path, counted once per change of the village. */
+  private tutorialCounts: { revision: number; counts: ReturnType<typeof villageCounts> } | undefined;
+  /** Where the hand suggests to put the item or the path (worked out once per change of the village or item). */
+  private tutorialPlace: { key: string; tile: Tile | undefined } | undefined;
+  private tutorialPath: { revision: number; targets: ReturnType<typeof pathTargets> } | undefined;
+  /** The resident the hand points at (kept while they stay in the picture, so the hand does not jump about). */
+  private tutorialResident: number | undefined;
+  private tutorialTouches = 0;
+  private worldTapped = false;
+  private dayKey = { at: Number.NEGATIVE_INFINITY, key: '' };
+  private dayPublished = '';
 
-  constructor(private readonly session: GameSession) {
+  constructor(
+    private readonly session: GameSession,
+    private readonly parent: ParentSession,
+  ) {
     super(SCENES.island);
     this.simulation = session.simulation;
   }
@@ -177,6 +230,15 @@ export class IslandScene extends Phaser.Scene {
     this.drawnTerrain = [...world.tiles];
     this.terrainRevision = this.simulation.state.revision;
     this.repaint = { count: 0, last: 0, max: 0, blocks: 0, uploaded: 0, blocksTotal: 0 };
+    this.tutorial = readTutorial(this.parent.tutorial) ?? TUTORIAL_DONE;
+    this.tutorialCounts = undefined;
+    this.tutorialPlace = undefined;
+    this.tutorialPath = undefined;
+    this.tutorialResident = undefined;
+    this.tutorialTouches = 0;
+    this.worldTapped = false;
+    this.dayKey = { at: Number.NEGATIVE_INFINITY, key: '' };
+    this.dayPublished = '';
 
     this.worldLayer = this.add.layer();
     this.uiLayer = this.add.layer();
@@ -244,9 +306,9 @@ export class IslandScene extends Phaser.Scene {
       tapMaxMovePx: CAMERA_CONFIG.tapMaxMovePx,
       wheelZoomPerPixel: CAMERA_CONFIG.wheelZoomPerPixel,
       blocksCamera: (object) => object.displayList === this.uiLayer,
-      blocksPoint: (x, y) => this.lost.isOpen || this.menu.isOpen || this.buildUI.coversPoint(x, y),
+      blocksPoint: (x, y) => this.covered || this.buildUI.coversPoint(x, y),
       // The wheel is for the island only: not over panels, not while the menu or the shop covers it.
-      blocksWheel: (x, y) => this.lost.isOpen || this.menu.isOpen || this.buildUI.shopOpen || this.buildUI.coversPoint(x, y) || this.buildUI.overMenuButton(x, y),
+      blocksWheel: (x, y) => this.covered || this.buildUI.shopOpen || this.buildUI.coversPoint(x, y) || this.buildUI.overMenuButton(x, y),
       onTap: (point, _screen, time) => this.handleTap(point, time),
       // M7: a press on a resident while looking carries them to a house.
       onGrab: (point) => this.grabResident(point),
@@ -298,19 +360,52 @@ export class IslandScene extends Phaser.Scene {
       },
       () => this.menu.isOpen,
     );
+    this.buildUI.onSkipTutorial = () => {
+      this.setTutorial(skipTutorial(this.tutorial));
+      this.buildUI.showNotice('tutorial.skipped');
+    };
+    // The hand of the guided start points at controls too: above them, below the menu.
+    this.guide = new TutorialGuide(this, this.uiLayer);
     this.menu = new VillageMenu(this, this.uiLayer, this.session, {
       touched: (time) => {
         this.buildUI.touched(time);
       },
       onReplaced: () => {
-        // A new village from a file: the scene starts again and builds everything from the new state.
+        // A village from a file has its own start: the guided start is over (M8). The scene starts again and builds everything from the new state.
+        if (this.tutorial.status === 'active') {
+          this.setTutorial({ ...TUTORIAL_DONE });
+        }
         this.scene.restart();
       },
+      onParent: () => {
+        this.parentPanel.open();
+      },
+    });
+    // Evening and night over everything (M8), below the parents' menu (the way out of the night) and the "other window" layer.
+    this.night = new NightLayer(this, this.uiLayer, (time) => {
+      this.buildUI.touched(time);
+      this.parentPanel.open();
+    });
+    this.parentPanel = new ParentPanel(this, this.uiLayer, this.parent, {
+      touched: (time) => {
+        this.buildUI.touched(time);
+      },
+      onTutorialAgain: () => {
+        this.setTutorial(startTutorial({ ...this.countsForTutorial(), earned: this.simulation.state.earnedCoins }));
+      },
+      onClose: () => undefined,
     });
     // Last in the UI layer, so it covers everything: after another window took over the saving nothing may be built here.
     this.lost = new LostOverlay(this, this.uiLayer, () => {
       window.location.reload();
     });
+    if (this.parent.clock.phase === 'night') {
+      // A reload in the night (M8): it is night at once – everybody is in bed, nothing moves.
+      this.simulation.send({ type: 'setBedtime', bedtime: true, instant: true });
+      this.simulation.send({ type: 'setPaused', paused: true });
+      this.simulation.applyPending();
+      this.night.showNightNow();
+    }
     const startNotice = this.session.takeNotice();
     if (startNotice) {
       this.buildUI.showNotice(startNotice);
@@ -331,6 +426,8 @@ export class IslandScene extends Phaser.Scene {
         },
       );
       this.menu.layout({ width, height });
+      this.night.layout({ width, height });
+      this.parentPanel.layout({ width, height });
       this.lost.layout({ width, height });
     });
 
@@ -424,6 +521,7 @@ export class IslandScene extends Phaser.Scene {
 
     this.session.autosave?.update(time);
     this.lost.setOpen(this.session.autosave?.isLost === true);
+    this.updateDay(time);
     this.followNewBoats();
     // A carried resident who stayed over a house with room a moment turns it green (one clock: the frame time).
     this.buildTool.updateCarry(time);
@@ -437,6 +535,189 @@ export class IslandScene extends Phaser.Scene {
       const wave = 0.5 + 0.5 * Math.sin(seconds * 1.6 + phase);
       sprite.setAlpha(0.15 + 0.45 * wave).setScale((0.8 + 0.3 * wave) / TEXTURE_SCALE);
     }
+    this.updateTutorial(time);
+  }
+
+  /** Is the island covered (another window, the menu, the parents' menu, the evening or the night)? Then it takes no touch. */
+  private get covered(): boolean {
+    return this.lost.isOpen || this.menu.isOpen || this.parentPanel.isOpen || this.night.blocks;
+  }
+
+  /**
+   * The daily limit (M8): counts this frame's visible play (the raw frame time, capped like the simulation – never the
+   * difference of two wall-clock times), looks at the local date once a second, and follows the turns of the day:
+   * a gentle sentence a few minutes before the end, then the evening (everybody walks home to bed, nothing is made),
+   * the night (the game stands still and is saved) and the morning (it gets light, everybody wakes up).
+   */
+  private updateDay(time: number): void {
+    const state = this.simulation.state;
+    if (time - this.dayKey.at >= DAY_KEY_EVERY || time < this.dayKey.at) {
+      this.dayKey = { at: time, key: localDayKey(new Date()) };
+    }
+    const frameMs = this.game.loop.rawDelta;
+    const clock = this.parent.clock;
+    const events = this.parent.update({
+      frameMs,
+      dayKey: this.dayKey.key,
+      // Only visible, running play: not in the background, not with the parents' menu or the "other window" layer open.
+      counting: document.visibilityState === 'visible' && !this.lost.isOpen && !this.parentPanel.isOpen,
+      allAsleep: clock.phase === 'dusk' && allAsleep(state),
+    });
+    for (const event of events) {
+      this.dayEvent(event);
+    }
+    this.night.update(clock.phase, clock.phaseTime, frameMs, DAY_CLOCK_OPTIONS.duskMinMs, DAY_CLOCK_OPTIONS.dawnMs);
+  }
+
+  private dayEvent(event: DayEvent): void {
+    switch (event) {
+      case 'warn':
+        // An explanation: it stays until the next tap, no countdown.
+        this.buildUI.showNotice('limit.warn');
+        return;
+      case 'dusk': {
+        // The evening: everything closes, everybody walks home.
+        this.menu.close();
+        const carried = this.buildTool.carried;
+        if (carried) {
+          this.residentView.letGo(carried.residentId, this.residentView.positionOf(carried.residentId) ?? carried.at);
+          this.buildTool.cancelCarry();
+        }
+        if (this.buildTool.shopOpen) {
+          this.buildTool.closeShop();
+        }
+        if (this.buildTool.tool !== 'view') {
+          this.buildTool.exitTool();
+        }
+        this.buildTool.closeInfo();
+        this.controller.stopGlide();
+        this.simulation.send({ type: 'setBedtime', bedtime: true });
+        return;
+      }
+      case 'night':
+        // The night: the game stands still and is saved – nothing is made, nothing is lost.
+        this.simulation.send({ type: 'setPaused', paused: true });
+        this.simulation.applyPending();
+        void this.session.autosave?.flush();
+        return;
+      case 'wake':
+        this.simulation.send({ type: 'setBedtime', bedtime: false });
+        this.simulation.send({ type: 'setPaused', paused: false });
+        return;
+      case 'newDay':
+        return;
+    }
+  }
+
+  private countsForTutorial(): ReturnType<typeof villageCounts> {
+    const state = this.simulation.state;
+    if (this.tutorialCounts?.revision !== state.revision) {
+      this.tutorialCounts = { revision: state.revision, counts: villageCounts(state) };
+    }
+    return this.tutorialCounts.counts;
+  }
+
+  private setTutorial(record: TutorialRecord): void {
+    this.tutorial = record;
+    this.parent.setTutorial(storeTutorial(record));
+  }
+
+  /**
+   * The guided start (M8): moves on when a goal is reached (from the village and the controls, `advanceTutorial`), puts
+   * the sentence of the step into the hint bar and lets the hand point at the next tap.
+   */
+  private updateTutorial(time: number): void {
+    if (this.tutorial.status !== 'active') {
+      this.buildUI.setTutorial(undefined);
+      this.guide.update(undefined, this.controller.viewSize, time);
+      return;
+    }
+    const state = this.simulation.state;
+    const touches = this.buildUI.touchCount;
+    const tapped = this.worldTapped || touches !== this.tutorialTouches;
+    this.worldTapped = false;
+    this.tutorialTouches = touches;
+    const next = advanceTutorial(this.tutorial, {
+      ...this.countsForTutorial(),
+      earned: state.earnedCoins,
+      residentCard: this.buildTool.inspectedResidentId !== undefined,
+      shopOpen: this.buildTool.shopOpen,
+      tapped,
+    });
+    if (next !== this.tutorial) {
+      this.setTutorial(next);
+    }
+    const step = currentStep(this.tutorial);
+    this.buildUI.setTutorial(step ? t(TUTORIAL_TEXTS[step.id]) : undefined);
+    const hidden = this.covered || this.buildTool.carried !== undefined;
+    this.guide.update(step && !hidden ? this.tutorialPoint(step) : undefined, this.controller.viewSize, time);
+  }
+
+  /** Where the hand of the guided start points now (CSS px), if anywhere. */
+  private tutorialPoint(step: NonNullable<ReturnType<typeof currentStep>>): { x: number; y: number; radius: number } | undefined {
+    const tool = this.buildTool;
+    const target = tutorialTarget(step, { tool: tool.tool, shopTab: tool.shopTab, item: tool.item, preview: tool.preview(), canConfirm: tool.canConfirm });
+    const state = this.simulation.state;
+    const view = this.controller.view;
+    const size = this.controller.viewSize;
+    const toScreen = (x: number, y: number): { x: number; y: number } => ({ x: (x - view.centerX) * view.zoom + size.width / 2, y: (y - view.centerY) * view.zoom + size.height / 2 });
+    const tileTarget = (tile: Tile | undefined): { x: number; y: number; radius: number } | undefined =>
+      tile ? { ...toScreen((tile.x + 0.5) * TILE_SIZE, (tile.y + 0.5) * TILE_SIZE), radius: Math.max(28, (TILE_SIZE * view.zoom) / 1.6) } : undefined;
+    switch (target.kind) {
+      case 'none':
+        return undefined;
+      case 'spot': {
+        const spots = this.buildUI.spotMap;
+        // A card on another page of the shop: the hand shows the arrow to it.
+        const spot = spots[target.name] ?? (target.name.startsWith('item-') ? (spots['page-next'] ?? spots['page-prev']) : undefined);
+        if (!spot) {
+          return undefined;
+        }
+        return { x: spot.x, y: spot.y, radius: Math.max(spot.w ?? 64, spot.h ?? 64) / 2 + 4 };
+      }
+      case 'resident':
+        return this.tutorialResidentPoint(toScreen);
+      case 'place': {
+        const near = state.buildings.find((b) => buildingType(b.type)?.category === 'house') ?? { x: Math.floor(state.world.width / 2), y: Math.floor(state.world.height / 2) };
+        const key = `${target.typeId}|${String(state.revision)}|${String(near.x)},${String(near.y)}`;
+        if (this.tutorialPlace?.key !== key) {
+          this.tutorialPlace = { key, tile: suggestPlace(state, target.typeId, { x: near.x, y: near.y }) };
+        }
+        return tileTarget(this.tutorialPlace.tile);
+      }
+      case 'pathStart':
+      case 'pathEnd': {
+        if (this.tutorialPath?.revision !== state.revision) {
+          this.tutorialPath = { revision: state.revision, targets: pathTargets(state) };
+        }
+        const targets = this.tutorialPath.targets;
+        return tileTarget(target.kind === 'pathStart' ? targets?.start : targets?.end);
+      }
+    }
+  }
+
+  /** The resident the hand points at: the one from before while they stay in the free part of the picture, else the one nearest its middle. */
+  private tutorialResidentPoint(toScreen: (x: number, y: number) => { x: number; y: number }): { x: number; y: number; radius: number } | undefined {
+    const band = this.buildUI.freeBand;
+    const size = this.controller.viewSize;
+    const bottom = Math.min(band.bottom, size.height);
+    const middle = { x: size.width / 2, y: (band.top + bottom) / 2 };
+    let best: { id: number; x: number; y: number; distance: number } | undefined;
+    for (const spot of this.residentView.spots) {
+      const at = toScreen(spot.x, spot.y - RESIDENT_BODY_Y);
+      if (at.x < 24 || at.x > size.width - 24 || at.y < band.top + 24 || at.y > bottom - 24) {
+        continue;
+      }
+      if (spot.id === this.tutorialResident) {
+        return { x: at.x, y: at.y, radius: 30 };
+      }
+      const distance = Math.hypot(at.x - middle.x, at.y - middle.y);
+      if (!best || distance < best.distance) {
+        best = { id: spot.id, x: at.x, y: at.y, distance };
+      }
+    }
+    this.tutorialResident = best?.id;
+    return best ? { x: best.x, y: best.y, radius: 30 } : undefined;
   }
 
   /**
@@ -450,7 +731,7 @@ export class IslandScene extends Phaser.Scene {
     const allowed = glideAllowed({
       tool: this.buildTool.tool,
       shopOpen: this.buildUI.shopOpen,
-      menuOpen: this.menu.isOpen,
+      menuOpen: this.menu.isOpen || this.parentPanel.isOpen || this.night.blocks,
       lostOpen: this.lost.isOpen,
       cardOpen: this.buildTool.cardOpen,
       gestureActive,
@@ -495,7 +776,7 @@ export class IslandScene extends Phaser.Scene {
 
   /** While choosing a new home with "Umziehen" – nothing covering the island, no finger on it. */
   private houseGlideAllowed(gestureActive: boolean): boolean {
-    return this.buildTool.tool === 'home' && !gestureActive && !this.buildUI.shopOpen && !this.menu.isOpen && !this.lost.isOpen;
+    return this.buildTool.tool === 'home' && !gestureActive && !this.buildUI.shopOpen && !this.covered;
   }
 
   /**
@@ -717,9 +998,10 @@ export class IslandScene extends Phaser.Scene {
   /** A short touch on the world: announce the tile and show a soft ring on it. */
   private handleTap(world: Point, eventTime: number): void {
     // Right after ✓ or ✕ (double taps) a tap on the world must not start a new preview.
-    if (this.lost.isOpen || this.menu.isOpen || this.buildUI.worldTapsPaused(eventTime)) {
+    if (this.covered || this.buildUI.worldTapsPaused(eventTime)) {
       return;
     }
+    this.worldTapped = true;
     // The open shop covers the island: a tap beside the panel closes it and does nothing else (no building, no ring).
     if (this.buildUI.shopOpen) {
       this.buildTool.closeShop();
@@ -775,7 +1057,7 @@ export class IslandScene extends Phaser.Scene {
    * the island and from {@link GRAB_MIN_ZOOM} on. Moving the finger then carries them; without moving it stays a tap.
    */
   private grabResident(world: Point): boolean {
-    if (this.lost.isOpen || this.menu.isOpen || this.buildUI.shopOpen || this.buildTool.tool !== 'view' || this.controller.view.zoom < GRAB_MIN_ZOOM) {
+    if (this.covered || this.buildUI.shopOpen || this.buildTool.tool !== 'view' || this.controller.view.zoom < GRAB_MIN_ZOOM) {
       return false;
     }
     const residentId = this.residentAtTap(world);
@@ -787,7 +1069,7 @@ export class IslandScene extends Phaser.Scene {
    * island is too far away ({@link GRAB_MIN_ZOOM}), the hint bar says so – the camera moves as always, nothing is silent.
    */
   private explainNoGrab(world: Point): void {
-    if (this.controller.view.zoom >= GRAB_MIN_ZOOM || this.buildTool.tool !== 'view' || this.lost.isOpen || this.menu.isOpen || this.buildUI.shopOpen) {
+    if (this.controller.view.zoom >= GRAB_MIN_ZOOM || this.buildTool.tool !== 'view' || this.covered || this.buildUI.shopOpen) {
       return;
     }
     // Only a press right on the figure: dragging the village from afar must not bring up the sentence all the time.
@@ -901,7 +1183,7 @@ export class IslandScene extends Phaser.Scene {
       planted: String(state.planted.length),
       repaint: JSON.stringify(this.repaint),
       menu: this.lost.isOpen ? 'lost' : this.menu.shownState,
-      menuSpots: JSON.stringify(this.lost.isOpen ? this.lost.spots : this.menu.spots),
+      menuSpots: JSON.stringify(this.lost.isOpen ? this.lost.spots : { ...this.menu.spots, ...this.night.spots, ...this.parentPanel.spots }),
       residents: this.residentsText,
       boats: this.boatsText,
       residentCard: this.buildTool.inspectedResidentId === undefined ? '' : String(this.buildTool.inspectedResidentId),
@@ -913,6 +1195,27 @@ export class IslandScene extends Phaser.Scene {
     if (saveInfo !== this.savePublished) {
       this.savePublished = saveInfo;
       markSave(saveInfo);
+    }
+    this.publishParent();
+  }
+
+  /** The guided start, the parents' menu and the day (M8), for tests: `<html data-tutorial data-parent data-limit>`. */
+  private publishParent(): void {
+    const step = currentStep(this.tutorial);
+    const hand = this.guide.pointsAt;
+    const tutorial = JSON.stringify({
+      status: this.tutorial.status,
+      step: step?.id ?? '',
+      index: this.tutorial.step,
+      shown: this.buildUI.showsTutorial,
+      ...(hand ? { hx: Math.round(hand.x), hy: Math.round(hand.y), below: hand.fromBelow } : {}),
+    });
+    const limit = this.parent.describe();
+    const night = JSON.stringify(this.night.shown);
+    const key = `${tutorial}|${limit}|${night}|${this.parentPanel.shownState}`;
+    if (key !== this.dayPublished) {
+      this.dayPublished = key;
+      markParent({ tutorial, parent: this.parentPanel.shownState, parentText: this.parentPanel.shownSentence, limit, night, bedtime: this.simulation.state.bedtime ? '1' : '0' });
     }
   }
 

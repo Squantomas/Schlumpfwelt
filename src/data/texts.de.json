@@ -230,5 +230,6 @@
   "parent.memoryOnly": "Dieser Browser speichert nichts: PIN und Limit gelten nur bis zum Schließen.",
   "limit.warn": "Bald wird es Abend im {village} …",
   "night.text": "Gute Nacht! Morgen geht es weiter.",
-  "night.parent": "Für Eltern"
+  "night.parent": "Für Eltern",
+  "parent.backKey": "⌫"
 }

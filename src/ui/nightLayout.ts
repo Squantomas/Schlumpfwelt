@@ -56,3 +56,49 @@ export function nightLayout(width: number, height: number): NightLayout {
   );
   return { veil: { x: 0, y: 0, width, height }, moon, stars, text, textFont, button, caption };
 }
+
+/** How strong the evening and the night are drawn this frame (alpha of each part, 0 … 1). */
+export interface NightLook {
+  /** The warm orange glow of the evening. */
+  readonly warm: number;
+  /** The deep blue over the island. */
+  readonly dark: number;
+  /** Moon, stars, sentence and the parents' button. */
+  readonly sky: number;
+  /** Does the layer swallow taps (evening and night)? */
+  readonly blocks: boolean;
+}
+
+export const NIGHT_LOOK = {
+  /** Strongest warm glow (in the evening) and darkness in the evening and in the night. */
+  warm: 0.3,
+  duskDark: 0.42,
+  nightDark: 0.86,
+  /** The sky of the night fades in over this long (ms); after a reload in the night it is there at once. */
+  skyInMs: 1500,
+} as const;
+
+/**
+ * The look of a phase (M8): the evening gets slowly warmer and darker over `duskMs` (its shortest length), the night
+ * turns deep blue with the moon and the stars (fading in over `skyInMs` since it began), and in the morning
+ * everything fades away over `dawnMs`. Only two coloured layers and their alpha – cheap in every frame.
+ */
+export function nightLook(phase: 'day' | 'dusk' | 'night' | 'dawn', phaseMs: number, nightMs: number, duskMs: number, dawnMs: number): NightLook {
+  const clamp01 = (value: number): number => Math.min(1, Math.max(0, value));
+  switch (phase) {
+    case 'day':
+      return { warm: 0, dark: 0, sky: 0, blocks: false };
+    case 'dusk': {
+      const a = clamp01(phaseMs / duskMs);
+      return { warm: NIGHT_LOOK.warm * a, dark: NIGHT_LOOK.duskDark * a, sky: 0, blocks: true };
+    }
+    case 'night': {
+      const n = clamp01(nightMs / NIGHT_LOOK.skyInMs);
+      return { warm: NIGHT_LOOK.warm * (1 - n), dark: NIGHT_LOOK.duskDark + (NIGHT_LOOK.nightDark - NIGHT_LOOK.duskDark) * n, sky: n, blocks: true };
+    }
+    case 'dawn': {
+      const d = clamp01(phaseMs / dawnMs);
+      return { warm: 0, dark: NIGHT_LOOK.nightDark * (1 - d), sky: clamp01(1 - 2 * d), blocks: false };
+    }
+  }
+}
