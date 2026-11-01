@@ -1,18 +1,20 @@
+import { STYLE } from '../ui/style';
 import { ASSETS, assetSvg, textureSize, type AssetEntry, type AssetGroup } from './catalog';
+import { hex } from './svg';
 
 /**
  * Prompt templates for replacing the drawn pictures with painted ones (M9, `docs/assets/`): one section per picture
  * with its file name, the exact size in pixels, the anchor (where it stands), the main colours of the drawn picture
  * and a prompt that always starts with the same style preamble – so all pictures fit together. The files are made
- * from the catalog (`UPDATE_PROMPTS=1 npm test`) and a test checks that they are up to date.
+ * from the catalog (`npm run prompts`) and a test checks that they are up to date.
  */
 
 export const STYLE_PREAMBLE =
   'Game asset for a cosy island building game for children aged 6 to 10. Soft, friendly hand-painted cartoon look with ' +
   'round chunky shapes and no sharp corners; a soft outline in a darker shade of each fill colour (never black); light ' +
   'from the top left, a soft shadow towards the bottom right; bright warm colours with high contrast; slight top-down ' +
-  'view (the ground seen from above, objects seen a little from the front); clean edges; transparent background ' +
-  '(PNG or WebP with alpha); no text, no letters, no numbers, no logo, no watermark, no frame.';
+  'view (the ground seen from above, objects seen a little from the front); clean edges; an original design; no text, ' +
+  'no letters, no numbers, no logo, no watermark, no frame.';
 
 /** The groups and the file each one is written to (`docs/assets/<file>`), in this order. */
 export const PROMPT_FILES: Readonly<Record<AssetGroup, { readonly file: string; readonly title: string }>> = {
@@ -29,12 +31,18 @@ export const PROMPT_FILES: Readonly<Record<AssetGroup, { readonly file: string; 
   title: { file: 'titel.md', title: 'Titelbild' },
 };
 
-/** The colours used most in the drawn picture (fills, outlines and gradients), most used first. */
+/**
+ * The colours used most for surfaces in the drawn picture (fills and gradients – outlines are darker shades of them),
+ * most used first; the colour of the soft shadow is not one of them.
+ */
 export function mainColours(svg: string, count = 5): string[] {
   const seen = new Map<string, number>();
-  for (const match of svg.matchAll(/(?:fill|stroke|stop-color)="(#[0-9a-f]{6})"/g)) {
+  const shadow = hex(STYLE.shadow);
+  for (const match of svg.matchAll(/(?:fill|stop-color)="(#[0-9a-f]{6})"/g)) {
     const colour = match[1] ?? '';
-    seen.set(colour, (seen.get(colour) ?? 0) + 1);
+    if (colour !== shadow) {
+      seen.set(colour, (seen.get(colour) ?? 0) + 1);
+    }
   }
   return [...seen.entries()]
     .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
@@ -61,10 +69,10 @@ function sizeWords(asset: AssetEntry): string {
 export function promptOf(asset: AssetEntry, colours: readonly string[]): string {
   const size = textureSize(asset);
   const frame = asset.tiles
-    ? 'Square seamless tile that repeats without a visible edge.'
+    ? `Square seamless tile ${String(size.width)} x ${String(size.height)} px that repeats without a visible edge, filled to every edge (no transparency).`
     : asset.anchor
-      ? `Canvas ${String(size.width)} x ${String(size.height)} px; the object stands on the ground at ${String(Math.round((asset.anchor.x * asset.scale * 100) / size.width))} % from the left and ${String(Math.round((asset.anchor.y * asset.scale * 100) / size.height))} % from the top, the rest of the canvas stays transparent; nothing is cut off.`
-      : `Canvas ${String(size.width)} x ${String(size.height)} px, the subject centred with a small margin, nothing is cut off.`;
+      ? `Canvas ${String(size.width)} x ${String(size.height)} px; the object stands on the ground at ${String(Math.round((asset.anchor.x * asset.scale * 100) / size.width))} % from the left and ${String(Math.round((asset.anchor.y * asset.scale * 100) / size.height))} % from the top, the rest of the canvas is transparent (PNG or WebP with alpha); nothing is cut off.`
+      : `Canvas ${String(size.width)} x ${String(size.height)} px, the subject centred with a small margin on a transparent background (PNG or WebP with alpha), nothing is cut off.`;
   return `${STYLE_PREAMBLE} Subject: ${asset.subject}. ${frame} Main colours: ${colours.join(', ')}.`;
 }
 
@@ -93,10 +101,19 @@ export function promptFile(group: AssetGroup, assets: readonly AssetEntry[] = AS
   const head = [
     `# ${title}`,
     '',
-    '<!-- Erzeugt aus src/art/catalog.ts (UPDATE_PROMPTS=1 npm test) – nicht von Hand ändern. -->',
+    '<!-- Erzeugt aus src/art/catalog.ts mit `npm run prompts` – nicht von Hand ändern. -->',
     '',
     `${String(mine.length)} Bilder. Wie man ein Bild ersetzt, steht in [README.md](README.md).`,
     '',
   ].join('\n');
   return `${head}\n${mine.map(promptSection).join('\n')}`;
+}
+
+/** All template files (`docs/assets/<file>` → content), written by `npm run prompts`. */
+export function promptDocs(assets: readonly AssetEntry[] = ASSETS): Record<string, string> {
+  const docs: Record<string, string> = {};
+  for (const group of Object.keys(PROMPT_FILES) as AssetGroup[]) {
+    docs[PROMPT_FILES[group].file] = promptFile(group, assets);
+  }
+  return docs;
 }

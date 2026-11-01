@@ -4,6 +4,7 @@ import indexHtml from '../index.html?raw';
 import texts from '../src/data/texts.de.json';
 import theme from '../src/data/theme.json';
 import { createManifest } from '../scripts/pwaPlugin.mjs';
+import { ASSETS, assetSvg } from '../src/art/catalog';
 
 /**
  * Guards the architecture rules from CLAUDE.md:
@@ -211,6 +212,34 @@ describe('Theme: auch Build-Skripte, Symbole und Manifest kennen keinen Markenna
   it('index.html holt auch die Farbe aus dem Spiel (eine Quelle: COLORS.water)', () => {
     expect(indexHtml).toContain('content="%THEME_COLOR%"');
     expect(indexHtml).not.toMatch(/#[0-9a-f]{6}/i);
+  });
+});
+
+describe('Theme: auch die Bilder, ihre Vorlagen und die Doku zu Bild und Ton kennen keinen Markennamen (M9)', () => {
+  const BRAND_WORDS = /schl[uü]mpf|smurf/i;
+  const docs = import.meta.glob<string>(['/docs/assets/*.md', '/docs/STIL_LEITFADEN.md', '/docs/CREDITS.md'], { query: '?raw', import: 'default', eager: true });
+  const publicFiles = Object.keys(import.meta.glob('/public/**/*', { query: '?url' }));
+
+  it('findet die Vorlagen, den Stil-Leitfaden und die Credits', () => {
+    expect(Object.keys(docs)).toEqual(expect.arrayContaining(['/docs/assets/README.md', '/docs/STIL_LEITFADEN.md', '/docs/CREDITS.md']));
+  });
+
+  it.each(Object.entries(docs))('%s enthält keine Markenbegriffe', (_path, content) => {
+    expect(content).not.toMatch(BRAND_WORDS);
+  });
+
+  it('jedes gezeichnete Bild (SVG) und seine Beschreibung sind markenfrei', () => {
+    for (const asset of ASSETS) {
+      expect(assetSvg(asset), asset.key).not.toMatch(BRAND_WORDS);
+      expect(asset.subject, asset.key).not.toMatch(BRAND_WORDS);
+      expect(asset.key).not.toMatch(BRAND_WORDS);
+    }
+  });
+
+  it('kein Dateiname in public/ nennt eine Marke', () => {
+    for (const path of publicFiles) {
+      expect(path).not.toMatch(BRAND_WORDS);
+    }
   });
 });
 

@@ -16,15 +16,18 @@ const RESOLVED = `\0${ID}`;
 /** Only file names a key can have: small letters, digits and dashes. */
 const NAME = /^[a-z0-9-]+\.(png|webp)$/;
 
+/** The names a raster file of a key can have, sorted (`.gitkeep`, `Foo.PNG`, `a b.png` are left out). */
+export function rasterNames(names) {
+  return names.filter((name) => NAME.test(name)).sort();
+}
+
 /** The raster files in `<dir>/assets/`, sorted. */
 export function listRasterFiles(publicDir) {
   const folder = join(publicDir, 'assets');
   if (!existsSync(folder)) {
     return [];
   }
-  return readdirSync(folder)
-    .filter((name) => NAME.test(name))
-    .sort();
+  return rasterNames(readdirSync(folder));
 }
 
 export function assetsPlugin() {

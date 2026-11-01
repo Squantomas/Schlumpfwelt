@@ -1,5 +1,8 @@
 import type { Plugin } from 'vite';
 
+/** The names a raster file of a key can have, sorted. */
+export function rasterNames(names: readonly string[]): string[];
+
 /** The raster files (`*.png`, `*.webp` with a key as name) in `<publicDir>/assets/`, sorted. */
 export function listRasterFiles(publicDir: string): string[];
 
