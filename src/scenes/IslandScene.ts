@@ -664,11 +664,14 @@ export class IslandScene extends Phaser.Scene {
   }
 
   /**
-   * The resident drawn under a tapped world point (where the picture is now), if any – within 24 CSS px of the body,
-   * on a building too: the house keeps the taps that are clearly beside the resident.
+   * The resident drawn under a tapped world point (where the picture is now), if any – within 24 CSS px of the body.
+   * On a building that answers the tap (a production building, a house without a path, a sign) only close to the body:
+   * far out the building keeps its picture (see `residentHit.ts`).
    */
   private residentAtTap(world: Point): number | undefined {
-    return residentAt(this.residentView.spots, world, this.controller.view.zoom);
+    const tile = tileAtWorld(world, TILE_SIZE, this.simulation.state.world);
+    const onBuilding = (tile !== undefined && this.buildTool.buildingAnswersTap(tile, world)) || this.village.markerAt(world.x, world.y) !== undefined;
+    return residentAt(this.residentView.spots, world, this.controller.view.zoom, onBuilding);
   }
 
   /** Keeps the drawn village and the building controls in line with the state and the tool. */

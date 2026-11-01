@@ -7,6 +7,7 @@ import {
   isConnected,
   isPath,
   wouldBeConnected,
+  type PlacedBuilding,
   type PlacementProblem,
   type PlacementView,
   type Tile,
@@ -558,6 +559,33 @@ export class BuildTool {
   }
 
   /**
+   * What is under the finger: first the tile (a building's footprint, then a path), and only if the tile is empty
+   * the picture of a house reaching over it (its roof).
+   */
+  private under(tile: Tile, world?: Point): { readonly footprint: DeepReadonly<PlacedBuilding> | undefined; readonly building: DeepReadonly<PlacedBuilding> | undefined } {
+    const state = this.getState();
+    const footprint = buildingAt(state, tile.x, tile.y);
+    const onPath = isPath(state, tile.x, tile.y);
+    // A tree or rock the player planted counts like a path: the tile wins over the roof of a house behind it.
+    const onPlanted = plantedTypeAt(state, tile.x, tile.y) !== undefined;
+    const roof = world && !footprint && !onPath && !onPlanted ? buildingAtPoint(state, world.x, world.y, TILE_SIZE) : undefined;
+    return { footprint, building: footprint ?? roof };
+  }
+
+  /**
+   * Would a tap here, while looking, do something with a building – open the card of a production building, or say
+   * that a house needs a path? There a resident nearby only keeps the taps close to the body (see `residentHit.ts`).
+   */
+  buildingAnswersTap(tile: Tile, world?: Point): boolean {
+    const { building } = this.under(tile, world);
+    const type = building ? buildingType(building.type) : undefined;
+    if (!building || !type) {
+      return false;
+    }
+    return type.category === 'production' || (type.needsPath && !isConnected(this.getState(), building.id));
+  }
+
+  /**
    * A tile was tapped; `world` is the tapped point in world pixels. Houses
    * are hit by their picture (a tap on a roof counts, although the tile under
    * the finger is behind the house). Returns a text key when the child should
@@ -565,14 +593,7 @@ export class BuildTool {
    */
   tap(tile: Tile, world?: Point): TextKey | undefined {
     const state = this.getState();
-    // What is under the finger: first the tile (a building's footprint, then a path), and only if the tile is
-    // empty the picture of a house reaching over it (its roof).
-    const footprint = buildingAt(state, tile.x, tile.y);
-    const onPath = isPath(state, tile.x, tile.y);
-    // A tree or rock the player planted counts like a path: the tile wins over the roof of a house behind it.
-    const onPlanted = plantedTypeAt(state, tile.x, tile.y) !== undefined;
-    const roof = world && !footprint && !onPath && !onPlanted ? buildingAtPoint(state, world.x, world.y, TILE_SIZE) : undefined;
-    const building = footprint ?? roof;
+    const { footprint, building } = this.under(tile, world);
     switch (this.current) {
       case 'place':
         if (this.pending.kind === 'invite' || buildingType(this.chosen ?? '')?.category === 'resident') {

@@ -1,6 +1,16 @@
 import { describe, expect, it } from 'vitest';
-import { RESIDENT_BODY_Y, RESIDENT_HIT_BOTTOM, RESIDENT_HIT_RADIUS, RESIDENT_HIT_TOP, distanceToResident, residentAt, residentHitRadius } from '../../src/ui/residentHit';
-import { MIN_TAP_SIZE } from '../../src/ui/style';
+import { buildingType } from '../../src/data/buildings';
+import {
+  RESIDENT_BODY_Y,
+  RESIDENT_HIT_BOTTOM,
+  RESIDENT_HIT_RADIUS,
+  RESIDENT_HIT_TOP,
+  RESIDENT_REACH_ON_BUILDING,
+  distanceToResident,
+  residentAt,
+  residentHitRadius,
+} from '../../src/ui/residentHit';
+import { MIN_TAP_SIZE, TILE_SIZE } from '../../src/ui/style';
 
 const ZOOMS = [0.0962, 0.2, 0.25, 0.35, 0.5, 0.75, 1, 1.5, 2, 3];
 
@@ -92,19 +102,90 @@ describe('residentAt', () => {
     }
   });
 
-  it('gilt auch an Gebäuden: der Bewohner an der Tür gewinnt nahe am Körper, weiter weg gehört der Tipp dem Haus', () => {
-    // A worker at the door of a building (the house is above them); 20 and 22 CSS px to the side hit them at every zoom.
+  it('T-A bleibt: 20 und 22 CSS-px neben der Körpermitte treffen auf einem Gebäude ab Zoom 1, sonst bei jedem Zoom', () => {
+    // A worker at the door of a building that answers a tap (the building is above them).
     const worker = { id: 2, x: 320, y: 640 };
-    for (const zoom of [0.25, 0.5, 1, 2]) {
+    for (const zoom of ZOOMS) {
       for (const css of [20, 22]) {
         for (const side of [-1, 1]) {
-          expect(residentAt([worker], { x: worker.x + (side * css) / zoom, y: worker.y - RESIDENT_BODY_Y }, zoom)).toBe(2);
+          const point = { x: worker.x + (side * css) / zoom, y: worker.y - RESIDENT_BODY_Y };
+          expect(residentAt([worker], point, zoom), `Wiese, Zoom ${String(zoom)}, ${String(side * css)} px`).toBe(2);
+          if (zoom >= 1) {
+            expect(residentAt([worker], point, zoom, true), `Gebäude, Zoom ${String(zoom)}, ${String(side * css)} px`).toBe(2);
+          }
         }
       }
-      // The roof two tiles above (well beyond 24 CSS px at zoom 0.5 and more) stays with the house.
-      if (zoom >= 0.5) {
-        expect(residentAt([worker], { x: worker.x, y: worker.y - 128 }, zoom)).toBeUndefined();
+      // The roof two tiles above stays with the building.
+      expect(residentAt([worker], { x: worker.x, y: worker.y - 128 }, zoom, true)).toBeUndefined();
+    }
+  });
+});
+
+describe('auf einem Gebäude, das auf den Tipp antwortet (Korrekturrunde 2)', () => {
+  it('reicht der Bewohner höchstens 24 Welt-px weit – ab Zoom 1 sind das weiter die vollen 24 CSS-px', () => {
+    for (const zoom of ZOOMS) {
+      const radius = residentHitRadius(zoom, true);
+      expect(radius, String(zoom)).toBeLessThanOrEqual(RESIDENT_REACH_ON_BUILDING);
+      expect(radius, String(zoom)).toBeGreaterThanOrEqual(RESIDENT_HIT_RADIUS);
+      expect(radius).toBeLessThanOrEqual(residentHitRadius(zoom));
+      if (zoom >= 1) {
+        expect(radius * zoom, String(zoom)).toBeGreaterThanOrEqual(MIN_TAP_SIZE / 2 - 1e-9);
       }
     }
+    expect(residentHitRadius(Number.NaN, true)).toBe(RESIDENT_HIT_RADIUS);
+  });
+
+  for (const zoom of [0.5, 0.25, 0.1]) {
+    it(`Zoom ${String(zoom)}: ein Tipp nahe am Körper trifft den Bewohner, einer weiter weg das Gebäude`, () => {
+      const worker = { id: 3, x: 800, y: 900 };
+      const centre = { x: worker.x, y: worker.y - RESIDENT_BODY_Y };
+      // Near the body: 10 world px to the side, on the hat, on the belly.
+      for (const point of [
+        { x: centre.x + 10, y: centre.y },
+        { x: centre.x - 10, y: centre.y },
+        { x: worker.x, y: worker.y - RESIDENT_HIT_TOP - 8 },
+        { x: worker.x + 12, y: worker.y - RESIDENT_HIT_BOTTOM },
+      ]) {
+        expect(residentAt([worker], point, zoom, true), JSON.stringify(point)).toBe(3);
+      }
+      // 30 world px above the hat or beside the body: on a building that is the building's tap – before, the resident
+      // took it (24 CSS px are 48, 96 and 240 world px at these zooms).
+      for (const point of [
+        { x: worker.x, y: worker.y - RESIDENT_HIT_TOP - 30 },
+        { x: centre.x + 30, y: centre.y },
+      ]) {
+        expect(residentAt([worker], point, zoom, true), JSON.stringify(point)).toBeUndefined();
+        expect(residentAt([worker], point, zoom), JSON.stringify(point)).toBe(3);
+      }
+    });
+  }
+
+  it('der Händler an der Tür nimmt dem Markt bei keinem Zoom mehr als 3 % der Tippfläche (vorher bei 0,1 fast alles)', () => {
+    const market = buildingType('market');
+    expect(market).toBeDefined();
+    if (!market) {
+      return;
+    }
+    const left = 10 * TILE_SIZE;
+    const right = left + market.footprint.w * TILE_SIZE;
+    const front = (10 + market.footprint.h) * TILE_SIZE;
+    const top = 10 * TILE_SIZE - market.look.rise;
+    // On the door tile in front of the middle of the market (feet a little below the middle of the tile).
+    const trader = { id: 1, x: left + 1.5 * TILE_SIZE, y: front + 0.62 * TILE_SIZE };
+    const share = (zoom: number, onBuilding: boolean): number => {
+      let all = 0;
+      let taken = 0;
+      for (let y = top; y < front; y += 2) {
+        for (let x = left; x < right; x += 2) {
+          all += 1;
+          taken += residentAt([trader], { x, y }, zoom, onBuilding) === undefined ? 0 : 1;
+        }
+      }
+      return taken / all;
+    };
+    for (const zoom of [1, 0.5, 0.25, 0.1]) {
+      expect(share(zoom, true), String(zoom)).toBeLessThanOrEqual(0.03);
+    }
+    expect(share(0.1, false)).toBeGreaterThan(0.5);
   });
 });

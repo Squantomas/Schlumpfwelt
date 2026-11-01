@@ -1181,6 +1181,22 @@ describe('Infokarte öffnen und schließen (M3)', () => {
     expect(tool.inspectedId).toBeUndefined();
   });
 
+  it('weiß, wo ein Tipp im Anschauen einem Gebäude gilt: Produktionsgebäude (auch das Dach) und Häuser ohne Weg (Korrekturrunde 2)', () => {
+    const { tool, state } = withProduction();
+    // The garden: footprint and roof.
+    expect(tool.buildingAnswersTap({ x: 4, y: 3 })).toBe(true);
+    expect(tool.buildingAnswersTap({ x: 4, y: 2 }, { x: 4.5 * 64, y: 3 * 64 - 20 })).toBe(true);
+    // The house without a path says what is missing.
+    expect(tool.buildingAnswersTap({ x: 10, y: 3 })).toBe(true);
+    // Meadow, a path, decoration and a house with a path do nothing.
+    expect(tool.buildingAnswersTap({ x: 20, y: 20 })).toBe(false);
+    expect(tool.buildingAnswersTap({ x: 4, y: 5 })).toBe(false);
+    run(state, { type: 'placeBuilding', buildingType: 'flower', x: 15, y: 15 });
+    expect(tool.buildingAnswersTap({ x: 15, y: 15 })).toBe(false);
+    run(state, { type: 'placePaths', tiles: [{ x: 10, y: 5 }, { x: 11, y: 5 }] });
+    expect(tool.buildingAnswersTap({ x: 10, y: 3 })).toBe(false);
+  });
+
   it('zählt das Öffnen und Schließen als Änderung (für das Neuzeichnen)', () => {
     const { tool } = withProduction();
     const before = tool.version;
