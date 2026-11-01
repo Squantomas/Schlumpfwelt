@@ -47,10 +47,10 @@ Sammeln → Verarbeiten → Verkaufen → **Geld** → Shop (Häuser, Deko, Schl
 Bau-Materialien (Holz, Stein) werden fürs Bauen verbraucht, Endprodukte (Möbel, Kuchen) bringen auf dem Markt Geld. Kuchen ist zugleich Essen. Der Markt kauft zusätzlich überschüssige Beeren für wenig Geld (Reserve für die Bäckerei bleibt): So führt schon ein Beerengarten mit Markt immer wieder zu Geld, und der Holzfäller kostet nur Taler – man kann sich nie festspielen (Entscheidung M3, Korrekturrunde 1).
 
 ### Schlümpfe
-- Name, Beruf, Mützenfarbe, Stimmung (fröhlich / normal / traurig, ab M7) – antippen zeigt eine Karte
+- Name, Beruf, Mützenfarbe, Stimmung (fröhlich / normal / traurig, ab M7) – antippen zeigt eine Karte (seit M7 mit der Stimmung, ihrem Grund und einem Tipp, wie man ihn fröhlich macht; über dem Kopf ab und zu ein Herz bzw. eine Wolke)
 - **Arbeit**: Jedes Produktionsgebäude hat sofort einen Arbeiter (ein freier Schlumpf oder ein neuer, der kostenlos mit dem Boot kommt). Die Schlümpfe tragen die Waren sichtbar zum Markt; der Ertrag hängt davon nicht ab, so bremsen sie die Wirtschaft nie (Entscheidung M6)
-- **Zuhause**: Häuser haben Platz für 2–4 Schlümpfe; wer keins hat, zieht von selbst ins nächste Haus mit Platz (Entscheidung M6: kein Ziehen per Drag & Drop, kein Ertrag nach Wohnort – ein Umzug über die Karte ist ab M7 denkbar). Ab M7 wirkt die Wegelänge zwischen Zuhause und Arbeit **nur auf die Stimmung**: Tragen bleibt Anzeige, ein langer Weg kostet nie direkt Ertrag
-- **Bedürfnisse (sanft)**: Essen, ein Zuhause, Deko in der Nähe → Stimmung → Arbeitstempo
+- **Zuhause**: Häuser haben Platz für 2–4 Schlümpfe; wer keins hat, zieht von selbst ins nächste Haus mit Platz. **Seit M7 weist man selbst zu:** einen Schlumpf im Anschauen auf ein Haus **ziehen** (Finger oder Maus; das Haus wird grün mit Platz, rot mit „2/2“, wenn es voll ist; loslassen woanders tut nichts) oder auf seiner Karte **„Umziehen“** antippen → Haus antippen → ✓. Das gewählte Zuhause bleibt; Abreißen macht nur obdachlos, niemand zieht aus (Entscheidung M7, ersetzt „kein Ziehen per Drag & Drop“ aus M6). Die Wegelänge zwischen Zuhause und Arbeit (Tür zu Tür, mehr als 12 Schritte = weit) wirkt **nur auf die Stimmung**: Tragen bleibt Anzeige, ein langer Weg kostet nie direkt Ertrag
+- **Bedürfnisse (sanft)**: Essen, ein Zuhause, Deko in der Nähe → Stimmung → Arbeitstempo. Seit M7: Deko bis 2 Kacheln ums Haus macht fröhlich, ein weiter Weg zur Arbeit und Hunger (Essenszeit, aber weder Kuchen noch Beeren im Lager) machen traurig, ohne Zuhause ist man höchstens normal. Fröhlich arbeitet etwas schneller (120 %), traurig etwas langsamer (80 %) – nie Stillstand, kein Auszug, nichts wird mit der Zeit schlimmer; Zahlen in `src/data/residents.json`
 - Neue Schlümpfe kommen per Boot, nachdem man sie im Shop eingeladen hat (Reiter Häuser). Voraussetzung: ein freies Haus
 
 ### Shop
@@ -72,7 +72,7 @@ Ein Feld über der Insel mit vier Reitern: **Häuser** (Pilzhaus-Varianten: klei
 - **Feste Simulations-Ticks** (z. B. 10/s), Darstellung interpoliert
 - **Wegfindung**: A* auf dem Kachelraster – Wege sind billig und schnell, Wiese geht auch (langsamer), Gebäude nur im Notfall, Wasser nie
 - **Speichern**: IndexedDB, Autosave jede Minute + Export/Import als `.json`
-- **Touch**: Ziehen = Kamera, Zwei-Finger = Zoom, Tippen = Auswahl, Bauen per „Antippen + Bestätigen“ statt Drag & Drop
+- **Touch**: Ziehen = Kamera, Zwei-Finger = Zoom, Tippen = Auswahl, Bauen per „Antippen + Bestätigen“ statt Drag & Drop; einzige Ausnahme seit M7: ein Druck auf einen Schlumpf trägt ihn zu einem Haus (daneben zieht der Finger weiter die Kamera, „Umziehen“ auf der Karte geht immer auch per Antippen)
 - **Deployment**: GitHub Actions baut bei jedem Push auf `main` und veröffentlicht auf **GitHub Pages**; Pull Requests werden vorher gebaut und getestet
 
 ```
