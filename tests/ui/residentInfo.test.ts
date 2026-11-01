@@ -4,7 +4,7 @@ import { t } from '../../src/data/texts';
 import type { Resident } from '../../src/sim/residents';
 import { createInitialState } from '../../src/sim/state';
 import type { MoodFactors } from '../../src/sim/mood';
-import { activityText, hatColorText, jobText, moodLine, moodReason, moodTip, residentInfo, residentSentence } from '../../src/ui/residentInfo';
+import { activityText, cardRows, hatColorText, jobText, moodLine, moodReason, moodTip, residentInfo, residentSentence } from '../../src/ui/residentInfo';
 import { grassState, run } from '../sim/helpers';
 
 const resident = (changes: Partial<Resident> = {}): Resident => ({
@@ -119,6 +119,27 @@ describe('Stimmung auf der Karte (M7)', () => {
     state.residents = [resident(), resident({ id: 2, doing: 'boat' })];
     expect(residentInfo(state, 1)).toMatchObject({ mood: 'normal', moodLine: 'Normal – noch kein Zuhause.', tip: 'Tipp: Bau ein Haus mit Blumen daneben.', canMove: true });
     expect(residentInfo(state, 2)?.canMove).toBe(false);
+  });
+
+  it('auf dem Boot: ein Tipp auf das ausgegraute „Umziehen“ setzt einen kurzen Satz an die Stelle des Tipps', () => {
+    const state = grassState();
+    state.residents = [resident({ id: 2, name: 'Lumo', doing: 'boat' })];
+    const info = residentInfo(state, 2);
+    if (!info) {
+      throw new Error('fehlt');
+    }
+    const note = t('resident.boatWait', { name: info.name });
+    expect(note).toBe('Lumo steigt gleich aus.');
+    const tall = cardRows(info, false, note);
+    expect(tall).toHaveLength(6);
+    expect(tall[5]).toBe(note);
+    expect(tall.slice(0, 5)).toEqual(cardRows(info, false).slice(0, 5));
+    const compact = cardRows(info, true, note);
+    expect(compact).toHaveLength(4);
+    expect(compact[3]).toBe(note);
+    expect(cardRows(info, true)[3]).toBe(info.tip);
+    // Short enough for the card of a phone, with the longest name.
+    expect(t('resident.boatWait', { name: 'Wolkenstein 12' }).length).toBeLessThanOrEqual(42);
   });
 
   it('der Grund nennt zuerst, was stört (Hunger, weiter Weg, kein Zuhause), sonst die Deko', () => {

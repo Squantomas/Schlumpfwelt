@@ -43,9 +43,13 @@ const COMPACT_PICTURE = 72;
 const COMPACT_FONT = 15;
 /** Room between two rows (CSS px). */
 export const CARD_ROW_GAP = 2;
-/** The button "Umziehen" under the picture: at least a finger high, at least this wide (CSS px). */
-const MOVE_H = MIN_TAP_SIZE + 4;
-const MOVE_MIN_W = 76;
+/**
+ * The button "Umziehen" under the picture: higher than a finger and at least wide enough for its word at 14 px (see
+ * `ResidentCard`: as big as the rows where there is room); compact a little lower (CSS px).
+ */
+export const MOVE_MIN_W = 80;
+const MOVE_H = MIN_TAP_SIZE + 12;
+const COMPACT_MOVE_H = MIN_TAP_SIZE + 4;
 /** How many rows the card has: tall – job, hat, home, activity, mood, tip; compact – job, home, mood, tip. */
 export const TALL_ROWS = 6;
 export const COMPACT_ROWS = 4;
@@ -108,7 +112,7 @@ function compactLayout(card: InfoCardLayout): ResidentCardLayout {
   // A narrower card (a small phone held upright) leaves room for three rows to wrap.
   const wraps = width < COMPACT_WIDE ? 3 : 0;
   const rowsH = COMPACT_ROWS * oneLineHeight(COMPACT_FONT) + wraps * Math.ceil(COMPACT_FONT * 1.3) + (COMPACT_ROWS - 1) * CARD_ROW_GAP;
-  const moveH = MIN_TAP_SIZE;
+  const moveH = COMPACT_MOVE_H;
   const leftH = COMPACT_PICTURE + GAP / 2 + moveH;
   const height = Math.min(place.height, COMPACT_PAD + Math.max(COMPACT_NAME_ROW + GAP / 2 + rowsH, leftH) + COMPACT_PAD);
   // At the bottom of the place (just above the toolbar), around the same middle.
@@ -116,7 +120,7 @@ function compactLayout(card: InfoCardLayout): ResidentCardLayout {
   const innerTop = rect.y + COMPACT_PAD;
   const innerBottom = rect.y + rect.height - COMPACT_PAD;
   const size = Math.max(0, Math.min(COMPACT_PICTURE, innerBottom - innerTop - GAP / 2 - moveH, width * 0.22));
-  const left = Math.max(size, COMPACT_PICTURE);
+  const left = Math.max(size, MOVE_MIN_W);
   const picture: Rect = { x: rect.x + COMPACT_PAD + (left - size) / 2, y: innerTop, width: size, height: size };
   const move: Rect = { x: rect.x + COMPACT_PAD, y: Math.min(innerBottom - moveH, picture.y + size + GAP / 2), width: left, height: moveH };
   const closeSize = MIN_TAP_SIZE;

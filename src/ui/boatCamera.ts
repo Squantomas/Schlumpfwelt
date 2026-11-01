@@ -1,4 +1,4 @@
-import type { CameraView, Point, Size } from './cameraMath';
+import type { CameraView, Point, Rect, Size } from './cameraMath';
 
 /**
  * Where the camera glides when a boat sets off with a new resident (M6),
@@ -8,6 +8,10 @@ import type { CameraView, Point, Size } from './cameraMath';
  * above and below, a little away from the edges), nothing moves. Otherwise
  * the camera glides so that the middle of that way lies in the middle of the
  * free part.
+ *
+ * The same for a house tapped while choosing a new home (Korrekturrunde 1,
+ * {@link rectGlide}): a house half under the hint bar glides into the free
+ * part, so the child sees the green house and its "0/2".
  */
 
 /** The free part of the screen: from `top` to `bottom` (CSS px), the whole width. */
@@ -49,6 +53,30 @@ export function landingGlide(view: CameraView, size: Size, band: FreeBand, shore
   return { x: middle.x, y: middle.y - (bandMiddle - size.height / 2) / view.zoom };
 }
 
+/** How far inside the free part a tapped house must be to count as "in the picture" (CSS px). */
+export const RECT_MARGIN = 12;
+
+/**
+ * The new middle of the camera (world px) so that `rect` (world px: a house with its roof) lies in the middle of the
+ * free part – or `undefined` when it is already inside it, a little away from the edges.
+ */
+export function rectGlide(view: CameraView, size: Size, band: FreeBand, rect: Rect): Point | undefined {
+  if (!(view.zoom > 0) || size.width <= 0 || size.height <= 0) {
+    return undefined;
+  }
+  const top = Math.max(0, Math.min(band.top, size.height));
+  const bottom = Math.max(top, Math.min(band.bottom, size.height));
+  const margin = Math.min(RECT_MARGIN, size.width / 4, (bottom - top) / 4);
+  const corner = toScreen(view, size, { x: rect.x, y: rect.y });
+  const width = rect.width * view.zoom;
+  const height = rect.height * view.zoom;
+  if (corner.x >= margin && corner.x + width <= size.width - margin && corner.y >= top + margin && corner.y + height <= bottom - margin) {
+    return undefined;
+  }
+  const bandMiddle = (top + bottom) / 2;
+  return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 - (bandMiddle - size.height / 2) / view.zoom };
+}
+
 /** What is open on the screen while a boat comes (see {@link glideAllowed}). */
 export interface GlideContext {
   /** The tool of the build controls (`view` = just looking). */
@@ -59,13 +87,16 @@ export interface GlideContext {
   readonly lostOpen: boolean;
   /** The card of a building or of a resident. */
   readonly cardOpen: boolean;
+  /** A finger (or the mouse button) is down on the world: dragging, pinching, holding or carrying a resident. */
+  readonly gestureActive: boolean;
 }
 
 /**
- * The camera glides to a boat only while the child is just looking – not while building, moving or demolishing, and
- * not while the shop, the menu, the "lost" layer or a card is open. A glide that is running stops on the spot as
- * soon as this turns false.
+ * The camera glides to a boat only while the child is just looking – not while building, moving or demolishing, not
+ * while the shop, the menu, the "lost" layer or a card is open, and never while a finger is on the world (the world
+ * must not slide away under a carried resident). A glide that is running stops on the spot as soon as this turns
+ * false.
  */
 export function glideAllowed(context: GlideContext): boolean {
-  return context.tool === 'view' && !context.shopOpen && !context.menuOpen && !context.lostOpen && !context.cardOpen;
+  return context.tool === 'view' && !context.shopOpen && !context.menuOpen && !context.lostOpen && !context.cardOpen && !context.gestureActive;
 }

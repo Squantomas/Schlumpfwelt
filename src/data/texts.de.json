@@ -167,6 +167,7 @@
   "status.workingHappy": "Fröhlich bei der Arbeit – das geht schneller!",
   "status.workingSad": "Arbeitet etwas langsamer. Fröhlich geht es schneller.",
   "resident.move": "Umziehen",
+  "resident.boatWait": "{name} steigt gleich aus.",
   "resident.mood": "{mood} – {reason}.",
   "mood.happy": "Fröhlich",
   "mood.normal": "Normal",
@@ -191,5 +192,8 @@
   "hint.homePickHouse": "Tippe auf ein Haus.",
   "hint.homeMoved": "{name} wohnt jetzt hier!",
   "hint.dragHome": "Zieh {name} auf ein Haus.",
-  "hint.dragDrop": "Lass los, dann zieht {name} hier ein."
+  "hint.dragDrop": "Lass los, dann zieht {name} hier ein.",
+  "hint.dragHold": "Halte {name} kurz über dem Haus, bis es grün wird.",
+  "hint.dragNoHouse": "Lass {name} auf einem Haus los, dann ist es das neue Zuhause.",
+  "hint.dragZoom": "Zoom näher heran, dann kannst du {name} tragen."
 }

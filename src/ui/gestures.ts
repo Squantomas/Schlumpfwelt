@@ -47,6 +47,11 @@ export interface GestureHandlers {
   drop?(at: Point): void;
   /** What was picked up is let go without a drop: released without moving (then `tap` follows), a second finger, or the system took the pointer. */
   cancelCarry?(): void;
+  /**
+   * Optional: one finger starts to drag the picture, from `at` (where it was pressed). The scene can say something
+   * about what was under the finger (a resident that can not be carried at this zoom).
+   */
+  panStart?(at: Point): void;
 }
 
 export interface GestureOptions {
@@ -159,6 +164,7 @@ export class GestureTracker {
         return;
       }
       this.mode = 'pan';
+      this.handlers.panStart?.({ x: pointer.startX, y: pointer.startY });
     }
     if (this.mode === 'pan') {
       this.handlers.pan(x - this.lastX, y - this.lastY);
@@ -180,6 +186,7 @@ export class GestureTracker {
         this.mode = 'idle';
         // The moves may have been merged into this one event: check the distance again.
         if (Math.hypot(x - pointer.startX, y - pointer.startY) > this.options.tapMaxMovePx) {
+          this.handlers.panStart?.({ x: pointer.startX, y: pointer.startY });
           this.handlers.pan(x - this.lastX, y - this.lastY);
         } else if (this.tapAllowed) {
           this.handlers.tap({ x, y });

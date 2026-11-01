@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { applyCommand, type Command } from '../../src/sim/commands';
 import type { SimState } from '../../src/sim/state';
-import { ResidentDrag, homeTargetAt, houseAtPoint } from '../../src/ui/residentDrag';
+import { DROP_DWELL_MS, ResidentDrag, homeTargetAt, houseAtPoint } from '../../src/ui/residentDrag';
 import { TILE_SIZE } from '../../src/ui/style';
 import { fillTerrain, grassState, run } from '../sim/helpers';
 
@@ -71,17 +71,29 @@ describe('houseAtPoint und homeTargetAt', () => {
 });
 
 describe('ResidentDrag: einen Bewohner auf ein Haus ziehen', () => {
-  it('greifen, tragen, auf einem Haus mit Platz loslassen: assignHome', () => {
+  it('greifen, tragen, kurz über einem Haus mit Platz halten, loslassen: assignHome', () => {
     const { state, drag, sent, big, gardener } = setup();
     expect(drag.grab(gardener, tileCenter(5, 10))).toBe(true);
     // Before the first move nothing is carried (a tap opens the card).
     expect(drag.carried).toBeUndefined();
     const version = drag.version;
     drag.carry(tileCenter(9, 4));
-    expect(drag.carried).toEqual({ residentId: gardener, at: tileCenter(9, 4), target: undefined });
+    expect(drag.carried).toEqual({ residentId: gardener, at: tileCenter(9, 4), target: undefined, ready: false });
+    drag.update(1000);
     drag.carry(tileCenter(13, 8));
     expect(drag.carried?.target).toEqual({ houseId: big, result: 'ok', used: 0, capacity: 4 });
     expect(drag.version).toBeGreaterThan(version);
+    // The time over the house starts with the first frame there, not with the frames over the meadow.
+    drag.update(1100);
+    drag.update(1100 + DROP_DWELL_MS - 1);
+    expect(drag.carried?.ready).toBe(false);
+    const waiting = drag.version;
+    drag.update(1100 + DROP_DWELL_MS);
+    expect(drag.carried?.ready).toBe(true);
+    expect(drag.version).toBe(waiting + 1);
+    // Moving within the same house keeps it green.
+    drag.carry(tileCenter(14, 8));
+    expect(drag.carried?.ready).toBe(true);
     const result = drag.drop(tileCenter(13, 8));
     expect(result).toEqual({ residentId: gardener, moved: true, target: { houseId: big, result: 'ok', used: 0, capacity: 4 } });
     expect(sent).toEqual([{ type: 'assignHome', residentId: gardener, houseId: big }]);
@@ -101,6 +113,10 @@ describe('ResidentDrag: einen Bewohner auf ein Haus ziehen', () => {
     expect(drag.grab(guest.id, tileCenter(13, 8))).toBe(true);
     drag.carry(tileCenter(5, 9));
     expect(drag.carried?.target).toEqual({ houseId: small, result: 'full', used: 2, capacity: 2 });
+    // A full house never turns green, however long the finger stays.
+    drag.update(0);
+    drag.update(5000);
+    expect(drag.carried?.ready).toBe(false);
     expect(drag.drop(tileCenter(5, 9))).toEqual({ residentId: guest.id, moved: false, target: { houseId: small, result: 'full', used: 2, capacity: 2 } });
     expect(drag.grab(gardener, tileCenter(5, 10))).toBe(true);
     drag.carry(tileCenter(5, 9));
@@ -117,6 +133,9 @@ describe('ResidentDrag: einen Bewohner auf ein Haus ziehen', () => {
     expect(drag.grab(gardener, tileCenter(5, 10))).toBe(true);
     drag.carry(tileCenter(25, 9));
     expect(drag.carried?.target?.result).toBe('ok');
+    drag.update(0);
+    drag.update(DROP_DWELL_MS);
+    expect(drag.carried?.ready).toBe(true);
     // Meanwhile the trader and a guest move into the second small house: it is full now.
     run(state, { type: 'inviteResident', typeId: 'invite' });
     const others = state.residents.filter((r) => r.id !== gardener);
@@ -191,6 +210,71 @@ describe('ResidentDrag: was neu gezeichnet werden muss', () => {
     drag.carry(tileCenter(13, 8), true);
     expect(drag.carried?.target).toBeUndefined();
     expect(drag.drop(tileCenter(13, 8), true)).toEqual({ residentId: gardener, moved: false, target: undefined });
+    expect(sent).toEqual([]);
+  });
+});
+
+describe('ResidentDrag: eine kleine Hürde gegen versehentliches Umziehen', () => {
+  it('ein schnelles Wischen über ein Haus mit Platz zieht niemanden um', () => {
+    const { state, drag, sent, big, gardener } = setup();
+    const before = structuredClone(state);
+    drag.grab(gardener, tileCenter(5, 10));
+    // One frame on the way, then over the big house and let go within the same few frames.
+    drag.carry(tileCenter(9, 9));
+    drag.update(0);
+    drag.carry(tileCenter(13, 8));
+    drag.update(16);
+    drag.update(16 + DROP_DWELL_MS - 20);
+    expect(drag.carried?.target?.result).toBe('ok');
+    expect(drag.carried?.ready).toBe(false);
+    expect(drag.drop(tileCenter(13, 8))).toEqual({ residentId: gardener, moved: false, target: { houseId: big, result: 'ok', used: 0, capacity: 4 } });
+    expect(sent).toEqual([]);
+    expect(state).toEqual(before);
+  });
+
+  it('losgelassen ohne ein Bild dazwischen (Wischen in einem Zug): kein Umzug', () => {
+    const { drag, sent, gardener } = setup();
+    drag.grab(gardener, tileCenter(5, 10));
+    drag.carry(tileCenter(13, 8));
+    expect(drag.drop(tileCenter(13, 8))?.moved).toBe(false);
+    expect(sent).toEqual([]);
+  });
+
+  it('ein anderes Haus unter dem Finger fängt die Zeit neu an', () => {
+    const { drag, sent, big, other, gardener } = setup();
+    drag.grab(gardener, tileCenter(5, 10));
+    drag.carry(tileCenter(13, 8));
+    drag.update(0);
+    drag.update(DROP_DWELL_MS);
+    expect(drag.carried?.ready).toBe(true);
+    // Over the meadow it is not green any more, nor over the next house right away.
+    drag.carry(tileCenter(18, 4));
+    expect(drag.carried?.ready).toBe(false);
+    drag.update(DROP_DWELL_MS + 100);
+    drag.carry(tileCenter(25, 9));
+    drag.update(DROP_DWELL_MS + 116);
+    expect(drag.carried?.ready).toBe(false);
+    // Released on the first house again without waiting there: nothing.
+    drag.carry(tileCenter(13, 8));
+    expect(drag.drop(tileCenter(13, 8))).toEqual({ residentId: gardener, moved: false, target: { houseId: big, result: 'ok', used: 0, capacity: 4 } });
+    expect(sent).toEqual([]);
+    drag.grab(gardener, tileCenter(5, 10));
+    drag.carry(tileCenter(25, 9));
+    drag.update(5000);
+    drag.update(5000 + DROP_DWELL_MS);
+    expect(drag.drop(tileCenter(25, 9))?.moved).toBe(true);
+    expect(sent).toEqual([{ type: 'assignHome', residentId: gardener, houseId: other }]);
+  });
+
+  it('grün auf einem Haus, losgelassen auf einem anderen: kein Umzug', () => {
+    const { drag, sent, gardener } = setup();
+    drag.grab(gardener, tileCenter(5, 10));
+    drag.carry(tileCenter(13, 8));
+    drag.update(0);
+    drag.update(DROP_DWELL_MS);
+    expect(drag.carried?.ready).toBe(true);
+    // The release lands on another house without a move event in between.
+    expect(drag.drop(tileCenter(25, 9))?.moved).toBe(false);
     expect(sent).toEqual([]);
   });
 });

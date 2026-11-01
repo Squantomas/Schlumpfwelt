@@ -15,6 +15,8 @@ import { addGraphics } from '../../ui/FastGraphics';
 
 /** The word under the picture of the button "Umziehen" is never smaller than this (CSS px). */
 const MOVE_CAPTION_MIN = 12;
+/** …and it is as big as the rows of the card, but at least this (as far as the button has room for it, CSS px). */
+const MOVE_CAPTION_WISH = 14;
 
 /**
  * The card that opens when a resident is tapped (M6), at the place of the
@@ -24,7 +26,9 @@ const MOVE_CAPTION_MIN = 12;
  * doing right now, how they feel and a tip – all rows in one font size (see
  * `residentCardLayout.ts`; compact on flat screens with four rows). It only
  * draws what {@link residentInfo} says; the scene keeps it up to date (once
- * per tick).
+ * per tick). A tap on the dimmed "Umziehen" (still on the boat) puts a short
+ * sentence in place of the tip ("Lumo steigt gleich aus."), until they are on
+ * land or the card closes.
  */
 export class ResidentCard {
   private readonly panel: Phaser.GameObjects.Graphics;
@@ -40,8 +44,17 @@ export class ResidentCard {
   private rowFont = 0;
   private canMove = false;
   private mood: Mood = 'normal';
+  /** What the card shows now, and the sentence in place of the tip after a tap on the dimmed "Umziehen" (for whom). */
+  private info: ResidentInfo | undefined;
+  private note: { readonly residentId: number; readonly text: string } | undefined;
 
-  constructor(scene: Phaser.Scene, uiLayer: Phaser.GameObjects.Layer, onClose: (eventTime: number) => void, onMove: (eventTime: number) => void) {
+  constructor(
+    scene: Phaser.Scene,
+    uiLayer: Phaser.GameObjects.Layer,
+    onClose: (eventTime: number) => void,
+    onMove: (eventTime: number) => void,
+    onMoveRefused: (eventTime: number) => void,
+  ) {
     this.panel = addGraphics(scene);
     this.name = createLabel(scene, '', 28);
     this.picture = scene.add.image(0, 0, residentTextureKey(0));
@@ -56,10 +69,17 @@ export class ResidentCard {
         drawMoveHomeIcon(content as Phaser.GameObjects.Graphics, Math.min(width, height));
       },
       onTap: (time) => {
-        // Still on the boat: nothing to choose yet (the button looks switched off).
         if (this.canMove) {
           onMove(time);
+          return;
         }
+        // Still on the boat (the button looks switched off): say why instead of doing nothing.
+        const info = this.info;
+        if (info) {
+          this.note = { residentId: info.id, text: t('resident.boatWait', { name: info.name }) };
+          this.update(info);
+        }
+        onMoveRefused(time);
       },
     });
     uiLayer.add([this.panel, this.picture, this.moodIcon, this.name, ...this.lines, this.closeButton, this.moveButton]);
@@ -96,6 +116,11 @@ export class ResidentCard {
     return this.mood;
   }
 
+  /** Does the card show the sentence of the dimmed "Umziehen" ("… steigt gleich aus.")? For the smoke test. */
+  get noteShown(): boolean {
+    return this.open && this.note !== undefined;
+  }
+
   /** How many rows the card shows now (six, or four on a compact card), for the smoke test. */
   get rowCount(): number {
     return this.layoutData?.parts.rows ?? 0;
@@ -104,6 +129,8 @@ export class ResidentCard {
   hide(): void {
     this.open = false;
     this.shown = '';
+    this.note = undefined;
+    this.info = undefined;
     for (const object of [this.panel, this.name, this.picture, this.moodIcon, ...this.lines, this.closeButton, this.moveButton]) {
       object.setVisible(false);
     }
@@ -142,7 +169,12 @@ export class ResidentCard {
       return;
     }
     const { parts } = data;
-    const rows = cardRows(info, parts.compact);
+    this.info = info;
+    // The sentence of the dimmed button is for this resident on the boat only: on land "Umziehen" works.
+    if (this.note && (this.note.residentId !== info.id || info.canMove)) {
+      this.note = undefined;
+    }
+    const rows = cardRows(info, parts.compact, this.note?.text);
     const key = `${String(info.id)}|${String(info.hat)}|${info.name}|${info.mood}|${String(info.canMove)}|${rows.join('|')}`;
     for (const object of [this.panel, this.name, this.picture, this.moodIcon, this.closeButton, this.moveButton]) {
       object.setVisible(true);
@@ -185,6 +217,8 @@ export class ResidentCard {
     };
     const { font, heights } = fitRows(shown.length, column.height, parts.maxFont, measure);
     this.rowFont = font;
+    // The word of "Umziehen" as big as the rows (at least 14 px), as far as the button has room.
+    this.moveButton.setCaptionFont(Math.max(MOVE_CAPTION_WISH, font));
     const total = heights.reduce((sum, h) => sum + h, 0) + CARD_ROW_GAP * (heights.length - 1);
     let y = column.y + Math.max(0, (column.height - total) / 2);
     shown.forEach((label, index) => {

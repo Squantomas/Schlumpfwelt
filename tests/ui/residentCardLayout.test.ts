@@ -5,7 +5,7 @@ import { t, type TextKey } from '../../src/data/texts';
 import type { Rect } from '../../src/ui/cameraMath';
 import { layoutBuildUi } from '../../src/ui/buildLayout';
 import type { MoodFactors } from '../../src/sim/mood';
-import { CARD_MIN_FONT, CARD_ROW_GAP, COMPACT_ROWS, TALL_ROWS, fitRows, oneLineHeight, residentCardLayout } from '../../src/ui/residentCardLayout';
+import { CARD_MIN_FONT, CARD_ROW_GAP, COMPACT_ROWS, MOVE_MIN_W, TALL_ROWS, fitRows, oneLineHeight, residentCardLayout } from '../../src/ui/residentCardLayout';
 import { moodLine, moodTip } from '../../src/ui/residentInfo';
 import { MIN_TAP_SIZE } from '../../src/ui/style';
 
@@ -114,8 +114,10 @@ describe('residentCardLayout', () => {
       expect(overlap(layout.picture, layout.mood), what).toBe(true);
       expect(layout.close.width, what).toBeGreaterThanOrEqual(MIN_TAP_SIZE);
       expect(layout.close.height, what).toBeGreaterThanOrEqual(MIN_TAP_SIZE);
-      expect(layout.move.width, what).toBeGreaterThanOrEqual(72);
-      expect(layout.move.height, what).toBeGreaterThanOrEqual(MIN_TAP_SIZE);
+      // Korrekturrunde 1: room for the word "Umziehen" at 14 px (about 71 px wide with its outline) and a bigger finger.
+      expect(layout.move.width, what).toBeGreaterThanOrEqual(MOVE_MIN_W);
+      expect(MOVE_MIN_W).toBeGreaterThanOrEqual(80);
+      expect(layout.move.height, what).toBeGreaterThanOrEqual(MIN_TAP_SIZE + 4);
       expect(layout.mood.width, what).toBeGreaterThanOrEqual(24);
       expect(layout.rows, what).toBe(layout.compact ? COMPACT_ROWS : TALL_ROWS);
       expect(layout.picture.width, what).toBeGreaterThanOrEqual(56);

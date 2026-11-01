@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { LANDING_MARGIN, glideAllowed, landingGlide } from '../../src/ui/boatCamera';
+import { LANDING_MARGIN, RECT_MARGIN, glideAllowed, landingGlide, rectGlide } from '../../src/ui/boatCamera';
 
 const TABLET = { width: 1024, height: 768 };
 const PHONE = { width: 320, height: 568 };
@@ -77,7 +77,7 @@ describe('landingGlide', () => {
 });
 
 describe('glideAllowed (Korrekturrunde 2)', () => {
-  const looking = { tool: 'view', shopOpen: false, menuOpen: false, lostOpen: false, cardOpen: false };
+  const looking = { tool: 'view', shopOpen: false, menuOpen: false, lostOpen: false, cardOpen: false, gestureActive: false };
 
   it('fährt nur beim Anschauen ohne offenes Feld', () => {
     expect(glideAllowed(looking)).toBe(true);
@@ -91,5 +91,48 @@ describe('glideAllowed (Korrekturrunde 2)', () => {
     expect(glideAllowed({ ...looking, menuOpen: true })).toBe(false);
     expect(glideAllowed({ ...looking, lostOpen: true })).toBe(false);
     expect(glideAllowed({ ...looking, cardOpen: true })).toBe(false);
+  });
+
+  it('nie, solange ein Finger auf der Welt liegt – etwa beim Tragen eines Bewohners (Korrekturrunde 1)', () => {
+    expect(glideAllowed({ ...looking, gestureActive: true })).toBe(false);
+  });
+});
+
+describe('rectGlide: ein angetipptes Haus unter der Hinweisleiste kommt ins Bild (Korrekturrunde 1)', () => {
+  const view = { centerX: 1000, centerY: 1000, zoom: 1 };
+  /** The world rect that lies at these screen coordinates (CSS px) with `view` on the tablet. */
+  const at = (x: number, y: number, width: number, height: number) => ({ x: x - 512 + 1000, y: y - 384 + 1000, width, height });
+
+  it('bewegt nichts, wenn das Haus im freien Teil liegt', () => {
+    expect(rectGlide(view, TABLET, BAND, at(300, 200, 128, 200))).toBeUndefined();
+    expect(rectGlide(view, TABLET, BAND, at(RECT_MARGIN, BAND.top + RECT_MARGIN, 128, 200))).toBeUndefined();
+  });
+
+  it('fährt hin, wenn das Dach unter der Hinweisleiste oder das Haus unter der Werkzeugleiste liegt – danach ist es frei', () => {
+    for (const rect of [at(300, 20, 128, 200), at(300, 600, 128, 200), at(-60, 300, 128, 200), at(960, 300, 128, 200)]) {
+      const target = rectGlide(view, TABLET, BAND, rect);
+      expect(target).toBeDefined();
+      if (!target) {
+        return;
+      }
+      const after = { centerX: target.x, centerY: target.y, zoom: view.zoom };
+      expect(rectGlide(after, TABLET, BAND, rect)).toBeUndefined();
+      // The middle of the house is in the middle of the free band.
+      const middleY = (rect.y + rect.height / 2 - after.centerY) * after.zoom + TABLET.height / 2;
+      expect(middleY).toBeCloseTo((BAND.top + BAND.bottom) / 2, 6);
+    }
+  });
+
+  it('auch weit herausgezoomt auf dem Handy, und mit kaputtem Zoom oder Schirm nichts', () => {
+    const far = { centerX: 1000, centerY: 1000, zoom: 0.5 };
+    const band = { top: 110, bottom: 470 };
+    const rect = { x: 1000 - 100, y: 1000 - 568, width: 128, height: 200 };
+    const target = rectGlide(far, PHONE, band, rect);
+    expect(target).toBeDefined();
+    if (target) {
+      expect(rectGlide({ centerX: target.x, centerY: target.y, zoom: 0.5 }, PHONE, band, rect)).toBeUndefined();
+    }
+    expect(rectGlide({ centerX: 0, centerY: 0, zoom: 0 }, TABLET, BAND, rect)).toBeUndefined();
+    expect(rectGlide(view, { width: 0, height: 0 }, BAND, rect)).toBeUndefined();
   });
 });

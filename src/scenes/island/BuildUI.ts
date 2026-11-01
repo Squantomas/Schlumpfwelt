@@ -51,6 +51,8 @@ export interface UiSpot {
   /** The card of a resident: how many rows it shows and the mood its picture shows (M7). */
   readonly rows?: number;
   readonly mood?: string;
+  /** The card of a resident on the boat says "… steigt gleich aus." in place of the tip (after a tap on "Umziehen"). */
+  readonly note?: boolean;
 }
 
 /** The words under the toolbar buttons and the shop tabs are at least this big (CSS px), else only the picture stays. */
@@ -153,6 +155,11 @@ export class BuildUI {
         this.board.clearExplanation();
         this.tool.startMoveHome();
         this.refresh();
+      },
+      (time) => {
+        // The dimmed "Umziehen" (still on the boat): the card says why by itself.
+        this.touched(time);
+        this.spotsDirty = true;
       },
     );
     this.knownResidents = this.getState().nextResidentId;
@@ -662,11 +669,18 @@ export class BuildUI {
       }
       const stockRect = this.stock.rect;
       spots['stock'] = { x: stockRect.x + stockRect.width / 2, y: stockRect.y + stockRect.height / 2, enabled: true, w: stockRect.width, h: stockRect.height };
+      // The free part of the screen between the bars (where a glide to a boat or a chosen house brings it), not a button.
+      const band = this.freeBand;
+      const bandBottom = Math.min(band.bottom, this.view.height);
+      spots['band'] = { x: this.view.width / 2, y: (band.top + bandBottom) / 2, enabled: false, w: this.view.width, h: Math.max(0, bandBottom - band.top) };
       // Only one card is open at a time: the info card of a building or the card of a resident.
       const openCard = this.card.isOpen ? this.card : this.residentCard.isOpen ? this.residentCard : undefined;
       if (openCard) {
         const cardRect = openCard.rect;
-        const rows = openCard === this.residentCard ? { font: this.residentCard.rowsFont, rows: this.residentCard.rowCount, mood: this.residentCard.shownMood } : {};
+        const rows =
+          openCard === this.residentCard
+            ? { font: this.residentCard.rowsFont, rows: this.residentCard.rowCount, mood: this.residentCard.shownMood, ...(this.residentCard.noteShown ? { note: true } : {}) }
+            : {};
         spots['card'] = { x: cardRect.x + cardRect.width / 2, y: cardRect.y + cardRect.height / 2, enabled: true, w: cardRect.width, h: cardRect.height, ...rows };
         const close = openCard.closeSpot;
         const closeSize = 'size' in close ? close.size : 64;

@@ -24,7 +24,7 @@ import { isUnlocked } from '../sim/unlocks';
 import { terrainAt, type Terrain } from '../sim/world';
 import type { Point } from './cameraMath';
 import { listText, missingParams, totalUnits } from './costText';
-import { ResidentDrag, type DropResult } from './residentDrag';
+import { ResidentDrag, houseAtPoint, type DropResult } from './residentDrag';
 import { TILE_SIZE } from './style';
 
 /**
@@ -95,6 +95,8 @@ export type Preview =
   /**
    * A new home for a resident (M7): the house tapped with the tool "home", or the house under the finger while a
    * resident is carried (`carried`: no ✓ / ✕ then, letting go decides). `used` / `capacity` for the "2/2".
+   * `waiting`: a carried resident over a house with room, but the finger has not stayed there long enough yet (see
+   * `DROP_DWELL_MS`) – letting go now would move nobody, so it is not green yet.
    */
   | {
       readonly kind: 'home';
@@ -104,6 +106,7 @@ export type Preview =
       readonly used: number;
       readonly capacity: number;
       readonly carried: boolean;
+      readonly waiting: boolean;
     };
 
 type Pending =
@@ -530,11 +533,6 @@ export class BuildTool {
     return true;
   }
 
-  /** The resident who is choosing a new home with the tool "home", if any. */
-  get movingResidentId(): number | undefined {
-    return this.current === 'home' ? this.mover : undefined;
-  }
-
   /**
    * A press on a resident while looking (M7): can they be carried? Moving the finger then carries them
    * ({@link carryResident}); released without moving it stays a tap ({@link cancelCarry}, then the tap opens the card).
@@ -565,6 +563,11 @@ export class BuildTool {
     this.drag.cancel();
   }
 
+  /** Once per frame (time in ms, one clock): a carried resident who stayed over a house with room long enough turns it green. */
+  updateCarry(now: number): void {
+    this.drag.update(now);
+  }
+
   /** The resident being carried, where the finger is (world px) and over which house – or `undefined`. */
   get carried(): ResidentDrag['carried'] {
     return this.drag.carried;
@@ -593,7 +596,7 @@ export class BuildTool {
       return 'hint.invite';
     }
     if (this.drag.carried) {
-      return preview.kind === 'home' ? 'hint.dragDrop' : 'hint.dragHome';
+      return preview.kind === 'home' && !preview.waiting ? 'hint.dragDrop' : 'hint.dragHome';
     }
     if (preview.kind === 'home') {
       return 'hint.homeConfirm';
@@ -760,15 +763,18 @@ export class BuildTool {
         return this.tapPath(tile);
       case 'move':
         return this.tapMove(tile, building?.id, footprint?.id);
-      case 'home':
-        if (building && buildingType(building.type)?.category === 'house') {
-          this.pending = { kind: 'home', houseId: building.id };
+      case 'home': {
+        // Only houses count, by their picture: a flower or a path in front of a house does not hide it.
+        const houseId = world ? houseAtPoint(state, world) : building && buildingType(building.type)?.category === 'house' ? building.id : undefined;
+        if (houseId !== undefined) {
+          this.pending = { kind: 'home', houseId };
           this.changes += 1;
           return undefined;
         }
         this.pending = { kind: 'none' };
         this.changes += 1;
         return 'hint.homePickHouse';
+      }
       case 'demolish': {
         if (building) {
           this.pending = { kind: 'demolish', x: building.x, y: building.y };
@@ -845,7 +851,7 @@ export class BuildTool {
     const carried = this.drag.carried;
     if (carried) {
       const target = carried.target;
-      return target ? { kind: 'home', residentId: carried.residentId, ...target, carried: true } : { kind: 'none' };
+      return target ? { kind: 'home', residentId: carried.residentId, ...target, carried: true, waiting: target.result === 'ok' && !carried.ready } : { kind: 'none' };
     }
     const pending = this.pending;
     switch (pending.kind) {
@@ -919,7 +925,7 @@ export class BuildTool {
         if (mover === undefined || !check || check.result === 'noResident' || check.result === 'noHouse') {
           return { kind: 'none' };
         }
-        return { kind: 'home', residentId: mover, houseId: pending.houseId, ...check, carried: false };
+        return { kind: 'home', residentId: mover, houseId: pending.houseId, ...check, carried: false, waiting: false };
       }
       case 'invite': {
         const check = checkInvite(state, pending.typeId);
@@ -1053,18 +1059,25 @@ export class BuildTool {
   }
 }
 
-/** What letting go says: "moved in" for a house with room, why not for a full house or their own; nothing elsewhere. */
+/**
+ * What letting go says: "moved in" for a house with room; "hold a moment" when it was let go there too soon (a swipe);
+ * why not for a full house or their own; and beside the houses (meadow, a bar) where to let go next time.
+ */
 export function dropNotice(result: DropResult | undefined, nameOf: (residentId: number) => string): DropNotice | undefined {
-  const target = result?.target;
-  if (!result || !target) {
+  if (!result) {
     return undefined;
   }
-  const params = { name: nameOf(result.residentId), current: target.used, needed: target.capacity };
+  const name = nameOf(result.residentId);
+  const target = result.target;
+  if (!target) {
+    return { key: 'hint.dragNoHouse', params: { name } };
+  }
+  const params = { name, current: target.used, needed: target.capacity };
   if (result.moved) {
     return { key: 'hint.homeMoved', params };
   }
-  const key = homeProblem(target.result);
-  return key ? { key, params } : undefined;
+  const key = homeProblem(target.result) ?? 'hint.dragHold';
+  return { key, params };
 }
 
 /** Why a resident can not move into the house (M7): it is full, it is their own, or it is no house. */

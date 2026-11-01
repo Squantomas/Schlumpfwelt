@@ -315,6 +315,7 @@ describe('Tragen (M7): ein Druck auf einen Bewohner trägt ihn statt der Kamera'
     pinches: number;
     taps: Point[];
     flings: number;
+    panStarts: Point[];
   }
   let carry: CarryLog;
   /** Nur Drücke links von x = 50 treffen einen Bewohner. */
@@ -323,7 +324,7 @@ describe('Tragen (M7): ein Druck auf einen Bewohner trägt ihn statt der Kamera'
   let stopsGlide = false;
 
   beforeEach(() => {
-    carry = { grabs: [], carries: [], drops: [], cancels: 0, pans: [], pinches: 0, taps: [], flings: 0 };
+    carry = { grabs: [], carries: [], drops: [], cancels: 0, pans: [], pinches: 0, taps: [], flings: 0, panStarts: [] };
     stopsGlide = false;
     carrier = new GestureTracker(
       {
@@ -345,6 +346,7 @@ describe('Tragen (M7): ein Druck auf einen Bewohner trägt ihn statt der Kamera'
         cancelCarry: () => {
           carry.cancels += 1;
         },
+        panStart: (at) => carry.panStarts.push(at),
       },
       { tapMaxMovePx: 10 },
     );
@@ -443,6 +445,35 @@ describe('Tragen (M7): ein Druck auf einen Bewohner trägt ihn statt der Kamera'
     expect(carry.grabs).toEqual([]);
     expect(carry.carries).toEqual([]);
     expect(carry.pans.length).toBeGreaterThan(0);
+  });
+
+  it('panStart meldet einmal den Startpunkt, wenn der Finger die Kamera zu ziehen beginnt – nicht beim Tragen, Tippen oder Kneifen', () => {
+    carrier.down(1, 100, 100, 0);
+    carrier.move(1, 105, 100, 10);
+    expect(carry.panStarts).toEqual([]);
+    carrier.move(1, 130, 100, 20);
+    carrier.move(1, 160, 100, 30);
+    carrier.up(1, 160, 100, 40);
+    expect(carry.panStarts).toEqual([{ x: 100, y: 100 }]);
+    // Merged into the release: still once.
+    carrier.down(1, 300, 300, 100);
+    carrier.up(1, 360, 300, 120);
+    expect(carry.panStarts).toEqual([
+      { x: 100, y: 100 },
+      { x: 300, y: 300 },
+    ]);
+    carry.panStarts = [];
+    carrier.down(1, 20, 20, 200);
+    carrier.move(1, 60, 20, 210);
+    carrier.up(1, 60, 20, 220);
+    carrier.down(1, 100, 100, 300);
+    carrier.up(1, 102, 100, 310);
+    carrier.down(1, 100, 100, 400);
+    carrier.down(2, 200, 200, 410);
+    carrier.move(2, 230, 230, 420);
+    carrier.up(2, 230, 230, 430);
+    carrier.up(1, 100, 100, 440);
+    expect(carry.panStarts).toEqual([]);
   });
 
   it('ohne grab-Rückruf (alte Nutzer) bleibt alles wie vorher', () => {

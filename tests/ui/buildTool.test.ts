@@ -4,6 +4,7 @@ import { loadFromText, saveToText } from '../../src/sim/saveData';
 import type { SimState } from '../../src/sim/state';
 import { t } from '../../src/data/texts';
 import { BuildTool, TOOLS, anchorFor, problemHint, type RefundInfo } from '../../src/ui/buildTool';
+import { DROP_DWELL_MS } from '../../src/ui/residentDrag';
 import { shopItems } from '../../src/data/buildings';
 import { buildConnected, fillTerrain, grassState, pathAt, run, setStore, setTerrainAt } from '../sim/helpers';
 
@@ -1501,9 +1502,9 @@ describe('Umziehen (M7): über die Karte und per Ziehen', () => {
     expect(tool.canMoveHome(gardener)).toBe(true);
     expect(tool.startMoveHome()).toBe(true);
     expect(tool.tool).toBe('home');
-    expect(tool.movingResidentId).toBe(gardener);
     expect(tool.cardOpen).toBe(false);
     const name = state.residents.find((r) => r.id === gardener)?.name ?? '';
+    expect(tool.hintParams).toEqual({ name });
     expect(tool.hint).toBe('hint.homeSelect');
     expect(t('hint.homeSelect', tool.hintParams)).toBe(`Tippe auf das neue Haus für ${name}.`);
     expect(tool.hasPreview).toBe(false);
@@ -1511,7 +1512,7 @@ describe('Umziehen (M7): über die Karte und per Ziehen', () => {
     expect(tool.tap({ x: 9, y: 4 }, center(9, 4))).toBe('hint.homePickHouse');
     expect(tool.tap({ x: 5, y: 12 }, center(5, 12))).toBe('hint.homePickHouse');
     expect(tool.tap({ x: 13, y: 8 }, center(13, 8))).toBeUndefined();
-    expect(tool.preview()).toEqual({ kind: 'home', residentId: gardener, houseId: big, result: 'ok', used: 0, capacity: 4, carried: false });
+    expect(tool.preview()).toEqual({ kind: 'home', residentId: gardener, houseId: big, result: 'ok', used: 0, capacity: 4, carried: false, waiting: false });
     expect(tool.hint).toBe('hint.homeConfirm');
     expect(tool.hasPreview).toBe(true);
     expect(tool.canConfirm).toBe(true);
@@ -1567,7 +1568,8 @@ describe('Umziehen (M7): über die Karte und per Ziehen', () => {
     tool.inspectResident(gardener);
     tool.startMoveHome();
     tool.selectTool('path');
-    expect(tool.movingResidentId).toBeUndefined();
+    expect(tool.tool).toBe('path');
+    expect(tool.hintParams).toBeUndefined();
   });
 
   it('ist der Bewohner nicht mehr da (geladenes Dorf), endet das Werkzeug', () => {
@@ -1599,7 +1601,14 @@ describe('Umziehen (M7): über die Karte und per Ziehen', () => {
     expect(tool.hint).toBe('hint.dragHome');
     expect(t('hint.dragHome', tool.hintParams)).toBe(`Zieh ${name} auf ein Haus.`);
     tool.carryResident(center(13, 8));
-    expect(tool.preview()).toEqual({ kind: 'home', residentId: gardener, houseId: big, result: 'ok', used: 0, capacity: 4, carried: true });
+    // Over the house with room, but not long enough yet: not green, letting go would move nobody.
+    tool.updateCarry(500);
+    expect(tool.preview()).toEqual({ kind: 'home', residentId: gardener, houseId: big, result: 'ok', used: 0, capacity: 4, carried: true, waiting: true });
+    expect(tool.hint).toBe('hint.dragHome');
+    const waiting = tool.version;
+    tool.updateCarry(500 + DROP_DWELL_MS);
+    expect(tool.version).toBeGreaterThan(waiting);
+    expect(tool.preview()).toEqual({ kind: 'home', residentId: gardener, houseId: big, result: 'ok', used: 0, capacity: 4, carried: true, waiting: false });
     expect(tool.hasPreview).toBe(false);
     expect(tool.canConfirm).toBe(false);
     expect(tool.hint).toBe('hint.dragDrop');
@@ -1610,7 +1619,7 @@ describe('Umziehen (M7): über die Karte und per Ziehen', () => {
     expect(tool.preview()).toEqual({ kind: 'none' });
   });
 
-  it('Ziehen auf ein volles Haus sagt „voll“, auf die Wiese nichts – beides ohne Befehl', () => {
+  it('Ziehen auf ein volles Haus sagt „voll“, auf die Wiese, wo man loslässt – beides ohne Befehl', () => {
     const { state, tool, sent, small } = village();
     run(state, { type: 'inviteResident', typeId: 'invite' });
     const guest = state.residents.find((r) => r.job === null);
@@ -1625,11 +1634,50 @@ describe('Umziehen (M7): über die Karte und per Ziehen', () => {
     expect(tool.dropResident(center(4, 9))).toEqual({ key: 'hint.homeFull', params: { name: guest.name, current: 2, needed: 2 } });
     expect(tool.grabResident(guest.id, center(13, 9))).toBe(true);
     tool.carryResident(center(9, 4));
-    expect(tool.dropResident(center(9, 4))).toBeUndefined();
+    const noHouse = tool.dropResident(center(9, 4));
+    expect(noHouse).toEqual({ key: 'hint.dragNoHouse', params: { name: guest.name } });
+    expect(t('hint.dragNoHouse', noHouse?.params)).toBe(`Lass ${guest.name} auf einem Haus los, dann ist es das neue Zuhause.`);
+    // Over a bar: no house there either.
+    expect(tool.grabResident(guest.id, center(13, 9))).toBe(true);
+    tool.carryResident(center(4, 9), true);
+    expect(tool.dropResident(center(4, 9), true)?.key).toBe('hint.dragNoHouse');
     expect(tool.grabResident(guest.id, center(13, 9))).toBe(true);
     tool.cancelCarry();
     expect(tool.dropResident(center(4, 9))).toBeUndefined();
     expect(sent).toEqual([]);
+  });
+
+  it('ein schnelles Wischen über ein Haus mit Platz zieht nicht um und sagt, dass man kurz halten soll', () => {
+    const { state, tool, sent, gardener, big } = village();
+    const name = state.residents.find((r) => r.id === gardener)?.name ?? '';
+    expect(tool.grabResident(gardener, center(5, 10))).toBe(true);
+    tool.carryResident(center(9, 9));
+    tool.updateCarry(0);
+    tool.carryResident(center(13, 8));
+    tool.updateCarry(40);
+    tool.updateCarry(40 + DROP_DWELL_MS - 10);
+    const notice = tool.dropResident(center(13, 8));
+    expect(notice).toEqual({ key: 'hint.dragHold', params: { name, current: 0, needed: 4 } });
+    expect(t('hint.dragHold', notice?.params)).toBe(`Halte ${name} kurz über dem Haus, bis es grün wird.`);
+    expect(sent).toEqual([]);
+    expect(state.residents.find((r) => r.id === gardener)?.home).not.toBe(big);
+  });
+
+  it('Umziehen über die Karte: eine Blume oder ein Weg unter dem Dach versteckt das Haus nicht', () => {
+    const { state, tool, gardener, big } = village();
+    // The roof of the big house (y 7, two tiles) reaches over the tiles above it: a flower and a path there.
+    run(state, { type: 'placeBuilding', buildingType: 'flower', x: 13, y: 6 }, { type: 'placePaths', tiles: [{ x: 12, y: 6 }] });
+    expect(state.buildings.some((b) => b.type === 'flower' && b.x === 13 && b.y === 6)).toBe(true);
+    expect(state.paths.includes(6 * state.world.width + 12)).toBe(true);
+    tool.inspectResident(gardener);
+    tool.startMoveHome();
+    expect(tool.tap({ x: 13, y: 6 }, { x: 13.5 * 64, y: 6.8 * 64 })).toBeUndefined();
+    expect(tool.preview()).toMatchObject({ kind: 'home', houseId: big, result: 'ok' });
+    tool.cancel();
+    expect(tool.tap({ x: 12, y: 6 }, { x: 12.5 * 64, y: 6.8 * 64 })).toBeUndefined();
+    expect(tool.preview()).toMatchObject({ kind: 'home', houseId: big, result: 'ok' });
+    // Beside the picture: still "tap a house".
+    expect(tool.tap({ x: 13, y: 3 }, center(13, 3))).toBe('hint.homePickHouse');
   });
 
   it('Werkzeug oder Shop während des Tragens beenden das Tragen', () => {

@@ -35,6 +35,8 @@ export interface WorldCameraOptions {
   readonly onCarry?: (world: Point, screen: Point) => void;
   readonly onDrop?: (world: Point, screen: Point, eventTime: number) => void;
   readonly onCancelCarry?: () => void;
+  /** Optional: one finger starts to drag the picture; `screen` is where it was pressed (CSS px). */
+  readonly onPanStart?: (world: Point, screen: Point) => void;
 }
 
 /** Largest wheel step that is taken into account (some mice send huge values). */
@@ -79,6 +81,7 @@ export class WorldCameraController {
         carry: (at) => options.onCarry?.(this.toWorld(at), at),
         drop: (at) => options.onDrop?.(this.toWorld(at), at, this.upTime),
         cancelCarry: () => options.onCancelCarry?.(),
+        panStart: (at) => options.onPanStart?.(this.toWorld(at), at),
       },
       { tapMaxMovePx: options.tapMaxMovePx },
     );
@@ -106,9 +109,12 @@ export class WorldCameraController {
     return this.rig.view;
   }
 
-  /** True while something picked up is being carried (the camera stands still). */
-  get carrying(): boolean {
-    return this.tracker.carrying;
+  /**
+   * True while a finger or the mouse button is down for a gesture (dragging, pinching, holding or carrying a
+   * resident): then nothing else moves the world under the finger – no glide to a boat, no mouse wheel.
+   */
+  get gestureActive(): boolean {
+    return this.tracker.active && this.scene.input.manager.pointers.some((pointer) => pointer.isDown);
   }
 
   private toWorld(at: Point): Point {
@@ -216,8 +222,9 @@ export class WorldCameraController {
 
   private readonly onWheel = (pointer: Phaser.Input.Pointer, _over: unknown, _dx: number, deltaY: number): void => {
     const point = this.cssPoint(pointer);
-    // The wheel over a panel, the menu or the open shop does not zoom the island behind it.
-    if ((this.options.blocksWheel ?? this.options.blocksPoint)?.(point.x, point.y) === true) {
+    // The wheel over a panel, the menu or the open shop does not zoom the island behind it; nor while the world is
+    // held (a carried resident would slide away under the finger, a drag would jump).
+    if (this.gestureActive || (this.options.blocksWheel ?? this.options.blocksPoint)?.(point.x, point.y) === true) {
       return;
     }
     const delta = Math.max(-MAX_WHEEL_DELTA, Math.min(MAX_WHEEL_DELTA, deltaY));

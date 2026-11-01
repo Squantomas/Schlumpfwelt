@@ -14,7 +14,7 @@ import { growRect, tileAtWorld, visibleRect, type CameraBounds, type Point, type
 import { landRegions } from '../ui/cameraRegions';
 import { FrameStats } from '../ui/frameStats';
 import { simulationDelta } from '../ui/frameTime';
-import { glideAllowed, landingGlide } from '../ui/boatCamera';
+import { glideAllowed, landingGlide, rectGlide } from '../ui/boatCamera';
 import { RESIDENT_BODY_Y, residentAt } from '../ui/residentHit';
 import { moodReason } from '../ui/residentInfo';
 import { RoundButton } from '../ui/RoundButton';
@@ -57,6 +57,8 @@ const PERF_FRAMES = 300;
  * press on one of many tiny figures would take the camera's drag away, and a tap still opens their card.
  */
 const GRAB_MIN_ZOOM = 0.5;
+/** Room over the roof of a house for its "0/2" (world px), when the camera glides to a house chosen as a new home. */
+const HOUSE_LABEL_ROOM = 44;
 
 /** What a frame cost on the main thread (ms): the whole frame, the simulation in it, and drawing. */
 interface PerfMeter {
@@ -120,6 +122,10 @@ export class IslandScene extends Phaser.Scene {
   private residentsTick = -1;
   /** The boats the camera already knows (a new one with a guest may make it glide to the landing place). */
   private seenBoats = new Set<number>();
+  /** What the running camera glide is for: a boat (only while looking) or the house tapped while choosing a home. */
+  private glideFor: 'boat' | 'house' | undefined;
+  /** A house was tapped while choosing a home: glide to it once the controls are laid out (next frame). */
+  private houseGlidePending = false;
   private buildUI!: BuildUI;
   private menu!: VillageMenu;
   private lost!: LostOverlay;
@@ -161,6 +167,8 @@ export class IslandScene extends Phaser.Scene {
     this.residentsTick = -1;
     // Boats of a loaded village are no news: the camera only follows boats that set off from now on.
     this.seenBoats = new Set(this.simulation.state.boats.map((boat) => boat.id));
+    this.glideFor = undefined;
+    this.houseGlidePending = false;
     this.buildings = '[]';
     this.paths = '';
     this.previewText = 'none';
@@ -188,6 +196,14 @@ export class IslandScene extends Phaser.Scene {
     this.buildTool = new BuildTool(
       () => this.simulation.state,
       (command) => {
+        if (command.type === 'assignHome') {
+          // Moving house (✓ on the card, or let go on a house): the figure glides from where it is drawn now to the
+          // door of the new home – nobody jumps across the island.
+          const at = this.residentView.positionOf(command.residentId);
+          if (at) {
+            this.residentView.letGo(command.residentId, at, command.houseId);
+          }
+        }
         this.simulation.send(command);
       },
       ({ at, refund }) => {
@@ -245,7 +261,15 @@ export class IslandScene extends Phaser.Scene {
         this.dropResident(point, this.buildUI.coversPoint(screen.x, screen.y));
       },
       onCancelCarry: () => {
+        // A second finger, the system took the pointer: the figure slides back from where it hangs.
+        const carried = this.buildTool.carried;
+        if (carried) {
+          this.residentView.letGo(carried.residentId, this.residentView.positionOf(carried.residentId) ?? carried.at);
+        }
         this.buildTool.cancelCarry();
+      },
+      onPanStart: (point) => {
+        this.explainNoGrab(point);
       },
     });
 
@@ -401,6 +425,8 @@ export class IslandScene extends Phaser.Scene {
     this.session.autosave?.update(time);
     this.lost.setOpen(this.session.autosave?.isLost === true);
     this.followNewBoats();
+    // A carried resident who stayed over a house with room a moment turns it green (one clock: the frame time).
+    this.buildTool.updateCarry(time);
     // The glide to a boat counts real time (like the simulation); inertia and smooth zoom keep Phaser's delta.
     this.controller.update(delta, simulationDelta(this.game.loop.rawDelta, delta));
     this.publishCamera();
@@ -420,15 +446,28 @@ export class IslandScene extends Phaser.Scene {
    * menu or a card open, the camera stays – and a glide that is running stops (`glideAllowed`).
    */
   private followNewBoats(): void {
+    const gestureActive = this.controller.gestureActive;
     const allowed = glideAllowed({
       tool: this.buildTool.tool,
       shopOpen: this.buildUI.shopOpen,
       menuOpen: this.menu.isOpen,
       lostOpen: this.lost.isOpen,
       cardOpen: this.buildTool.cardOpen,
+      gestureActive,
     });
-    if (!allowed && this.controller.glidingTo) {
-      this.controller.stopGlide();
+    if (this.controller.glidingTo) {
+      // A glide to the chosen house goes on while choosing (and stops with any touch or another tool).
+      const keep = this.glideFor === 'house' ? this.houseGlideAllowed(gestureActive) : allowed;
+      if (!keep) {
+        this.controller.stopGlide();
+      }
+    }
+    if (!this.controller.glidingTo) {
+      this.glideFor = undefined;
+    }
+    if (this.houseGlidePending) {
+      this.houseGlidePending = false;
+      this.glideToChosenHouse(gestureActive);
     }
     const boats = this.simulation.state.boats;
     if (boats.length === 0 && this.seenBoats.size === 0) {
@@ -448,9 +487,40 @@ export class IslandScene extends Phaser.Scene {
       const target = landingGlide(this.controller.view, this.controller.viewSize, this.buildUI.freeBand, centre(boat.shore), centre(boat.at));
       if (target) {
         this.controller.glideTo(target);
+        this.glideFor = 'boat';
       }
     }
     this.seenBoats = now;
+  }
+
+  /** While choosing a new home with "Umziehen" – nothing covering the island, no finger on it. */
+  private houseGlideAllowed(gestureActive: boolean): boolean {
+    return this.buildTool.tool === 'home' && !gestureActive && !this.buildUI.shopOpen && !this.menu.isOpen && !this.lost.isOpen;
+  }
+
+  /**
+   * The house tapped while choosing a new home is (partly) under the hint bar or the toolbar: the camera glides gently
+   * until the house, its roof and the "0/2" over it are in the free part of the screen – the same glide as for a boat
+   * (`CameraRig.glideTo`), and a touch stops it.
+   */
+  private glideToChosenHouse(gestureActive: boolean): void {
+    const preview = this.buildTool.preview();
+    if (preview.kind !== 'home' || preview.carried || !this.houseGlideAllowed(gestureActive)) {
+      return;
+    }
+    const house = this.simulation.state.buildings.find((b) => b.id === preview.houseId);
+    const type = house ? buildingType(house.type) : undefined;
+    if (!house || !type) {
+      return;
+    }
+    // Roof and "0/2" in the free band – the number stands higher over the sign of a house without a path.
+    const top = Math.min(house.y * TILE_SIZE - type.look.rise - HOUSE_LABEL_ROOM, (this.village.homeLabelTop(house.id, this.controller.view.zoom) ?? Infinity) - 4);
+    const rect = { x: house.x * TILE_SIZE, y: top, width: type.footprint.w * TILE_SIZE, height: (house.y + type.footprint.h) * TILE_SIZE - top };
+    const target = rectGlide(this.controller.view, this.controller.viewSize, this.buildUI.freeBand, rect);
+    if (target) {
+      this.controller.glideTo(target);
+      this.glideFor = 'house';
+    }
   }
 
   /** Publishes the camera for tests (`<html data-camera-*>`); the land count is only recomputed when the view changed. */
@@ -682,6 +752,9 @@ export class IslandScene extends Phaser.Scene {
       this.showRing(tile);
     }
     const notice = this.buildTool.tap(tile, world);
+    if (this.buildTool.tool === 'home' && !notice) {
+      this.houseGlidePending = true;
+    }
     if (notice) {
       this.buildUI.showNotice(notice);
     } else if (this.buildTool.tool === 'view') {
@@ -707,6 +780,22 @@ export class IslandScene extends Phaser.Scene {
     }
     const residentId = this.residentAtTap(world);
     return residentId !== undefined && this.buildTool.grabResident(residentId, world);
+  }
+
+  /**
+   * A drag of the picture starts (the camera moves): if it started on a resident who can not be carried because the
+   * island is too far away ({@link GRAB_MIN_ZOOM}), the hint bar says so – the camera moves as always, nothing is silent.
+   */
+  private explainNoGrab(world: Point): void {
+    if (this.controller.view.zoom >= GRAB_MIN_ZOOM || this.buildTool.tool !== 'view' || this.lost.isOpen || this.menu.isOpen || this.buildUI.shopOpen) {
+      return;
+    }
+    // Only a press right on the figure: dragging the village from afar must not bring up the sentence all the time.
+    const residentId = residentAt(this.residentView.spots, world, this.controller.view.zoom, true);
+    const name = residentId === undefined ? undefined : this.simulation.state.residents.find((r) => r.id === residentId)?.name;
+    if (name !== undefined) {
+      this.buildUI.showNotice('hint.dragZoom', { name });
+    }
   }
 
   /** Let go of a carried resident: into the house under the finger if it has room; a short notice says what happened. */
@@ -766,7 +855,7 @@ export class IslandScene extends Phaser.Scene {
     const view = this.controller.view;
     // The top of the visible world below the hint bar: house signs do not slide under the bar.
     const topEdge = view.centerY - this.controller.viewSize.height / (2 * view.zoom) + this.buildUI.topInset / view.zoom;
-    this.village.update(seconds, deltaMs, view.zoom, topEdge);
+    this.village.update(seconds, deltaMs, view.zoom, topEdge, this.residentView.carriedBox);
     this.publishVillage(revision);
   }
 
@@ -841,6 +930,7 @@ export class IslandScene extends Phaser.Scene {
       sx: Math.round((carried.at.x - view.centerX) * view.zoom + size.width / 2),
       sy: Math.round((carried.at.y - view.centerY) * view.zoom + size.height / 2),
       ...(target ? { house: target.houseId, result: target.result, used: target.used, capacity: target.capacity } : {}),
+      ready: carried.ready,
     });
   }
 
@@ -848,7 +938,8 @@ export class IslandScene extends Phaser.Scene {
    * The residents and boats for tests (`<html data-residents data-boats>`, once per tick): who, where they work and live,
    * what they do and carry, how they feel and why (M7), and where they are drawn – the feet in world px and the middle
    * of the body on the screen (CSS px), where a tap hits them – `icon` 1 while the good they carry shows over their
-   * head and `sign` 1 while the heart or cloud of their mood shows.
+   * head, `sign` 1 while the heart or cloud of their mood shows and `glide` 1 while they glide after being let go
+   * (Korrekturrunde 1).
    */
   private publishResidents(): void {
     const state = this.simulation.state;
@@ -878,7 +969,7 @@ export class IslandScene extends Phaser.Scene {
           reason: moodReason(factors),
           hungry: resident.hungry,
           homeId: resident.home,
-          ...(at ? { x: round(at.x), y: round(at.y), ...screen(at.x, at.y - RESIDENT_BODY_Y), icon: at.carry ? 1 : 0, sign: at.sign ? 1 : 0 } : {}),
+          ...(at ? { x: round(at.x), y: round(at.y), ...screen(at.x, at.y - RESIDENT_BODY_Y), icon: at.carry ? 1 : 0, sign: at.sign ? 1 : 0, glide: at.glide ? 1 : 0 } : {}),
         };
       }),
     );
@@ -977,6 +1068,6 @@ function describePreview(preview: Preview): string {
     case 'invite':
       return `invite:${preview.result}`;
     case 'home':
-      return `home:${preview.result}:${String(preview.used)}/${String(preview.capacity)}${preview.carried ? ':carried' : ''}`;
+      return `home:${preview.result}:${String(preview.used)}/${String(preview.capacity)}${preview.carried ? ':carried' : ''}${preview.waiting ? ':wait' : ''}`;
   }
 }

@@ -115,11 +115,13 @@ export function residentInfo(view: ResidentInfoView, residentId: number): Reside
 
 /**
  * The rows of the card, from top to bottom: tall – job, hat, home, what they do, mood, tip; compact (a phone held
- * sideways) – job, home, mood, tip (the hat is in the picture, what they do can be seen on the island).
+ * sideways) – job, home, mood, tip (the hat is in the picture, what they do can be seen on the island). `note`
+ * takes the place of the tip (the sentence after a tap on the dimmed "Umziehen": "Lumo steigt gleich aus.").
  */
-export function cardRows(info: ResidentInfo, compact: boolean): readonly string[] {
+export function cardRows(info: ResidentInfo, compact: boolean, note?: string): readonly string[] {
   const [job = '', hat = '', home = ''] = info.lines;
-  return compact ? [job, home, info.moodLine, info.tip] : [job, hat, home, info.activity, info.moodLine, info.tip];
+  const tip = note ?? info.tip;
+  return compact ? [job, home, info.moodLine, tip] : [job, hat, home, info.activity, info.moodLine, tip];
 }
 
 /** The card in one sentence, for the hint bar when the card does not fit on the screen: "Lumo: Geht zur Arbeit." */
