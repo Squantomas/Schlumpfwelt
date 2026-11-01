@@ -7,7 +7,8 @@ import { createManifest } from '../scripts/pwaPlugin.mjs';
 
 /**
  * Guards the architecture rules from CLAUDE.md:
- * 1. `src/sim/` must not import Phaser, scenes, UI or save code (ESLint rule).
+ * 1. `src/sim/` must not import Phaser, scenes, UI, save or parent code (ESLint rule); `src/parent/` stays free of
+ *    Phaser, scenes and UI.
  * 2. Theme-specific words only live in `src/data/theme.json`.
  */
 
@@ -71,6 +72,7 @@ describe('Architektur: src/sim/ ist reines TypeScript', { timeout: 30_000 }, () 
     ['Szenen', "import { IslandScene } from '../scenes/IslandScene';\nexport const s = IslandScene;\n"],
     ['UI', "import { computeRenderScale } from '../ui/renderScale';\nexport const f = computeRenderScale;\n"],
     ['Speichern', "export * from '../save/storage';\n"],
+    ['Eltern', "import { DayClock } from '../parent/dayClock';\nexport const c = DayClock;\n"],
     ['main', "import '../main';\n"],
   ])('verbietet Imports: %s', async (_name, code) => {
     expect(await architectureViolations(SIM_FILE, code)).toContain('no-restricted-imports');
@@ -127,6 +129,32 @@ describe('Architektur: src/sim/ ist reines TypeScript', { timeout: 30_000 }, () 
     const code =
       "import Phaser from 'phaser';\nexport const x = [Phaser.AUTO, window.innerWidth, Date.now(), Math.random()];\n";
     expect(await architectureViolations(SCENE_FILE, code)).toEqual([]);
+  });
+});
+
+const PARENT_FILE = 'src/parent/dayClock.ts';
+
+describe('Architektur: src/parent/ (Eltern und Tageslimit) ist Phaser-frei (M8)', { timeout: 30_000 }, () => {
+  it.each([
+    ['Phaser', "import Phaser from 'phaser';\nexport const game = Phaser.AUTO;\n"],
+    ['Phaser (nur Typen)', "import type { Scene } from 'phaser';\nexport type S = Scene;\n"],
+    ['Phaser-Unterpfad', "import { Scene } from 'phaser/src/phaser';\nexport const s = Scene;\n"],
+    ['Szenen', "import { IslandScene } from '../scenes/IslandScene';\nexport const s = IslandScene;\n"],
+    ['UI', "import { computeRenderScale } from '../ui/renderScale';\nexport const f = computeRenderScale;\n"],
+    ['main', "import '../main';\n"],
+  ])('verbietet Imports: %s', async (_name, code) => {
+    expect(await architectureViolations(PARENT_FILE, code)).toContain('no-restricted-imports');
+  });
+
+  it('verbietet das Global Phaser und dynamische Imports', async () => {
+    expect(await architectureViolations(PARENT_FILE, 'export const p: unknown = Phaser;\n')).toEqual(['no-restricted-globals']);
+    expect(await architectureViolations(PARENT_FILE, "export const later = import('./pin');\n")).toEqual(['no-restricted-syntax']);
+  });
+
+  it('erlaubt Wanduhr, Datum, Speicher und Imports aus sim/, save/ und data/ (das ist ihre Aufgabe)', async () => {
+    const code =
+      "import { MAX_FRAME_MS } from '../sim/clock';\nimport { MemoryStore } from '../save/saveStore';\nimport { PARENT_RULES } from '../data/parent';\nexport const x = [MAX_FRAME_MS, MemoryStore, PARENT_RULES, new Date(), Date.now(), Math.random(), indexedDB, document.visibilityState];\n";
+    expect(await architectureViolations(PARENT_FILE, code)).toEqual([]);
   });
 });
 
