@@ -195,5 +195,6 @@
   "hint.dragDrop": "Lass los, dann zieht {name} hier ein.",
   "hint.dragHold": "Halte {name} kurz über dem Haus, bis es grün wird.",
   "hint.dragNoHouse": "Lass {name} auf einem Haus los, dann ist es das neue Zuhause.",
-  "hint.dragZoom": "Zoom näher heran, dann kannst du {name} tragen."
+  "hint.dragZoom": "Zoom näher heran, dann kannst du {name} tragen.",
+  "activity.sleep": "Schläft tief und fest."
 }

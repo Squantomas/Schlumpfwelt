@@ -15,7 +15,7 @@ import { itemName } from './costText';
  * and one tip that makes them happier. Pure and tested; the card only draws it.
  */
 
-export type ResidentInfoView = MoodView & DeepReadonly<Pick<SimState, 'residents' | 'buildings'>>;
+export type ResidentInfoView = MoodView & DeepReadonly<Pick<SimState, 'residents' | 'buildings'>> & Partial<DeepReadonly<Pick<SimState, 'bedtime'>>>;
 
 export interface ResidentInfo {
   readonly id: number;
@@ -82,8 +82,8 @@ export function jobText(view: ResidentInfoView, resident: DeepReadonly<Resident>
 }
 
 /** One sentence about what the resident is doing now. */
-export function activityText(resident: DeepReadonly<Resident>): string {
-  const activity = activityOf(resident);
+export function activityText(resident: DeepReadonly<Resident>, view?: DeepReadonly<Pick<SimState, 'bedtime'>>): string {
+  const activity = activityOf(resident, view);
   return activity === 'carry' ? t('activity.carry', { good: itemName(resident.carrying ?? '') }) : t(`activity.${activity}`);
 }
 
@@ -105,7 +105,7 @@ export function residentInfo(view: ResidentInfoView, residentId: number): Reside
       t('resident.hat', { color: hatColorText(resident.hat) }),
       homeType ? t('resident.home', { house: t(homeType.nameKey) }) : t('resident.homeless'),
     ],
-    activity: activityText(resident),
+    activity: activityText(resident, { bedtime: view.bedtime === true }),
     mood: factors.mood,
     moodLine: moodLine(factors),
     tip: t(moodTip(factors)),

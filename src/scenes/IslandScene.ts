@@ -962,7 +962,7 @@ export class IslandScene extends Phaser.Scene {
           hat: resident.hat,
           job: typeOf(resident.job),
           home: typeOf(resident.home),
-          activity: activityOf(resident),
+          activity: activityOf(resident, state),
           carrying: resident.carrying ?? '',
           timer: resident.timer,
           mood: factors.mood,

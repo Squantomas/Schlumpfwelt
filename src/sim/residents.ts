@@ -49,9 +49,17 @@
  *   once – the figure stands at the new door and rests – and stay there: only
  *   residents without a home (or in a house over its room, after loading) are
  *   given a house by the village itself.
+ * - **Bedtime (M8):** when the parents' daily time is up, the game turns on
+ *   `bedtime` (`setBedtime`): whatever they carry is put down (the store has
+ *   it), everybody walks home and goes in – they sleep there until the next
+ *   day (`goToBed`); a resident without a home lies down where they are, one on
+ *   the boat lands first and then walks home. Nobody works or eats meanwhile,
+ *   nothing is produced. `wakeUp` lets them step out again one after the other.
+ *   `instant` (the game starts in the night, after a reload) puts everybody to
+ *   bed at once.
  */
 import { buildingType, capacityOf } from '../data/buildings';
-import { HAT_IDS, RESIDENT_NAMES, RESIDENT_RULES } from '../data/residents';
+import { BEDTIME_RULES, HAT_IDS, RESIDENT_NAMES, RESIDENT_RULES } from '../data/residents';
 import type { PlacedBuilding } from './buildings';
 import { costOf, missingAmounts, takeAmounts, type ProducerState } from './economy';
 import { MAX_BOATS, MAX_RESIDENTS } from './limits';
@@ -495,7 +503,7 @@ export function settleResidents(state: SimState, arrival: Arrival = 'boat'): voi
       nearest.job = building.id;
       nearest.seen = index.producers.get(building.id)?.delivered ?? 0;
       workers.set(building.id, nearest);
-      if (nearest.doing !== 'boat') {
+      if (nearest.doing !== 'boat' && !state.bedtime) {
         // Off to the new work at once (whatever they were doing; something they carry is still brought first).
         if (!(nearest.doing === 'walk' && nearest.goal === 'market')) {
           go(state, index, nearest, 'work', building.id);
@@ -536,6 +544,10 @@ export function settleResidents(state: SimState, arrival: Arrival = 'boat'): voi
 
   for (const resident of state.residents) {
     keepPlan(state, index, rng, resident);
+    if (state.bedtime && resident.doing !== 'boat' && !inBed(resident)) {
+      // Bedtime: a new worker, a house that was demolished … – whoever is not on the way to bed goes now.
+      bedtimeGoal(state, index, resident);
+    }
   }
   keepBoats(state, index);
   state.residentRng = rng.state;
@@ -647,6 +659,10 @@ function go(state: SimState, index: VillageIndex, resident: Resident, goal: Goal
 
 /** What to do after a goal is reached or gone (`after`: what they did last). */
 function nextGoal(state: SimState, index: VillageIndex, rng: Rng, resident: Resident, after: Goal): void {
+  if (state.bedtime) {
+    bedtimeGoal(state, index, resident);
+    return;
+  }
   if (resident.job !== null && after !== 'work') {
     go(state, index, resident, 'work', resident.job);
     return;
@@ -758,7 +774,10 @@ function landPassenger(state: SimState, index: VillageIndex, resident: Resident,
   resident.route = [];
   resident.step = 0;
   resident.doing = 'stay';
-  if (resident.job !== null) {
+  if (state.bedtime) {
+    // It is late: straight home to bed (or, without a home, to sleep right here).
+    bedtimeGoal(state, index, resident);
+  } else if (resident.job !== null) {
     go(state, index, resident, 'work', resident.job);
   } else if (resident.home !== null) {
     go(state, index, resident, 'home', resident.home);
@@ -817,7 +836,8 @@ export function tickResidents(state: SimState): void {
   const count = state.residents.length;
   for (const resident of state.residents) {
     tickResident(state, index, rng, resident);
-    if (resident.doing !== 'boat') {
+    // Asleep nobody eats (and nobody gets hungry): the night costs nothing.
+    if (resident.doing !== 'boat' && !state.bedtime) {
       resident.meal -= 1;
       if (resident.meal <= 0) {
         eat(state.inventory, resident, count);
@@ -854,6 +874,10 @@ function tickResident(state: SimState, index: VillageIndex, rng: Rng, resident: 
       }
       return;
     case 'stay':
+      if (state.bedtime) {
+        // In bed (or lying down where they are) until the morning.
+        return;
+      }
       if (resident.goal === 'work' && resident.job !== null) {
         const job = index.byId.get(resident.job);
         const producer = index.producers.get(resident.job);
@@ -887,6 +911,11 @@ function tickResident(state: SimState, index: VillageIndex, rng: Rng, resident: 
 
 function arrive(state: SimState, index: VillageIndex, rng: Rng, resident: Resident): void {
   const routine = RESIDENT_RULES.routine;
+  if (state.bedtime && !inBed(resident)) {
+    resident.carrying = null;
+    bedtimeGoal(state, index, resident);
+    return;
+  }
   switch (resident.goal) {
     case 'work':
       if (resident.job === null) {
@@ -921,6 +950,100 @@ function arrive(state: SimState, index: VillageIndex, rng: Rng, resident: Reside
   }
 }
 
+// --- Bedtime (M8) ---
+
+/** Is the resident on the way to bed or in bed: going home, or lying down where they are (`visit` of no place)? */
+function inBed(resident: DeepReadonly<Resident>): boolean {
+  return (resident.goal === 'home' && resident.home !== null && resident.place === resident.home) || (resident.goal === 'visit' && resident.place === null);
+}
+
+/** Lies down where they are: a resident half way to the next tile walks on to it first (nobody jumps). */
+function sleepHere(resident: Resident): void {
+  resident.goal = 'visit';
+  resident.place = null;
+  resident.timer = RESIDENT_RULES.routine.visitTicks;
+  const next = resident.route[0];
+  if (resident.doing === 'walk' && resident.step > 0 && next !== undefined) {
+    resident.route = [next];
+    return;
+  }
+  resident.doing = 'stay';
+  resident.route = [];
+  resident.step = 0;
+}
+
+/** Off to bed: home if they have one (the way is planned as always), else they lie down where they are. */
+function bedtimeGoal(state: SimState, index: VillageIndex, resident: Resident): void {
+  const home = resident.home !== null ? index.byId.get(resident.home) : undefined;
+  if (!home) {
+    sleepHere(resident);
+    return;
+  }
+  if (resident.goal === 'home' && resident.place === home.id && resident.doing !== 'wait') {
+    // Already on the way home (or at home).
+    return;
+  }
+  go(state, index, resident, 'home', home.id);
+}
+
+/**
+ * Bedtime begins (M8): everybody puts down what they carry and walks home – or, with `instant` (the game starts
+ * in the night), is in bed at once. Residents on the boat land first (see `landPassenger`).
+ */
+export function goToBed(state: SimState, instant = false): void {
+  const index = villageIndex(state);
+  for (const resident of state.residents) {
+    if (resident.doing === 'boat') {
+      continue;
+    }
+    resident.carrying = null;
+    const home = resident.home !== null ? index.byId.get(resident.home) : undefined;
+    if (!instant) {
+      bedtimeGoal(state, index, resident);
+    } else if (home) {
+      resident.at = doorOf(state, home);
+      resident.route = [];
+      resident.step = 0;
+      resident.doing = 'stay';
+      resident.goal = 'home';
+      resident.place = home.id;
+      resident.timer = RESIDENT_RULES.routine.restTicks;
+    } else {
+      resident.route = [];
+      resident.step = 0;
+      sleepHere(resident);
+    }
+  }
+}
+
+/** The morning (M8): everybody who stays somewhere steps out soon – one after the other, by id. */
+export function wakeUp(state: SimState): void {
+  const { wakeTicks, wakeSpreadTicks } = BEDTIME_RULES;
+  for (const resident of state.residents) {
+    if (resident.doing === 'stay') {
+      resident.timer = Math.min(resident.timer, wakeTicks + ((resident.id * 13) % Math.max(1, wakeSpreadTicks)));
+    }
+  }
+}
+
+/** How a resident sleeps (M8): `inside` their house (not drawn), `outside` where they lay down (no home), or `awake`. */
+export type Sleep = 'awake' | 'inside' | 'outside';
+
+export function sleepOf(view: DeepReadonly<Pick<SimState, 'bedtime'>>, resident: DeepReadonly<Resident>): Sleep {
+  if (!view.bedtime || resident.doing !== 'stay') {
+    return 'awake';
+  }
+  if (resident.goal === 'home' && resident.home !== null && resident.place === resident.home) {
+    return 'inside';
+  }
+  return resident.goal === 'visit' && resident.place === null ? 'outside' : 'awake';
+}
+
+/** Is everybody asleep (nobody walking home, nobody on a boat)? Then the night can begin. */
+export function allAsleep(view: DeepReadonly<Pick<SimState, 'bedtime' | 'residents' | 'boats'>>): boolean {
+  return view.bedtime && view.boats.every((boat) => boat.passenger === null) && view.residents.every((resident) => sleepOf(view, resident) !== 'awake');
+}
+
 // --- For the display ---
 
 /**
@@ -928,9 +1051,13 @@ function arrive(state: SimState, index: VillageIndex, rng: Rng, resident: Reside
  * at work, carrying something to the market, on the way home, resting, strolling,
  * looking at a place, or waiting for a way.
  */
-export type Activity = 'boat' | 'toWork' | 'work' | 'carry' | 'toHome' | 'rest' | 'stroll' | 'visit' | 'wait';
+export type Activity = 'boat' | 'toWork' | 'work' | 'carry' | 'toHome' | 'rest' | 'stroll' | 'visit' | 'wait' | 'sleep';
 
-export function activityOf(resident: DeepReadonly<Resident>): Activity {
+/** `view` (M8): with bedtime on, a resident who is in bed (or lying down) `sleep`s. */
+export function activityOf(resident: DeepReadonly<Resident>, view?: DeepReadonly<Pick<SimState, 'bedtime'>>): Activity {
+  if (view && sleepOf(view, resident) !== 'awake') {
+    return 'sleep';
+  }
   switch (resident.doing) {
     case 'boat':
       return 'boat';

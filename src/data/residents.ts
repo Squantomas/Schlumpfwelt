@@ -37,6 +37,10 @@ import residentsJson from './residents.json';
  *   as a whole eats at most one unit every `mealGapTicks` (so a berry garden
  *   always makes more than everybody eats, even with a sad gardener). With
  *   nothing to eat a resident is hungry and looks again after `retryTicks`.
+ * - `bedtime` (M8): when the parents' daily time is up, everybody walks home
+ *   and sleeps; when the day starts again, they step out one after the other –
+ *   each after `wakeTicks` plus up to `wakeSpreadTicks` (by id), so the
+ *   village wakes up bit by bit instead of all at once.
  */
 
 export interface WalkCosts {
@@ -75,7 +79,15 @@ export interface FoodRules {
   readonly retryTicks: number;
 }
 
+export interface BedtimeRules {
+  readonly wakeTicks: number;
+  readonly wakeSpreadTicks: number;
+}
+
 export const RESIDENT_RULES: ResidentRules = residentsJson;
+
+/** How the residents wake up after the night (M8). */
+export const BEDTIME_RULES: BedtimeRules = residentsJson.bedtime;
 
 /** How the residents feel and what makes them feel so (M7). */
 export const MOOD_RULES: MoodRules = residentsJson.mood;
