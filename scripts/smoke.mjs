@@ -3727,11 +3727,20 @@ async function testHomes({ context, page, check, shot, size, input, cdp, name, p
     meal: 1800,
     hungry: false,
   };
-  // Genug Taler und Holz für drei Häuser, und Beeren zum Essen (niemand soll mitten im Test Hunger bekommen).
-  await setRecordFromOutside(page, { ...fresh, inventory: { ...fresh.inventory, coins: 500, wood: 80, berries: 8 }, residents: [...fresh.residents, newcomer], nextResidentId: fresh.nextResidentId + 1 });
+  // Genug Taler und Holz für drei Häuser, und Beeren zum Essen (niemand soll mitten im Test Hunger bekommen). Alles ist
+  // schon freigeschaltet: Sonst verdrängt „Neu im Shop: …“ mitten im Test den Satz, auf den der Test wartet.
+  const unlocked = types.filter((type) => type.unlock !== undefined).map((type) => type.id);
+  await setRecordFromOutside(page, {
+    ...fresh,
+    inventory: { ...fresh.inventory, coins: 500, wood: 80, berries: 8 },
+    residents: [...fresh.residents, newcomer],
+    nextResidentId: fresh.nextResidentId + 1,
+    unlocked,
+  });
   await enterIsland(page, profile, waitForScene, SAVE_URL);
   village = await waitForVillage(page, (v) => v.save.start !== undefined && v.buildings.length > 0, 'das Dorf mit drei Bewohnern', 20_000);
   check(village.save.start === 'loaded', `Stimmung: ${JSON.stringify(village.save)}, erwartet „loaded“`);
+  check(unlocked.every((id) => village.unlocked.includes(id)), `Stimmung: freigeschaltet ${village.unlocked.join(',')}, erwartet alles (${unlocked.join(',')})`);
   let state = await waitForResidents(page, (s) => s.residents.length === 3 && s.residents.every((r) => r.x !== undefined), 'die drei Bewohner');
   const gardener = state.residents.find((r) => r.job === 'berry-garden');
   const trader = state.residents.find((r) => r.job === 'market');
