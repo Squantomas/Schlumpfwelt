@@ -44,7 +44,20 @@ import { RoundButton } from '../ui/RoundButton';
 import { COLORS, TILE_SIZE, rgb } from '../ui/style';
 import { onViewportChange, type ViewSize } from '../ui/viewport';
 import { BuildUI } from './island/BuildUI';
-import { GROUND_EDGE_PX, releaseGroundBlocks, blockArea, blockShown, blocksTouching, groundBlocks, paintGroundBlock, type GroundBlock } from './island/groundTexture';
+import {
+  GROUND_EDGE_PX,
+  releaseGroundBlocks,
+  blockArea,
+  blockShown,
+  blocksTouching,
+  groundBlocks,
+  paintGroundBlock,
+  type GroundArt,
+  type GroundBlock,
+  type GroundStamp,
+} from './island/groundTexture';
+import { GROUND_PATTERN_KEYS, GROUND_STAMP_KEYS } from '../art/catalog';
+import { artCanvas } from './art/artLoader';
 import {
   GLINT_KEY,
   OBJECT_ORIGIN,
@@ -54,13 +67,11 @@ import {
   ROCK_KEYS,
   TEXTURE_SCALE,
   TREE_KEYS,
-  registerIslandTextures,
 } from './island/objectTextures';
 import { LostOverlay } from './island/LostOverlay';
 import { NightLayer } from './island/NightLayer';
 import { ParentPanel } from './island/ParentPanel';
 import { TutorialGuide } from './island/TutorialGuide';
-import { registerResidentTextures } from './island/residentTextures';
 import { ResidentView } from './island/ResidentView';
 import { VillageMenu } from './island/VillageMenu';
 import { VillageView } from './island/VillageView';
@@ -140,6 +151,8 @@ export class IslandScene extends Phaser.Scene {
   private worldCamera!: Phaser.Cameras.Scene2D.Camera;
   private controller!: WorldCameraController;
   private glints: Glint[] = [];
+  /** The ground patterns and stamps (M9), taken from the loaded pictures in `create`. */
+  private groundArt: GroundArt | undefined;
   /** Tree and rock sprites by tile index (`y * width + x`); M2/M3 remove them when forest is cleared. */
   private readonly objects = new Map<number, Phaser.GameObjects.Image>();
   private ring!: Phaser.GameObjects.Image;
@@ -220,9 +233,8 @@ export class IslandScene extends Phaser.Scene {
     markActiveScene(SCENES.island);
 
     const { seed, world } = this.simulation.state;
-    registerIslandTextures(this);
-    registerResidentTextures(this);
     // A restarted scene starts clean (the instance is reused).
+    this.groundArt = this.collectGroundArt();
     this.glints = [];
     this.objects.clear();
     this.ringTween = undefined;
@@ -961,7 +973,7 @@ export class IslandScene extends Phaser.Scene {
       if (!texture) {
         continue;
       }
-      paintGroundBlock(texture.getContext(), world, seed, block);
+      paintGroundBlock(texture.getContext(), world, seed, block, this.groundArt);
       texture.refresh();
       // Only the inner part is shown: the outermost pixels of a canvas are a little off and must not cover the neighbour.
       const shown = blockShown(block);
@@ -969,6 +981,25 @@ export class IslandScene extends Phaser.Scene {
       this.worldLayer.add(this.add.image(shown.x, shown.y, key, 'shown').setOrigin(0, 0).setDepth(0));
       this.groundBlocks.push({ block, key, texture });
     }
+  }
+
+  /** The ground patterns and stamps among the loaded pictures (M9; the pictures are made once by the start screen). */
+  private collectGroundArt(): GroundArt {
+    const patterns: Partial<Record<Terrain, CanvasImageSource>> = {};
+    for (const [terrain, key] of Object.entries(GROUND_PATTERN_KEYS) as [Terrain, string][]) {
+      const canvas = artCanvas(this, key);
+      if (canvas) {
+        patterns[terrain] = canvas;
+      }
+    }
+    const stamps: Partial<Record<GroundStamp, CanvasImageSource>> = {};
+    for (const [name, key] of Object.entries(GROUND_STAMP_KEYS) as [GroundStamp, string][]) {
+      const canvas = artCanvas(this, key);
+      if (canvas) {
+        stamps[name] = canvas;
+      }
+    }
+    return { patterns, stamps };
   }
 
   /** One tree per forest tile, one rock per rock tile; the sprite's depth is its ground y. */
@@ -1043,7 +1074,7 @@ export class IslandScene extends Phaser.Scene {
     }
     for (const entry of this.groundBlocks) {
       if (touched.has(`${String(entry.block.bx)},${String(entry.block.by)}`)) {
-        paintGroundBlock(entry.texture.getContext(), world, seed, entry.block);
+        paintGroundBlock(entry.texture.getContext(), world, seed, entry.block, this.groundArt);
         entry.texture.refresh();
       }
     }

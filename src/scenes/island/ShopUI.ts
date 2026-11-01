@@ -8,7 +8,7 @@ import { noRoomSentence, progressText, roomPrice, roomText, shopCards, unlockIco
 import { SHOP_ARROW, shopCellRects, shopPages, type ShopLayout } from '../../ui/shopLayout';
 import { SquareButton } from '../../ui/SquareButton';
 import { COLORS, clamp } from '../../ui/style';
-import { drawCategoryIcon, drawPadlock, drawStar } from '../../ui/toolIcons';
+import { fitIcon, iconImage, starImage } from '../art/icon';
 import { buildingTextureKey } from './buildingTextures';
 import { CostRow } from './CostRow';
 import { goodTextureKey } from './goodTextures';
@@ -166,8 +166,8 @@ interface Card {
   readonly typeId: string;
   readonly button: SquareButton;
   readonly footer: CardFooter;
-  readonly padlock: Phaser.GameObjects.Graphics;
-  readonly star: Phaser.GameObjects.Graphics;
+  readonly padlock: Phaser.GameObjects.Image;
+  readonly star: Phaser.GameObjects.Image;
 }
 
 export interface ShopUiHandlers {
@@ -211,7 +211,7 @@ export class ShopUI {
   private readonly nextButton: RoundButton;
   private readonly tipPanel: Phaser.GameObjects.Graphics;
   private readonly tipLabel: Phaser.GameObjects.Text;
-  private readonly tabStars = new Map<ShopCategory, Phaser.GameObjects.Graphics>();
+  private readonly tabStars = new Map<ShopCategory, Phaser.GameObjects.Image>();
   private layoutData: ShopLayout | undefined;
   /** The sentence of the locked card that was tapped last; it stays until something else is tapped. */
   private tip = '';
@@ -233,17 +233,14 @@ export class ShopUI {
       const tab = new SquareButton(scene, {
         label: t(`shop.${category}`),
         minCaptionFont: 12,
-        content: addGraphics(scene),
-        fitContent: (content, width, height) => {
-          drawCategoryIcon(content as Phaser.GameObjects.Graphics, category, Math.min(width, height));
-        },
+        content: iconImage(scene, `tab-${category}`),
+        fitContent: fitIcon,
         onTap: (time) => {
           handlers.touched(time);
           handlers.onTab(category);
         },
       });
-      const star = addGraphics(scene).setVisible(false);
-      drawStar(star, 11);
+      const star = starImage(scene, 11).setVisible(false);
       tab.add(star);
       tab.setVisible(false);
       this.tabs.set(category, tab);
@@ -267,9 +264,8 @@ export class ShopUI {
             this.onCardTap(type.id);
           },
         });
-        const padlock = addGraphics(scene);
-        const star = addGraphics(scene);
-        drawStar(star, 12);
+        const padlock = iconImage(scene, 'lock');
+        const star = starImage(scene, 12);
         button.add([padlock, star]);
         button.setVisible(false);
         this.cards.set(type.id, { typeId: type.id, button, footer, padlock, star });
@@ -418,7 +414,7 @@ export class ShopUI {
     entry.padlock.setVisible(locked);
     if (locked) {
       const size = Math.min(rect.width * 0.4, rect.height * 0.36);
-      drawPadlock(entry.padlock, size);
+      entry.padlock.setDisplaySize(size, size);
       entry.padlock.setPosition(0, -rect.height * 0.2);
     }
     entry.star.setVisible(fresh && !locked).setPosition(rect.width / 2 - 10, -rect.height / 2 + 10);

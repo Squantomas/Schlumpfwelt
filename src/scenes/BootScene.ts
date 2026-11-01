@@ -4,6 +4,9 @@ import { createLabel, setLabelSize } from '../ui/label';
 import { RoundButton } from '../ui/RoundButton';
 import { COLORS, clamp, rgb } from '../ui/style';
 import { onViewportChange, type ViewSize } from '../ui/viewport';
+import { TITLE_KEY } from '../art/catalog';
+import { TITLE_SIZE } from '../art/title';
+import { loadArt } from './art/artLoader';
 import { SCENES } from './keys';
 import { markActiveScene } from './sceneMarker';
 
@@ -11,8 +14,12 @@ const FADE_MS = 250;
 
 /**
  * Start screen "Tippen zum Spielen". The first touch is needed anyway before
- * tablets allow sound (from M9 on), so the game starts with a big tap.
+ * tablets allow sound (M9), so the game starts with a big tap.
  * Tapping anywhere starts – the button only shows where.
+ *
+ * M9: first all pictures are made (`loadArt`, well under a second); only then
+ * the title picture, the name of the game and the button appear and the scene
+ * counts as started (`data-scene="boot"`).
  */
 export class BootScene extends Phaser.Scene {
   private started = false;
@@ -23,8 +30,18 @@ export class BootScene extends Phaser.Scene {
 
   create(): void {
     this.started = false;
+    this.cameras.main.setBackgroundColor(COLORS.water);
+    void loadArt(this).then(() => {
+      if (this.scene.isActive()) {
+        this.showTitle();
+      }
+    });
+  }
+
+  private showTitle(): void {
     markActiveScene(SCENES.boot);
 
+    const picture = this.add.image(0, 0, TITLE_KEY);
     const tapZone = this.add.zone(0, 0, 1, 1).setOrigin(0, 0).setInteractive({ useHandCursor: true });
     tapZone.on(Phaser.Input.Events.GAMEOBJECT_POINTER_UP, () => this.startGame());
 
@@ -47,14 +64,20 @@ export class BootScene extends Phaser.Scene {
     onViewportChange(this, ({ width, height }: ViewSize) => {
       const m = Math.min(width, height);
       tapZone.setSize(width, height);
+      const wide = width > height * 1.25;
+      // Upright: name on top, the island in the middle, the button below. Wide: the island on the left, name and button on the right.
+      const pictureBox = wide ? { x: 0, y: height * 0.08, w: width * 0.58, h: height * 0.88 } : { x: 0, y: height * 0.2, w: width, h: height * 0.46 };
+      const fit = Math.min(pictureBox.w / TITLE_SIZE.width, pictureBox.h / TITLE_SIZE.height);
+      picture.setScale(fit / 2).setPosition(pictureBox.x + pictureBox.w / 2, pictureBox.y + pictureBox.h / 2);
+      const column = wide ? { x: width * 0.79, w: width * 0.4 } : { x: width / 2, w: width * 0.9 };
 
-      setLabelSize(title, clamp(m * 0.13, 40, 128), width * 0.9);
-      title.setPosition(width / 2, height * 0.24);
+      setLabelSize(title, clamp(m * (wide ? 0.11 : 0.12), 34, 120), column.w);
+      title.setPosition(column.x, wide ? height * 0.24 : height * 0.11);
 
-      button.setRadius(clamp(m * 0.15, 56, 120)).setPosition(width / 2, height * 0.54);
+      button.setRadius(clamp(m * (wide ? 0.14 : 0.13), 52, 110)).setPosition(column.x, wide ? height * 0.56 : height * 0.77);
 
-      setLabelSize(hint, clamp(m * 0.06, 26, 56), width * 0.9);
-      hint.setPosition(width / 2, button.y + button.buttonRadius * 1.15 + hint.height * 0.6);
+      setLabelSize(hint, clamp(m * 0.055, 22, 52), column.w);
+      hint.setPosition(column.x, button.y + button.buttonRadius * 1.12 + hint.height * 0.6);
     });
   }
 

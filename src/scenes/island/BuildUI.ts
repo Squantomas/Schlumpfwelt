@@ -15,11 +15,10 @@ import { newItemsText } from '../../ui/shopModel';
 import { SquareButton } from '../../ui/SquareButton';
 import { worldTapIgnored } from '../../ui/tapPause';
 import { COLORS, clamp } from '../../ui/style';
-import { drawStar, drawToolIcon } from '../../ui/toolIcons';
+import { fitIcon, iconImage, starImage } from '../art/icon';
 import { TOOLBAR_GAP, TOOLBAR_PAD } from '../../ui/toolbarLayout';
 import type { ViewSize } from '../../ui/viewport';
 import { buildingTextureKey } from './buildingTextures';
-import { registerGoodTextures } from './goodTextures';
 import { InfoCard } from './InfoCard';
 import { ResidentCard } from './ResidentCard';
 import { ShopUI } from './ShopUI';
@@ -101,7 +100,7 @@ export class BuildUI {
   private readonly cancelButton: RoundButton;
   private readonly toolButtons = new Map<ToolbarToolId, SquareButton>();
   private readonly chipButtons = new Map<string, SquareButton>();
-  private readonly shopStar: Phaser.GameObjects.Graphics;
+  private readonly shopStar: Phaser.GameObjects.Image;
   /** The gear under the zoom buttons: opens the menu (save and load a file). Only while looking. */
   private readonly menuButton: RoundButton;
   private menuRect: Rect = EMPTY;
@@ -145,7 +144,6 @@ export class BuildUI {
     /** Is the menu behind the gear open? It covers the hint bar, so "Neu im Shop" must not run out under it. */
     private readonly menuOpen: () => boolean,
   ) {
-    registerGoodTextures(scene);
     this.stock = new StockBar(scene, uiLayer);
     this.card = new InfoCard(scene, uiLayer, (time) => {
       this.touched(time);
@@ -203,16 +201,13 @@ export class BuildUI {
     });
     this.skipButton.setVisible(false);
 
-    this.shopStar = addGraphics(scene).setVisible(false);
-    drawStar(this.shopStar, 13);
+    this.shopStar = starImage(scene, 13).setVisible(false);
     for (const id of TOOLS) {
       const button = new SquareButton(scene, {
         label: t(`tool.${id}`),
         minCaptionFont: MIN_LABEL_FONT,
-        content: addGraphics(scene),
-        fitContent: (content, width, height) => {
-          drawToolIcon(content as Phaser.GameObjects.Graphics, id, Math.min(width, height));
-        },
+        content: iconImage(scene, `tool-${id}`),
+        fitContent: fitIcon,
         onTap: (time) => {
           this.touched(time);
           this.tool.selectTool(id);

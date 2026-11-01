@@ -11,7 +11,7 @@ import { MenuFlow, rejectionText } from '../../ui/menuFlow';
 import { MENU_CLOSE, menuLayout, menuTitleCenterX, type MenuLayout } from '../../ui/menuLayout';
 import { RoundButton } from '../../ui/RoundButton';
 import { COLORS } from '../../ui/style';
-import { drawFileIcon, drawPadlock } from '../../ui/toolIcons';
+import { iconImage } from '../art/icon';
 import type { ViewSize } from '../../ui/viewport';
 import { addGraphics } from '../../ui/FastGraphics';
 
@@ -39,7 +39,7 @@ export interface MenuSpot {
 /** A wide button with a picture on the left and a word: "Als Datei sichern". */
 class MenuButton extends Phaser.GameObjects.Container {
   private readonly face: Phaser.GameObjects.Graphics;
-  private readonly picture: Phaser.GameObjects.Graphics;
+  private readonly picture: Phaser.GameObjects.Image;
   private readonly caption: Phaser.GameObjects.Text;
   private buttonWidth = 0;
   private buttonHeight = 0;
@@ -47,13 +47,13 @@ class MenuButton extends Phaser.GameObjects.Container {
 
   constructor(
     scene: Phaser.Scene,
-    private readonly kind: 'save' | 'load' | 'parent',
+    icon: string,
     text: string,
     onTap: (eventTime: number) => void,
   ) {
     super(scene, 0, 0);
     this.face = addGraphics(scene);
-    this.picture = addGraphics(scene);
+    this.picture = iconImage(scene, icon);
     this.caption = createLabel(scene, text, 22);
     this.add([this.face, this.picture, this.caption]);
     this.on(Phaser.Input.Events.GAMEOBJECT_POINTER_DOWN, () => {
@@ -89,11 +89,7 @@ class MenuButton extends Phaser.GameObjects.Container {
     }
     const icon = Math.min(rect.height * 0.7, 52);
     this.picture.setPosition(-rect.width / 2 + 16 + icon / 2, 0);
-    if (this.kind === 'parent') {
-      drawPadlock(this.picture, icon);
-    } else {
-      drawFileIcon(this.picture, this.kind, icon);
-    }
+    this.picture.setDisplaySize(icon, icon);
     const room = rect.width - 16 - icon - 16 - 14;
     setLabelSize(this.caption, Math.min(24, rect.height * 0.34), room);
     this.caption.setPosition(-rect.width / 2 + 16 + icon + 10 + room / 2, 0);
@@ -151,15 +147,15 @@ export class VillageMenu {
     this.panel = addGraphics(scene);
     this.title = createLabel(scene, t('menu.title'), 30);
     this.sentence = createLabel(scene, '', 19);
-    this.saveButton = new MenuButton(scene, 'save', t('menu.save'), (time) => {
+    this.saveButton = new MenuButton(scene, 'file-save', t('menu.save'), (time) => {
       hooks.touched(time);
       this.saveFile();
     });
-    this.loadButton = new MenuButton(scene, 'load', t('menu.load'), (time) => {
+    this.loadButton = new MenuButton(scene, 'file-load', t('menu.load'), (time) => {
       hooks.touched(time);
       this.chooseFile();
     });
-    this.parentButton = new MenuButton(scene, 'parent', t('menu.parent'), (time) => {
+    this.parentButton = new MenuButton(scene, 'lock', t('menu.parent'), (time) => {
       hooks.touched(time);
       this.close();
       hooks.onParent();

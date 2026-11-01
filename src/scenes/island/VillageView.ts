@@ -16,9 +16,8 @@ import {
   buildingOrigin,
   buildingTextureKey,
   pathTextureKey,
-  registerBuildingTextures,
 } from './buildingTextures';
-import { goodTextureKey, registerGoodTextures, signTextureKey } from './goodTextures';
+import { goodTextureKey, signTextureKey } from './goodTextures';
 import { TEXTURE_SCALE } from './objectTextures';
 import { addGraphics } from '../../ui/FastGraphics';
 
@@ -119,8 +118,6 @@ export class VillageView {
     private readonly layer: Phaser.GameObjects.Layer,
     private readonly simulation: Simulation,
   ) {
-    registerBuildingTextures(scene);
-    registerGoodTextures(scene);
     this.inspectOverlay = addGraphics(scene).setDepth(INSPECT_DEPTH);
     this.overlay = addGraphics(scene).setDepth(OVERLAY_DEPTH);
     this.ghost = scene.add.image(0, 0, PUFF_KEY).setDepth(GHOST_DEPTH).setVisible(false);

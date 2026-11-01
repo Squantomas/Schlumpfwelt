@@ -7,6 +7,7 @@ import { nightLayout, nightLook, type NightLayout, type NightLook } from '../../
 import type { Rect } from '../../ui/cameraMath';
 import { RoundButton } from '../../ui/RoundButton';
 import { COLORS } from '../../ui/style';
+import { uiKey } from '../../art/catalog';
 import type { ViewSize } from '../../ui/viewport';
 import type { MenuSpot } from './VillageMenu';
 
@@ -22,7 +23,8 @@ export class NightLayer {
   private readonly veil: Phaser.GameObjects.Zone;
   private readonly warm: Phaser.GameObjects.Graphics;
   private readonly dark: Phaser.GameObjects.Graphics;
-  private readonly sky: Phaser.GameObjects.Graphics;
+  /** Moon and stars (M9: pictures), made again only when the size of the screen changes. */
+  private readonly sky: Phaser.GameObjects.Container;
   private readonly sentence: Phaser.GameObjects.Text;
   private readonly caption: Phaser.GameObjects.Text;
   private readonly button: RoundButton;
@@ -35,7 +37,7 @@ export class NightLayer {
     this.veil = scene.add.zone(0, 0, 1, 1).setOrigin(0, 0).setInteractive();
     this.warm = addGraphics(scene);
     this.dark = addGraphics(scene);
-    this.sky = addGraphics(scene);
+    this.sky = scene.add.container(0, 0);
     this.sentence = createLabel(scene, t('night.text'), 32);
     this.caption = createLabel(scene, t('night.parent'), 18);
     this.button = new RoundButton(scene, 0, 0, { radius: 36, icon: 'lock', onTap: onParent });
@@ -64,18 +66,16 @@ export class NightLayer {
     }
     this.warm.clear().fillStyle(COLORS.duskWarm, 1).fillRect(0, 0, width, height);
     this.dark.clear().fillStyle(COLORS.nightSky, 1).fillRect(0, 0, width, height);
-    const g = this.sky.clear();
+    this.sky.removeAll(true);
+    const scene = this.sky.scene;
     for (const star of layout.stars) {
-      g.fillStyle(COLORS.star, 0.35).fillCircle(star.x, star.y, star.radius * 2);
-      g.fillStyle(COLORS.star, 1).fillCircle(star.x, star.y, star.radius);
+      // The star fills 0.7 of the half picture, its glow all of it.
+      this.sky.add(scene.add.image(star.x, star.y, uiKey('night-star')).setDisplaySize(star.radius * 4, star.radius * 4));
     }
     const { moon } = layout;
-    g.fillStyle(COLORS.moon, 0.18).fillCircle(moon.x, moon.y, moon.radius * 1.5);
-    g.fillStyle(COLORS.moon, 1).fillCircle(moon.x, moon.y, moon.radius);
-    // A full moon with a few soft craters.
-    g.fillStyle(COLORS.moonShade, 0.8).fillCircle(moon.x - moon.radius * 0.3, moon.y - moon.radius * 0.2, moon.radius * 0.2);
-    g.fillStyle(COLORS.moonShade, 0.7).fillCircle(moon.x + moon.radius * 0.35, moon.y + moon.radius * 0.1, moon.radius * 0.14);
-    g.fillStyle(COLORS.moonShade, 0.6).fillCircle(moon.x - moon.radius * 0.05, moon.y + moon.radius * 0.45, moon.radius * 0.1);
+    // The disc of the moon has 0.66 of the half picture; around it its soft glow.
+    const side = (moon.radius / 0.66) * 2;
+    this.sky.add(scene.add.image(moon.x, moon.y, uiKey('moon')).setDisplaySize(side, side));
     const { text } = layout;
     this.sentence.setWordWrapWidth(text.width);
     let font = layout.textFont;

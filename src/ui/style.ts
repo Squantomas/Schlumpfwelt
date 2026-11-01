@@ -1,7 +1,20 @@
 /**
- * Shared look of the placeholder graphics (until the style guide in M9).
- * Sizes are CSS pixels; scenes lay out in CSS pixels (see `viewport.ts`).
+ * The look of the game: colour tokens, sizes and the style of the pictures (M9, `docs/STIL_LEITFADEN.md`). Every colour
+ * of the game – also inside the SVG pictures of `src/art/` – comes from here. Sizes are CSS pixels; scenes lay out in
+ * CSS pixels (see `viewport.ts`).
  */
+
+import theme from '../data/theme.json' with { type: 'json' };
+
+/**
+ * The colours that make the residents look like the inhabitants of the theme (skin, cheeks, clothes) come from
+ * `theme.json` (`figure`, `#rrggbb`); a missing or broken value keeps the neutral default.
+ */
+function figureColor(name: string, fallback: number): number {
+  const figure: unknown = (theme as { figure?: unknown }).figure;
+  const value = typeof figure === 'object' && figure !== null ? (figure as Record<string, unknown>)[name] : undefined;
+  return typeof value === 'string' && /^#[0-9a-f]{6}$/i.test(value) ? Number.parseInt(value.slice(1), 16) : fallback;
+}
 
 /** Smallest tap target in CSS pixels – nothing tappable may be smaller. */
 export const MIN_TAP_SIZE = 48;
@@ -23,15 +36,17 @@ export const COLORS = {
   sandShade: 0xe6cb83,
   grass: 0x8ad463,
   grassShade: 0x69b946,
-  forestFloor: 0x5aa844,
-  forestFloorDark: 0x468f36,
-  forestMoss: 0x86c45a,
-  forestNeedle: 0x3a7a30,
+  // M9: the forest floor is clearly darker than the meadow, also from far away.
+  forestFloor: 0x3f8c3c,
+  forestFloorDark: 0x2e7430,
+  forestMoss: 0x63ad4a,
+  forestNeedle: 0x285f26,
   mushroomCap: 0xe65a5a,
   mushroomStem: 0xfff1d6,
-  rockFloor: 0xbeb29c,
-  rockFloorLight: 0xd3c9b5,
-  rockFloorDark: 0x9b8f7a,
+  // M9: rocky ground is a cool grey, much darker than the sand of the beach.
+  rockFloor: 0xa3a49c,
+  rockFloorLight: 0xc0c1b8,
+  rockFloorDark: 0x82847c,
   rock: 0xa9a195,
   rockLight: 0xd3ccc0,
   rockShade: 0x827a6f,
@@ -139,14 +154,14 @@ export const COLORS = {
   textOutline: 0x2a6f97,
   textShadow: 0x1b4a66,
   // Residents (M6): a little gnome with warm skin, a tunic and a pointed hat (the hat colours are HAT_COLORS).
-  skin: 0xffd2a8,
-  skinShade: 0xf0b48a,
-  cheek: 0xff9e9e,
+  skin: figureColor('skin', 0xffd2a8),
+  skinShade: figureColor('skinShade', 0xf0b48a),
+  cheek: figureColor('cheek', 0xff9e9e),
   eye: 0x3b2a20,
-  tunic: 0x8fbf5a,
-  tunicShade: 0x6f9c40,
-  trousers: 0x9a6a3e,
-  shoe: 0x5a3a22,
+  tunic: figureColor('clothes', 0x8fbf5a),
+  tunicShade: figureColor('clothesShade', 0x6f9c40),
+  trousers: figureColor('clothes', 0x9a6a3e),
+  shoe: figureColor('shoes', 0x5a3a22),
   pompom: 0xfff7e0,
   residentShadow: 0x2f4a26,
   residentRing: 0xffe066,
@@ -178,6 +193,23 @@ export const COLORS = {
   handFill: 0xffffff,
   handRim: 0x3a4a5a,
   handGlow: 0xfff0a0,
+} as const;
+
+/**
+ * The style of the pictures (M9): one warm dark ink for every outline (mixed into the colour of the shape, never pure
+ * black), outlines `line` world px wide, light from the top left, a soft shadow a little to the bottom right.
+ */
+export const STYLE = {
+  ink: 0x3a2a1e,
+  light: 0xfffbea,
+  /** How much ink goes into the colour of an outline (0 = the fill, 1 = ink). */
+  outlineMix: 0.55,
+  /** Width of an outline in logical px (world px; a texture has twice as many pixels). */
+  line: 2,
+  shadow: 0x24401c,
+  shadowAlpha: 0.26,
+  /** The shadow sits this share of its width to the right of the thing (the light comes from the top left). */
+  shadowShift: 0.12,
 } as const;
 
 /** The colours of the residents' pointed hats, by the ids of `residents.json` (`hats`). */
