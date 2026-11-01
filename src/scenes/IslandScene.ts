@@ -595,7 +595,8 @@ export class IslandScene extends Phaser.Scene {
         return;
       }
       case 'night':
-        // The night: the game stands still and is saved – nothing is made, nothing is lost.
+        // The night: the game stands still and is saved – nothing is made, nothing is lost. The evening's sentence has said its piece.
+        this.buildUI.clearNotice();
         this.simulation.send({ type: 'setPaused', paused: true });
         this.simulation.applyPending();
         void this.session.autosave?.flush();

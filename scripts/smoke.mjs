@@ -4,13 +4,14 @@
  *
  *   npm run smoke                                # baut, startet `vite preview`, testet, räumt auf
  *   npm run smoke -- --no-build                  # vorhandenes dist/ verwenden
- *   npm run smoke -- --out docs/screenshots/m8   # anderer Screenshot-Ordner (Standard: m7)
+ *   npm run smoke -- --out docs/screenshots/m9   # anderer Screenshot-Ordner (Standard: m8)
  *   npm run smoke -- --m2-only                   # nur die Bau-Prüfungen (M2), ohne Kamera, Wirtschaft und Shop (schnell)
  *   npm run smoke -- --m3-only                   # nur die Wirtschafts-Prüfungen (M3), ohne Kamera, Bauen und Shop
  *   npm run smoke -- --m4-only                   # nur die Shop-Prüfungen (M4): Reiter, Schlösser, Freischaltung, Insel (etwa 5 Minuten)
  *   npm run smoke -- --m5-only                   # nur die Prüfungen zu Speichern und Web-App (M5)
  *   npm run smoke -- --m6-only                   # nur die Bewohner (M6): Karte, Tragen, Einladen, Boot, volles Dorf, Bildzeit
  *   npm run smoke -- --m7-only                   # nur Wohnen und Stimmung (M7): Stimmung, Deko, Ziehen, Umziehen, Arbeitstempo, Bildzeit
+ *   npm run smoke -- --m8-only                   # nur Kinderfreundlich (M8): geführter Start, Eltern-Menü, Tageslimit, Gute Nacht
  *   npm run smoke -- --profile tablet            # nur Tablet bzw. nur Desktop
  *
  * Öffnet das Spiel (feste Insel `?seed=1&nosave=1`) als Tablet (1024×768, Touch,
@@ -67,6 +68,18 @@
  * messbar länger (Ticks aus `data-tick`), eine Blume macht wieder normal; Neuladen behält Zuhause und Stimmung; ein
  * volles Dorf mit Blumen (Herzen nur über fröhlichen Köpfen), die Bildzeit bei 4-facher CPU-Drosselung, die Karte auf
  * 320×568 und 568×320.
+ * Seit M8 (Kinderfreundlich, `<html data-tutorial|parent|parent-text|limit|night|bedtime>`, `tutorial-skip`, `menu-parent`,
+ * `pin-<Ziffer>`, `pin-back`, `pin-forgot`, `limit-<Minuten>`, `parent-extra|pin|tutorial|close`, `night-parent` in `data-ui`):
+ * Die älteren Prüfungen laufen ohne geführten Start (er steht vorher in den Einstellungen als übersprungen). Die M8-Prüfungen
+ * haben einen eigenen, frischen Kontext: neues Dorf → geführter Start, die Hand zeigt auf das Ziel, der Test folgt ihr durch
+ * alle Schritte (Neuladen mittendrin behält den Fortschritt); ein geladenes Dorf hat keinen; „Für Eltern“ hinter dem Zahnrad:
+ * PIN zweimal (erst falsch wiederholt), gespeichert nur als Hash, „Tutorial noch einmal“ und Überspringen (für immer),
+ * falsche PIN (freundlich, keine Sperre), „PIN vergessen“ mit Rechenfrage, richtige PIN; Tageslimit: das Tageskonto wird von
+ * außen auf 14:40 gesetzt (kein geheimer Adress-Parameter), Limit 15 → der sanfte Satz ohne Countdown, das Eltern-Menü zählt
+ * nicht mit, Abend (warm und dunkler, niemand arbeitet, Tipps tun nichts), Nacht (alle schlafen, kein Takt, kein Ertrag,
+ * gespeichert, Tipps verschluckt), Neuladen in der Nacht (sofort Nacht), Eltern-Knopf, Ziffernfeld und Einstellungen auf
+ * 320×568 und 568×320, „Heute noch 10 Minuten mehr“ (es wird hell), der nächste Tag (die Playwright-Uhr stellt nur das
+ * Datum vor: Mitternacht im laufenden Spiel) und Export/Import ohne PIN und Limit.
  * Exitcode ≠ 0 bei Konsolenfehlern, Seitenfehlern, fehlgeschlagenen Requests,
  * fehlgeschlagenen Kamera-Prüfungen oder wenn das Spiel nicht in die
  * Insel-Szene wechselt.
@@ -92,25 +105,26 @@ const M4_ONLY = process.argv.includes('--m4-only');
 const M5_ONLY = process.argv.includes('--m5-only');
 const M6_ONLY = process.argv.includes('--m6-only');
 const M7_ONLY = process.argv.includes('--m7-only');
+const M8_ONLY = process.argv.includes('--m8-only');
 /** Mit einer der `--mN-only`-Optionen laufen nur die Prüfungen dieses Meilensteins (ohne die Kamera-Prüfungen am Anfang). */
-const ONLY = M2_ONLY || M3_ONLY || M4_ONLY || M5_ONLY || M6_ONLY || M7_ONLY;
+const ONLY = M2_ONLY || M3_ONLY || M4_ONLY || M5_ONLY || M6_ONLY || M7_ONLY || M8_ONLY;
 /** Laufen die Prüfungen des Meilensteins mit dieser Option? (Ohne Option alle.) */
 const runs = (flag) => !ONLY || flag;
 /** `--profile tablet|desktop`: nur dieses Gerät testen (zum Entwickeln). */
 const ONLY_PROFILE = argValue('--profile');
-const SCREENSHOT_DIR = path.resolve(ROOT, argValue('--out') ?? path.join('docs', 'screenshots', 'm7'));
+const SCREENSHOT_DIR = path.resolve(ROOT, argValue('--out') ?? path.join('docs', 'screenshots', 'm8'));
 /** Alle übrigen Screenshots (Kamera-Prüfungen früherer Meilensteine, Zwischenschritte) landen hier, nicht im Repo. */
 const TEMP_SCREENSHOT_DIR = path.join(os.tmpdir(), 'schlumpfwelt-smoke');
-/** Nur diese Bilder gehören in `docs/screenshots/mN/` – die Screenshots dieses Meilensteins (M7: Wohnen und Stimmung). */
+/** Nur diese Bilder gehören in `docs/screenshots/mN/` – die Screenshots dieses Meilensteins (M8: Kinderfreundlich). */
 const KEEP_SCREENSHOTS = new Set([
-  'tablet-stimmung-karte',
-  'tablet-deko-froh',
-  'tablet-ziehen',
-  'tablet-ziehen-voll',
-  'tablet-umziehen',
-  'tablet-traurig',
-  'tablet-stimmung-handy-hochkant',
-  'tablet-stimmung-handy-quer',
+  'tablet-tutorial-hand',
+  'tablet-eltern-pin',
+  'tablet-eltern-einstellungen',
+  'tablet-bald-abend',
+  'tablet-abend',
+  'tablet-gute-nacht',
+  'tablet-m8-handy-hochkant',
+  'tablet-m8-handy-quer',
 ]);
 
 /** Kachelgröße und Wasser-Rand der Kamera (siehe `TILE_SIZE` und `camera.json`). */
@@ -4310,6 +4324,560 @@ async function testHomes({ context, page, check, shot, size, input, cdp, name, p
 }
 
 /** Startet das Spiel (Tippen zum Spielen) und wartet auf die Insel. */
+// --- M8: Kinderfreundlich (geführter Start, Eltern-Menü, Tageslimit, Gute Nacht) ---
+
+/** Die Einstellungen der Eltern (PIN, Limit, Tageskonto, geführter Start) liegen in einer eigenen Datenbank (`settingsStore.ts`). */
+const SETTINGS_DB = 'village-settings/Schlumpfwelt/';
+/** Ein übersprungener geführter Start (`storeTutorial` in `src/ui/tutorial.ts`). */
+const TUTORIAL_SKIPPED = { format: 'village-tutorial', status: 'skipped' };
+const TUTORIAL_STEPS = ['resident', 'shop', 'deco', 'coins', 'house', 'path', 'praise'];
+const TEST_PIN = '2468';
+
+/** Der lokale Kalendertag der Seite (`localDayKey`), wie ihn das Spiel rechnet. */
+async function localDay(page) {
+  return page.evaluate(() => {
+    const d = new Date();
+    const pad = (value) => String(value).padStart(2, '0');
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  });
+}
+
+/** Ein Eintrag der Eltern-Einstellungen im gespeicherten Format (`toStored` in `src/parent/settings.ts`). */
+function settingsEntry({ day, pin = null, limitMinutes = 0, usedMs = 0, extraMinutes = 0, tutorial }) {
+  return { format: 'village-parent', version: 1, pin, limitMinutes, day, usedMs, extraMinutes, ...(tutorial === undefined ? {} : { tutorial }) };
+}
+
+/** Der gespeicherte Eintrag der Eltern-Einstellungen (`null`, wenn keiner da ist). */
+async function readSettingsEntry(page) {
+  return page.evaluate(
+    (name) =>
+      new Promise((resolve, reject) => {
+        const open = indexedDB.open(name, 1);
+        open.onupgradeneeded = () => open.result.createObjectStore('settings');
+        open.onerror = () => reject(open.error);
+        open.onsuccess = () => {
+          const db = open.result;
+          const request = db.transaction('settings').objectStore('settings').get('parent');
+          request.onsuccess = () => {
+            db.close();
+            resolve(request.result ?? null);
+          };
+          request.onerror = () => reject(request.error);
+        };
+      }),
+    SETTINGS_DB,
+  );
+}
+
+/**
+ * Schreibt die Eltern-Einstellungen von außen (wie `setRecordFromOutside`: erst weg vom Spiel, das beim Verlassen noch
+ * einmal speichert). So beginnt ein Test kurz vor dem Ende der Spielzeit, ohne einen geheimen Adress-Parameter.
+ */
+async function setSettingsFromOutside(page, value) {
+  await page.goto(`${URL}manifest.webmanifest`, { waitUntil: 'load' });
+  await page.evaluate(
+    ({ name, data }) =>
+      new Promise((resolve, reject) => {
+        const open = indexedDB.open(name, 1);
+        open.onupgradeneeded = () => open.result.createObjectStore('settings');
+        open.onerror = () => reject(open.error);
+        open.onsuccess = () => {
+          const db = open.result;
+          const transaction = db.transaction('settings', 'readwrite');
+          transaction.objectStore('settings').put(data, 'parent');
+          transaction.oncomplete = () => {
+            db.close();
+            resolve();
+          };
+          transaction.onerror = () => reject(transaction.error);
+        };
+      }),
+    { name: SETTINGS_DB, data: value },
+  );
+}
+
+/**
+ * Die älteren Prüfungen (M2–M7) sehen keinen geführten Start: Er ist in den Einstellungen des Browsers schon
+ * übersprungen – auch ein Dorf mit `&nosave=1` liest das (und schreibt es unverändert zurück).
+ */
+async function skipTutorialForOlderChecks(page) {
+  await setSettingsFromOutside(page, settingsEntry({ day: await localDay(page), tutorial: TUTORIAL_SKIPPED }));
+}
+
+/** Geführter Start, Eltern-Menü, Tageskonto und Nacht aus `<html data-tutorial|parent|parent-text|limit|night|bedtime>` (`markParent`). */
+async function readParent(page) {
+  return page.evaluate(() => {
+    const d = document.documentElement.dataset;
+    return {
+      tutorial: JSON.parse(d.tutorial ?? '{}'),
+      parent: d.parent ?? '',
+      parentText: d.parentText ?? '',
+      limit: JSON.parse(d.limit ?? '{}'),
+      night: JSON.parse(d.night ?? '{}'),
+      bedtime: d.bedtime === '1',
+    };
+  });
+}
+
+async function waitForParent(page, predicate, what, timeoutMs = 8000) {
+  const deadline = Date.now() + timeoutMs;
+  let state;
+  while (Date.now() < deadline) {
+    state = await readParent(page);
+    if (predicate(state)) return state;
+    await sleep(120);
+  }
+  throw new Error(`Zeitüberschreitung beim Warten auf ${what} (Stand: Tutorial ${JSON.stringify(state?.tutorial)}, Eltern „${state?.parent}“, Limit ${JSON.stringify(state?.limit)}, Nacht ${JSON.stringify(state?.night)})`);
+}
+
+/** Liegt der Knopf (Mitte, `w`, `h` in CSS-px) ganz im Bild und ist mindestens `min` groß? */
+function spotFits(spot, size, min = 48) {
+  return (
+    spot !== undefined &&
+    spot.w >= min - 0.01 &&
+    spot.h >= min - 0.01 &&
+    spot.x - spot.w / 2 >= -0.5 &&
+    spot.y - spot.h / 2 >= -0.5 &&
+    spot.x + spot.w / 2 <= size.width + 0.5 &&
+    spot.y + spot.h / 2 <= size.height + 0.5
+  );
+}
+
+function spotsOverlap(a, b) {
+  return Math.abs(a.x - b.x) * 2 < a.w + b.w - 0.5 && Math.abs(a.y - b.y) * 2 < a.h + b.h - 0.5;
+}
+
+/**
+ * Das Eltern-Menü (Ziffernfeld oder Einstellungen) passt: alle Knöpfe im Bild, mindestens 48 px, keiner überdeckt
+ * einen anderen.
+ */
+function checkParentSpots(village, size, check, when) {
+  const names = Object.keys(village.ui).filter((key) => /^(pin-|limit-|parent-(close|extra|pin|tutorial))/.test(key));
+  check(names.length > 0, `${when}: keine Knöpfe im Eltern-Menü`);
+  for (const key of names) {
+    check(spotFits(village.ui[key], size), `${when}: Knopf „${key}“ ${JSON.stringify(village.ui[key])} zu klein oder nicht ganz im Bild (${size.width}×${size.height})`);
+  }
+  for (let i = 0; i < names.length; i += 1) {
+    for (let j = i + 1; j < names.length; j += 1) {
+      check(!spotsOverlap(village.ui[names[i]], village.ui[names[j]]), `${when}: „${names[i]}“ und „${names[j]}“ überdecken sich`);
+    }
+  }
+  check(spotFits(village.ui['parent-panel'], size, 0), `${when}: das Feld ragt aus dem Bild`);
+}
+
+/**
+ * M8 „Kinderfreundlich“ in einem eigenen, frischen Browser-Kontext (eigene Einstellungen, die älteren Prüfungen haben
+ * den geführten Start übersprungen): geführter Start (Hand auf dem Ziel, jeder Schritt führt zum nächsten, Neuladen
+ * behält den Fortschritt, ein geladenes Dorf hat keinen, Überspringen), Eltern-Menü (PIN zweimal, falsche PIN,
+ * „PIN vergessen“, richtige PIN, Limit), der sanfte Satz, Abend (alle gehen heim), Nacht (Tipps verschluckt, kein Takt,
+ * kein Ertrag), Neuladen in der Nacht, +10 Minuten, der nächste Tag (Playwright-Uhr, nur das Datum), Export/Import
+ * ohne PIN, kleine Schirme.
+ */
+async function testKidFriendly({ browser, profile, check, problems, name }) {
+  const context = await browser.newContext(profile.context);
+  const page = await context.newPage();
+  page.on('console', (message) => {
+    if (message.type() === 'error') problems.push(`Konsolenfehler (M8): ${message.text()}`);
+  });
+  page.on('pageerror', (error) => problems.push(`Seitenfehler (M8): ${error.message}`));
+  page.on('requestfailed', (request) => problems.push(`Request fehlgeschlagen (M8): ${request.url()}`));
+  page.on('response', (response) => {
+    if (response.status() >= 400) problems.push(`HTTP ${response.status()} (M8): ${response.url()}`);
+  });
+  const shot = (shotName) => page.screenshot({ path: path.join(KEEP_SCREENSHOTS.has(shotName) ? SCREENSHOT_DIR : TEMP_SCREENSHOT_DIR, `${shotName}.png`), scale: 'css' });
+  const waitForScene = (scene) => page.waitForSelector(`html[data-scene="${scene}"]`, { state: 'attached', timeout: 20_000 });
+  const size = { ...profile.context.viewport };
+  const input = profile.context.hasTouch ? { tap: (p) => page.touchscreen.tap(p.x, p.y) } : { tap: (p) => page.mouse.click(p.x, p.y) };
+  const { step, tapUi } = buildHelpers({ page, check, size, input, name });
+  const near = (a, b, tolerance) => a !== undefined && b !== undefined && Math.hypot(a.x - b.x, a.y - b.y) <= tolerance;
+  /** Tippt nacheinander auf die Ziffern (zwischen zwei Tipps ein paar Bilder Zeit). */
+  const typeDigits = async (digits) => {
+    for (const digit of digits) {
+      await tapUi(`pin-${digit}`);
+      await sleep(220);
+    }
+  };
+  /** Zahnrad → „Für Eltern“: das Ziffernfeld geht auf. */
+  const openParents = async () => {
+    await tapUi('menu');
+    await waitForVillage(page, (v) => v.menu === 'menu' && 'menu-parent' in v.ui, 'das Menü mit „Für Eltern“');
+    await tapUi('menu-parent');
+    return waitForParent(page, (p) => p.parent !== 'closed' && p.parent !== '', 'das Eltern-Menü');
+  };
+  const closeParents = async () => {
+    await tapUi('parent-close');
+    await waitForParent(page, (p) => p.parent === 'closed', 'das geschlossene Eltern-Menü');
+  };
+  /** PIN eingeben, bis die Einstellungen da sind. */
+  const unlock = async () => {
+    await waitForParent(page, (p) => p.parent.startsWith('enterPin'), 'das Ziffernfeld „PIN eingeben“');
+    await typeDigits(TEST_PIN);
+    return waitForParent(page, (p) => p.parent.startsWith('settings'), 'die Einstellungen nach der richtigen PIN');
+  };
+  const tickNow = async () => (await readVillage(page)).tick;
+
+  try {
+    // --- Geführter Start: nur ein neues Dorf ---
+    step('M8: neues Dorf mit ?seed=1 – der geführte Start beginnt');
+    await clearRecords(page);
+    await enterIsland(page, profile, waitForScene, SAVE_URL);
+    let p = await waitForParent(page, (x) => x.tutorial.status === 'active' && x.tutorial.step === 'resident' && x.tutorial.hx !== undefined, 'den ersten Schritt mit der Hand', 15_000);
+    let v = await readVillage(page);
+    check(p.tutorial.shown === true && v.hint.startsWith('Tippe auf einen'), `Tutorial: Satz in der Hinweisleiste „${v.hint}“`);
+    check(spotFits(v.ui['tutorial-skip'], size), `Tutorial: Überspringen ${JSON.stringify(v.ui['tutorial-skip'])} fehlt oder ist kleiner als 48 px`);
+    check(p.limit.limit === 0 && p.limit.phase === 'day' && p.limit.pin === false && p.limit.store === 'indexedDb', `Start: Tageskonto ${JSON.stringify(p.limit)} (erwartet: kein Limit, keine PIN, IndexedDB)`);
+    {
+      const { residents } = await readResidents(page);
+      const hand = { x: p.tutorial.hx, y: p.tutorial.hy };
+      const closest = Math.min(...residents.map((r) => Math.hypot(r.sx - hand.x, r.sy - hand.y)));
+      check(closest <= 60, `Tutorial: die Hand (${hand.x}, ${hand.y}) zeigt auf keinen Bewohner (nächster ${closest.toFixed(0)} px)`);
+    }
+    await sleep(500);
+    await shot(`${name}-tutorial-hand`);
+
+    // Der Hand folgen: jeder erledigte Schritt führt zum nächsten. Unterwegs einmal neu laden.
+    const seenSteps = [];
+    const wrongHand = new Set();
+    let reloaded = false;
+    let last = { key: '', at: 0 };
+    const deadline = Date.now() + 240_000;
+    while (Date.now() < deadline) {
+      p = await readParent(page);
+      v = await readVillage(page);
+      if (p.tutorial.status !== 'active') break;
+      const stepId = p.tutorial.step;
+      if (seenSteps.at(-1) !== stepId) {
+        seenSteps.push(stepId);
+        step(`M8: Schritt „${stepId}“ – „${v.hint}“`);
+      }
+      const hand = p.tutorial.hx === undefined ? undefined : { x: p.tutorial.hx, y: p.tutorial.hy };
+      // Wohin die Hand zeigen muss (nur die eindeutigen Fälle).
+      let expected;
+      if (v.tool === 'view') {
+        expected = { shop: 'tool-shop', deco: 'tool-shop', house: 'tool-shop', path: 'tool-path', coins: 'stock' }[stepId];
+      } else if (v.tool === 'shop' && (stepId === 'deco' || stepId === 'house')) {
+        const item = stepId === 'deco' ? 'item-flower' : 'item-house-red';
+        expected = item in v.ui ? item : v.shop.startsWith(stepId === 'deco' ? 'deco:' : 'houses:') ? undefined : `tab-${stepId === 'deco' ? 'deco' : 'houses'}`;
+      } else if ((v.tool === 'place' || v.tool === 'path') && v.ui.confirm?.enabled === true) {
+        expected = 'confirm';
+      }
+      if (expected && !near(hand, v.ui[expected], 32) && !wrongHand.has(`${stepId}:${expected}`)) {
+        // Ein Bild später noch einmal (Hand und Knöpfe werden im selben Bild gesetzt, gelesen wird zwischendurch).
+        await sleep(300);
+        const again = await readParent(page);
+        const vAgain = await readVillage(page);
+        if (again.tutorial.step === stepId && vAgain.tool === v.tool && !near({ x: again.tutorial.hx, y: again.tutorial.hy }, vAgain.ui[expected], 32)) {
+          wrongHand.add(`${stepId}:${expected}`);
+          check(false, `Tutorial, Schritt ${stepId} (Werkzeug ${v.tool}): die Hand ${JSON.stringify(hand)} zeigt nicht auf „${expected}“ ${JSON.stringify(vAgain.ui[expected])}`);
+        }
+        continue;
+      }
+      if (p.tutorial.index >= 3 && !reloaded) {
+        // Der Fortschritt übersteht das Neuladen (er steht in den Einstellungen, nicht im Dorf).
+        reloaded = true;
+        await sleep(1500);
+        await enterIsland(page, profile, waitForScene, SAVE_URL);
+        const after = await waitForParent(page, (x) => x.tutorial.status !== undefined, 'den geführten Start nach dem Neuladen');
+        check(after.tutorial.status === 'active' && after.tutorial.index >= p.tutorial.index, `Tutorial nach dem Neuladen: ${JSON.stringify(after.tutorial)} (erwartet: weiter ab Schritt ${p.tutorial.index} „${stepId}“)`);
+        console.log(`  [${name}] Neuladen bei Schritt „${stepId}“: weiter mit „${after.tutorial.step}“`);
+        continue;
+      }
+      if (stepId === 'praise' && !hand) {
+        // Das Lob endet mit dem nächsten Tipp (irgendwo), sobald es in der Hinweisleiste steht.
+        await input.tap({ x: size.width / 2, y: size.height * 0.42 });
+        await sleep(600);
+        continue;
+      }
+      if (!hand || (stepId === 'coins' && v.tool === 'view')) {
+        await sleep(400);
+        continue;
+      }
+      const key = `${stepId}|${v.tool}|${v.preview}|${Math.round(hand.x / 8)}|${Math.round(hand.y / 8)}`;
+      if (key === last.key && Date.now() - last.at < 3000) {
+        await sleep(300);
+        continue;
+      }
+      await input.tap(hand);
+      last = { key, at: Date.now() };
+      await sleep(700);
+    }
+    p = await readParent(page);
+    check(p.tutorial.status === 'done', `Tutorial: am Ende ${JSON.stringify(p.tutorial)} (erwartet: fertig)`);
+    // „Taler“ kann schon nach einem Bild erledigt sein (der Markt verkauft gerade) – dann sieht der Test ihn nicht.
+    const mustSee = TUTORIAL_STEPS.filter((id) => id !== 'coins');
+    check(mustSee.every((id) => seenSteps.includes(id)) && seenSteps.every((id, i) => i === 0 || TUTORIAL_STEPS.indexOf(id) > TUTORIAL_STEPS.indexOf(seenSteps[i - 1])), `Tutorial: Schritte ${seenSteps.join(' → ')} (erwartet ${TUTORIAL_STEPS.join(' → ')})`);
+    check(reloaded, 'Tutorial: kein Neuladen mitten im geführten Start geprüft');
+    console.log(`  [${name}] geführter Start: ${seenSteps.join(' → ')}, fertig`);
+    await sleep(1000);
+    p = await readParent(page);
+    check(p.tutorial.hx === undefined && !p.tutorial.shown, `Tutorial: nach dem Ende noch Hand oder Satz ${JSON.stringify(p.tutorial)}`);
+
+    // --- Ein geladenes Dorf (ohne Eintrag in den Einstellungen) hat keinen geführten Start ---
+    step('M8: geladenes Dorf ohne Fortschritt – kein geführter Start');
+    await setSettingsFromOutside(page, settingsEntry({ day: await localDay(page) }));
+    await enterIsland(page, profile, waitForScene, SAVE_URL);
+    p = await waitForParent(page, (x) => x.tutorial.status !== undefined, 'den Stand des geführten Starts');
+    v = await readVillage(page);
+    check(v.save.start === 'loaded', `Geladenes Dorf: Start „${v.save.start}“`);
+    check(p.tutorial.status === 'done' && p.tutorial.hx === undefined && !p.tutorial.shown && !('tutorial-skip' in v.ui), `Geladenes Dorf: geführter Start ${JSON.stringify(p.tutorial)}`);
+
+    // --- Eltern-Menü: PIN zweimal setzen (erst falsch wiederholt) ---
+    step('M8: Eltern-Menü – PIN setzen');
+    p = await openParents();
+    check(p.parent.split(':')[0] === 'newPin', `Eltern-Menü beim ersten Mal: „${p.parent}“ (erwartet: neue PIN)`);
+    v = await readVillage(page);
+    checkParentSpots(v, size, check, 'Ziffernfeld');
+    check(!('pin-forgot' in v.ui), 'Neue PIN: „PIN vergessen“ ist zu sehen');
+    await typeDigits(TEST_PIN.slice(0, 2));
+    await sleep(400);
+    await shot(`${name}-eltern-pin`);
+    await typeDigits(TEST_PIN.slice(2));
+    await waitForParent(page, (x) => x.parent.startsWith('repeatPin'), 'die Frage nach der Wiederholung');
+    await typeDigits('1357');
+    p = await waitForParent(page, (x) => x.parent === 'newPin:parent.pinMismatch', 'den Satz „nicht gleich“');
+    await typeDigits(TEST_PIN);
+    await waitForParent(page, (x) => x.parent.startsWith('repeatPin'), 'die Wiederholung');
+    // ⌫ löscht eine Ziffer.
+    await typeDigits(TEST_PIN.slice(0, 3));
+    await tapUi('pin-back');
+    await sleep(220);
+    await typeDigits(TEST_PIN.slice(2));
+    p = await waitForParent(page, (x) => x.parent === 'settings:parent.pinSaved', 'die Einstellungen mit „PIN gespeichert“');
+    check(p.limit.pin === true, 'PIN: im Tageskonto steht keine PIN');
+    v = await readVillage(page);
+    checkParentSpots(v, size, check, 'Einstellungen');
+    check(v.ui['limit-0']?.active === true, 'Einstellungen: „Aus“ ist nicht gewählt');
+    const stored = await readSettingsEntry(page);
+    check(stored?.pin && typeof stored.pin.hash === 'string' && !JSON.stringify(stored).includes(TEST_PIN), `PIN: gespeichert wird ${JSON.stringify(stored?.pin)} (erwartet: Hash, nie die Ziffern)`);
+
+    // „Tutorial noch einmal“, dann überspringen.
+    step('M8: „Tutorial noch einmal“ und Überspringen');
+    await tapUi('parent-tutorial');
+    p = await waitForParent(page, (x) => x.tutorial.status === 'active', 'den neuen geführten Start');
+    await closeParents();
+    v = await waitForVillage(page, (x) => 'tutorial-skip' in x.ui, 'den Knopf zum Überspringen');
+    await tapUi('tutorial-skip');
+    p = await waitForParent(page, (x) => x.tutorial.status === 'skipped', 'den übersprungenen Start');
+    v = await waitForVillage(page, (x) => x.hint.startsWith('Alles klar'), 'den Satz nach dem Überspringen');
+    await sleep(500);
+    v = await readVillage(page);
+    p = await readParent(page);
+    check(!('tutorial-skip' in v.ui) && p.tutorial.hx === undefined, `Überspringen: Knopf ${JSON.stringify(v.ui['tutorial-skip'])} oder Hand ${JSON.stringify(p.tutorial)} noch da`);
+    await sleep(800);
+    await enterIsland(page, profile, waitForScene, SAVE_URL);
+    p = await waitForParent(page, (x) => x.tutorial.status !== undefined, 'den Stand nach dem Neuladen');
+    check(p.tutorial.status === 'skipped' && p.tutorial.hx === undefined, `Überspringen gilt für immer: nach dem Neuladen ${JSON.stringify(p.tutorial)}`);
+
+    // --- Falsche PIN, „PIN vergessen“, richtige PIN ---
+    step('M8: falsche PIN, „PIN vergessen“, richtige PIN');
+    p = await openParents();
+    check(p.parent.split(':')[0] === 'enterPin', `Eltern-Menü mit PIN: „${p.parent}“`);
+    v = await readVillage(page);
+    check(spotFits(v.ui['pin-forgot'], size), '„PIN vergessen“ fehlt oder ist kleiner als 48 px');
+    await typeDigits('1111');
+    p = await waitForParent(page, (x) => x.parent === 'enterPin:parent.pinWrong', 'den freundlichen Satz zur falschen PIN');
+    await typeDigits('9999');
+    await waitForParent(page, (x) => x.parent === 'enterPin:parent.pinWrong', 'die zweite falsche PIN');
+    await tapUi('pin-forgot');
+    p = await waitForParent(page, (x) => x.parent === 'question:parent.question', 'die Rechenfrage');
+    let numbers = (p.parentText.match(/\d+/g) ?? []).map(Number);
+    check(numbers.length === 2 && numbers.every((n) => n >= 12 && n <= 29), `Rechenfrage: „${p.parentText}“`);
+    await typeDigits('100');
+    p = await waitForParent(page, (x) => x.parent === 'question:parent.questionWrong', 'den Satz zur falschen Antwort');
+    await typeDigits('1');
+    p = await waitForParent(page, (x) => x.parent === 'question:parent.question', 'die neue Rechenfrage');
+    numbers = (p.parentText.match(/\d+/g) ?? []).map(Number);
+    await page.waitForTimeout(100);
+    // Erst die eine Ziffer wieder löschen (sie stand schon im Feld), dann die Antwort.
+    await tapUi('pin-back');
+    await sleep(220);
+    await typeDigits(String(numbers[0] * numbers[1]));
+    await waitForParent(page, (x) => x.parent === 'newPin:parent.questionRight', 'die neue PIN nach der richtigen Antwort');
+    // Wieder dieselbe PIN (der Test kennt sie), dann zu – und mit der richtigen PIN hinein.
+    await typeDigits(TEST_PIN);
+    await waitForParent(page, (x) => x.parent.startsWith('repeatPin'), 'die Wiederholung');
+    await typeDigits(TEST_PIN);
+    await waitForParent(page, (x) => x.parent.startsWith('settings'), 'die Einstellungen');
+    await closeParents();
+    await openParents();
+    await typeDigits('1112');
+    await waitForParent(page, (x) => x.parent === 'enterPin:parent.pinWrong', 'die falsche PIN');
+    await unlock();
+    await closeParents();
+
+    // --- Tageslimit: kurz vor dem Ende (von außen ins Tageskonto geschrieben), Limit 15 Minuten ---
+    step('M8: Limit 15 Minuten, 14:40 schon gespielt');
+    const entry = await readSettingsEntry(page);
+    const today = await localDay(page);
+    await setSettingsFromOutside(page, { ...entry, day: today, usedMs: 14 * 60_000 + 40_000, limitMinutes: 0, extraMinutes: 0 });
+    await enterIsland(page, profile, waitForScene, SAVE_URL);
+    p = await waitForParent(page, (x) => x.limit.used >= 880, 'das Tageskonto mit 14:40');
+    check(p.limit.phase === 'day' && p.limit.limit === 0 && p.limit.warned === false, `Vor dem Limit: ${JSON.stringify(p.limit)}`);
+    await openParents();
+    await unlock();
+    await tapUi('limit-15');
+    p = await waitForParent(page, (x) => x.limit.limit === 15, 'das Limit 15');
+    v = await waitForVillage(page, (x) => x.ui['limit-15']?.active === true, 'den gewählten Knopf „15“');
+    await sleep(400);
+    await shot(`${name}-eltern-einstellungen`);
+    const usedBefore = (await readParent(page)).limit.used;
+    await sleep(2000);
+    check((await readParent(page)).limit.used === usedBefore, 'Eltern-Menü offen: die Spielzeit läuft weiter');
+    await closeParents();
+    v = await waitForVillage(page, (x) => x.hint.startsWith('Bald wird es Abend'), 'den sanften Satz vor dem Ende', 6000);
+    p = await readParent(page);
+    check(p.limit.warned === true && p.limit.phase === 'day', `Sanfter Satz: ${JSON.stringify(p.limit)}`);
+    check(!/\d/.test(v.hint), `Sanfter Satz ohne Countdown: „${v.hint}“`);
+    await sleep(500);
+    await shot(`${name}-bald-abend`);
+
+    // --- Abend: es wird wärmer und dunkler, alle gehen heim, Tipps tun nichts ---
+    step('M8: Abend');
+    p = await waitForParent(page, (x) => x.limit.phase === 'dusk', 'den Abend', 45_000);
+    p = await waitForParent(page, (x) => x.bedtime, 'die Schlafenszeit in der Simulation', 3000);
+    const { residents: atDusk } = await readResidents(page);
+    check(atDusk.every((r) => r.activity !== 'work' && !r.carrying), `Abend: ${JSON.stringify(atDusk.map((r) => [r.name, r.activity, r.carrying]))} (erwartet: niemand arbeitet oder trägt)`);
+    p = await waitForParent(page, (x) => x.night.dark >= 0.2 || x.limit.phase === 'night', 'den dunkleren Abend', 15_000);
+    check(p.night.blocks === true && p.night.warm > 0, `Abend: Ebene ${JSON.stringify(p.night)}`);
+    v = await readVillage(page);
+    await input.tap(v.ui['tool-shop']);
+    await sleep(600);
+    v = await readVillage(page);
+    check(v.shop === 'closed' && v.tool === 'view', `Abend: ein Tipp auf „Shop“ hat etwas getan (Shop ${v.shop}, Werkzeug ${v.tool})`);
+    await shot(`${name}-abend`);
+
+    // --- Nacht: alle im Bett, kein Takt, kein Ertrag, Tipps verschluckt ---
+    step('M8: Gute Nacht');
+    p = await waitForParent(page, (x) => x.limit.phase === 'night', 'die Nacht', 30_000);
+    p = await waitForParent(page, (x) => x.night.sky >= 1, 'Mond und Sterne', 6000);
+    const { residents: atNight } = await readResidents(page);
+    check(atNight.length > 0 && atNight.every((r) => r.activity === 'sleep'), `Nacht: ${JSON.stringify(atNight.map((r) => [r.name, r.activity]))} (erwartet: alle schlafen)`);
+    v = await readVillage(page);
+    check(spotFits(v.ui['night-parent'], size), `Nacht: Eltern-Knopf ${JSON.stringify(v.ui['night-parent'])}`);
+    const nightTick = v.tick;
+    const stockAtNight = v.stock;
+    await input.tap(v.ui['tool-shop'] ?? { x: size.width / 2, y: size.height - 40 });
+    await sleep(400);
+    await input.tap(v.ui.menu ?? { x: 40, y: size.height - 40 });
+    await sleep(400);
+    if (atNight[0]) await input.tap({ x: atNight[0].sx, y: atNight[0].sy });
+    await sleep(2500);
+    const quiet = await readVillage(page);
+    check(quiet.tick === nightTick, `Nacht: der Takt läuft weiter (${nightTick} → ${quiet.tick})`);
+    check(same(quiet.stock, stockAtNight), `Nacht: Ertrag ${JSON.stringify(stockAtNight)} → ${JSON.stringify(quiet.stock)}`);
+    check(quiet.shop === 'closed' && quiet.menu === 'closed' && (await readResidents(page)).card === '', `Nacht: ein Tipp kam durch (Shop ${quiet.shop}, Menü ${quiet.menu})`);
+    check(quiet.save.savedTick === nightTick, `Nacht: gespeichert bei Takt ${quiet.save.savedTick}, die Nacht begann bei ${nightTick}`);
+    await shot(`${name}-gute-nacht`);
+
+    // --- Neuladen in der Nacht: sofort Nacht ---
+    step('M8: Neuladen in der Nacht');
+    await enterIsland(page, profile, waitForScene, SAVE_URL);
+    p = await readParent(page);
+    check(p.limit.phase === 'night' && p.night.sky >= 1 && p.night.blocks && p.bedtime, `Neuladen in der Nacht: ${JSON.stringify({ limit: p.limit, night: p.night, bedtime: p.bedtime })}`);
+    const reloadTick = await tickNow();
+    await sleep(2000);
+    check((await tickNow()) === reloadTick, 'Neuladen in der Nacht: der Takt läuft');
+    check((await readResidents(page)).residents.every((r) => r.activity === 'sleep'), 'Neuladen in der Nacht: nicht alle schlafen');
+
+    // --- Kleine Schirme in der Nacht: Eltern-Knopf, Ziffernfeld, Einstellungen ---
+    for (const small of [
+      { width: 320, height: 568, shotName: `${name}-m8-handy-hochkant`, at: 'night' },
+      { width: 568, height: 320, shotName: `${name}-m8-handy-quer`, at: 'pin' },
+    ]) {
+      const smallSize = { width: small.width, height: small.height };
+      step(`M8: ${small.width}×${small.height}`);
+      await page.setViewportSize(smallSize);
+      await sleep(1200);
+      v = await waitForVillage(page, (x) => 'night-parent' in x.ui && x.ui['night-parent'].x < small.width, `den Eltern-Knopf bei ${small.width}×${small.height}`);
+      check(spotFits(v.ui['night-parent'], smallSize, 64), `${small.width}×${small.height}: Eltern-Knopf der Nacht ${JSON.stringify(v.ui['night-parent'])}`);
+      if (small.at === 'night') await shot(small.shotName);
+      await tapUi('night-parent');
+      await waitForParent(page, (x) => x.parent.startsWith('enterPin'), `das Ziffernfeld bei ${small.width}×${small.height}`);
+      v = await readVillage(page);
+      checkParentSpots(v, smallSize, check, `Ziffernfeld ${small.width}×${small.height}`);
+      check(spotFits(v.ui['pin-forgot'], smallSize), `${small.width}×${small.height}: „PIN vergessen“ ${JSON.stringify(v.ui['pin-forgot'])}`);
+      await typeDigits(TEST_PIN.slice(0, 1));
+      await sleep(400);
+      if (small.at === 'pin') await shot(small.shotName);
+      await typeDigits(TEST_PIN.slice(1));
+      await waitForParent(page, (x) => x.parent.startsWith('settings'), `die Einstellungen bei ${small.width}×${small.height}`);
+      await sleep(300);
+      v = await readVillage(page);
+      checkParentSpots(v, smallSize, check, `Einstellungen ${small.width}×${small.height}`);
+      await closeParents();
+      p = await readParent(page);
+      check(p.limit.phase === 'night', `${small.width}×${small.height}: nach dem Schließen ist es nicht mehr Nacht (${p.limit.phase})`);
+    }
+    await page.setViewportSize(size);
+    await sleep(1200);
+
+    // --- +10 Minuten: es wird hell, alle wachen auf ---
+    step('M8: „Heute noch 10 Minuten mehr“');
+    await waitForVillage(page, (x) => 'night-parent' in x.ui, 'den Eltern-Knopf der Nacht');
+    await tapUi('night-parent');
+    await unlock();
+    await tapUi('parent-extra');
+    p = await waitForParent(page, (x) => x.parent === 'settings:parent.extraGiven' && x.limit.extra === 10, 'die 10 Minuten mehr');
+    await closeParents();
+    p = await waitForParent(page, (x) => x.limit.phase === 'day' && !x.night.blocks && x.night.dark === 0, 'den hellen Tag', 10_000);
+    const dayTick = await tickNow();
+    await sleep(2000);
+    check((await tickNow()) > dayTick, '+10 Minuten: der Takt steht still');
+    check(!(await readParent(page)).bedtime, '+10 Minuten: noch Schlafenszeit');
+    await waitForResidents(page, ({ residents }) => residents.some((r) => r.activity !== 'sleep'), 'den ersten wachen Bewohner', 15_000);
+
+    // --- Der nächste Tag: wieder Nacht (von außen aufgebraucht), dann zeigt die Uhr den nächsten Morgen ---
+    step('M8: der nächste Tag');
+    const spent = await readSettingsEntry(page);
+    await setSettingsFromOutside(page, { ...spent, day: today, usedMs: 25 * 60_000, limitMinutes: 15, extraMinutes: 10 });
+    await enterIsland(page, profile, waitForScene, SAVE_URL);
+    p = await readParent(page);
+    check(p.limit.phase === 'night', `Aufgebraucht: nach dem Neuladen ${p.limit.phase} statt Nacht`);
+    const [year, month, dayOfMonth] = today.split('-').map(Number);
+    const tomorrow = new Date(year, month - 1, dayOfMonth + 1, 8, 0, 0);
+    // Nur das Datum der Seite springt (Zeitgeber laufen weiter): so schlägt im laufenden Spiel Mitternacht.
+    await page.clock.setFixedTime(tomorrow);
+    p = await waitForParent(page, (x) => x.limit.day !== today && x.limit.phase === 'day' && x.night.dark === 0, 'den nächsten Morgen', 12_000);
+    check(p.limit.used < 30 && p.limit.extra === 0 && p.limit.limit === 15, `Nächster Tag: ${JSON.stringify(p.limit)}`);
+    const morningTick = await tickNow();
+    await sleep(1500);
+    check((await tickNow()) > morningTick, 'Nächster Tag: der Takt steht still');
+    await enterIsland(page, profile, waitForScene, SAVE_URL);
+    p = await readParent(page);
+    check(p.limit.phase === 'day' && p.limit.day !== today && !p.night.blocks, `Nächster Tag nach dem Neuladen: ${JSON.stringify(p.limit)}`);
+
+    // --- Export und Import: die PIN und das Limit gehören nicht zum Dorf ---
+    step('M8: Datei sichern und laden – ohne PIN');
+    await tapUi('menu');
+    await waitForVillage(page, (x) => x.menu === 'menu' && 'menu-save' in x.ui, 'das Menü');
+    const [download] = await Promise.all([page.waitForEvent('download', { timeout: 10_000 }), tapUi('menu-save')]);
+    const exported = await readFile(await download.path(), 'utf8');
+    check(!/village-parent|limitMinutes|usedMs|"pin"|"salt"|"hash"|village-tutorial/.test(exported), 'Export: die Datei enthält Eltern-Einstellungen');
+    await tapUi('menu-close');
+    await waitForVillage(page, (x) => x.menu === 'closed', 'das geschlossene Menü');
+    const foreign = JSON.parse(exported);
+    // Auch eine Datei mit fremden Feldern bringt keine PIN mit.
+    foreign.pin = { salt: 'x', hash: 'y' };
+    foreign.limitMinutes = 0;
+    await tapUi('menu');
+    await waitForVillage(page, (x) => x.menu === 'menu' && 'menu-load' in x.ui, 'das Menü');
+    const [chooser] = await Promise.all([page.waitForEvent('filechooser', { timeout: 10_000 }), tapUi('menu-load')]);
+    await chooser.setFiles({ name: 'dorf.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(foreign)) });
+    await waitForVillage(page, (x) => x.menu === 'confirm' && 'menu-confirm' in x.ui, 'die Frage „Dorf ersetzen?“');
+    await tapUi('menu-confirm');
+    await waitForVillage(page, (x) => x.menu === 'closed' && x.hint === 'Dein Dorf aus der Datei ist da!', 'das geladene Dorf', 15_000);
+    p = await readParent(page);
+    check(p.limit.pin === true && p.limit.limit === 15, `Nach dem Import: ${JSON.stringify(p.limit)} (PIN und Limit bleiben)`);
+    const afterImport = await readSettingsEntry(page);
+    check(afterImport?.pin?.hash === spent.pin.hash && afterImport.limitMinutes === 15, 'Nach dem Import: PIN oder Limit in den Einstellungen geändert');
+    await openParents();
+    await unlock();
+    await closeParents();
+  } finally {
+    await context.close();
+  }
+}
+
 async function enterIsland(page, profile, waitForScene, url = GAME_URL) {
   // Ein Abschnitt, der abbrach, kann den Bildschirm klein gelassen haben: jeder neue Start beginnt mit der Größe des Geräts.
   await page.setViewportSize(profile.context.viewport);
@@ -4357,6 +4925,8 @@ async function testProfile(browser, profile) {
   const waitForScene = (scene) =>
     page.waitForSelector(`html[data-scene="${scene}"]`, { state: 'attached', timeout: 10_000 });
 
+  // M8: die älteren Prüfungen laufen ohne den geführten Start (die M8-Prüfungen haben einen eigenen, frischen Kontext).
+  await skipTutorialForOlderChecks(page);
   await page.goto(GAME_URL, { waitUntil: 'load' });
   await waitForScene('boot');
   await page.waitForTimeout(500);
@@ -4494,6 +5064,13 @@ async function testProfile(browser, profile) {
     } catch (error) {
       problems.push(`Wohnen und Stimmung: ${error.message}`);
       await shot(`${profile.name}-stimmung-fehler`).catch(() => {});
+    }
+  }
+  if (runs(M8_ONLY)) {
+    try {
+      await testKidFriendly({ browser, profile, check, problems, name: profile.name });
+    } catch (error) {
+      problems.push(`Kinderfreundlich: ${error.message}`);
     }
   }
   await cdp?.detach();
