@@ -30,6 +30,8 @@ export interface InfoCardBounds {
   readonly width: number;
   /** The zoom buttons' rectangle: the card keeps to its left where they would be in the way. */
   readonly zoom: Rect;
+  /** The card is at most this high (CSS px; default {@link TALL_HEIGHT}): the card of a resident has more rows (M7). */
+  readonly maxHeight?: number;
 }
 
 export interface FlowSlots {
@@ -62,7 +64,7 @@ export function infoCardLayout(bounds: InfoCardBounds): InfoCardLayout {
   const belowZoom = Math.max(bounds.top, bounds.zoom.y + bounds.zoom.height + GAP);
   const clearOfZoom = bounds.bottom - belowZoom >= CLEAR_BELOW_ZOOM;
   const top = clearOfZoom ? belowZoom : bounds.top;
-  const height = Math.min(TALL_HEIGHT, Math.max(0, bounds.bottom - top));
+  const height = Math.min(bounds.maxHeight ?? TALL_HEIGHT, Math.max(0, bounds.bottom - top));
   const y = bounds.bottom - height;
   // … otherwise it keeps left of the zoom buttons where they reach into its rows.
   const zoomInBand = !clearOfZoom && bounds.zoom.y < bounds.bottom && bounds.zoom.y + bounds.zoom.height > y;

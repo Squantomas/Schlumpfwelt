@@ -26,6 +26,15 @@ export interface WorldCameraOptions {
   readonly blocksWheel?: (x: number, y: number) => boolean;
   /** A tap on the world (not on a button): the world point and the screen point (CSS px). */
   readonly onTap: (world: Point, screen: Point, eventTime: number) => void;
+  /**
+   * Optional (M7): does a first press here pick something up (a resident)? Then moving the finger carries it
+   * (`onCarry`) instead of moving the camera, and the release puts it down (`onDrop`). Released without moving it
+   * stays a tap (`onCancelCarry`, then `onTap`); a second finger cancels it and pinches.
+   */
+  readonly onGrab?: (world: Point, screen: Point) => boolean;
+  readonly onCarry?: (world: Point, screen: Point) => void;
+  readonly onDrop?: (world: Point, screen: Point, eventTime: number) => void;
+  readonly onCancelCarry?: () => void;
 }
 
 /** Largest wheel step that is taken into account (some mice send huge values). */
@@ -38,6 +47,8 @@ const MAX_WHEEL_DELTA = 240;
  * - One finger or the left mouse button drags, two fingers pinch (zoom around
  *   the middle between them), the mouse wheel zooms around the pointer.
  * - Presses that start on a game object (the +/− buttons) never move the camera.
+ * - A press on something the scene lets pick up (a resident, M7) carries it
+ *   instead of moving the camera; a press beside it moves the camera as always.
  * - The world camera zooms by `rig zoom × render scale`, so the game zoom and
  *   the canvas resolution multiply cleanly (see `viewport.ts`).
  */
@@ -62,8 +73,12 @@ export class WorldCameraController {
         },
         pan: (dx, dy) => this.rig.pan(dx, dy),
         pinch: (from, to, scale) => this.rig.pinch(from, to, scale),
-        tap: (at) => options.onTap(screenToWorld(this.rig.view, this.rig.viewSize, at), at, this.upTime),
+        tap: (at) => options.onTap(this.toWorld(at), at, this.upTime),
         fling: (vx, vy) => this.rig.fling(vx, vy),
+        grab: (at) => options.onGrab?.(this.toWorld(at), at) === true,
+        carry: (at) => options.onCarry?.(this.toWorld(at), at),
+        drop: (at) => options.onDrop?.(this.toWorld(at), at, this.upTime),
+        cancelCarry: () => options.onCancelCarry?.(),
       },
       { tapMaxMovePx: options.tapMaxMovePx },
     );
@@ -89,6 +104,15 @@ export class WorldCameraController {
 
   get view(): CameraRig['view'] {
     return this.rig.view;
+  }
+
+  /** True while something picked up is being carried (the camera stands still). */
+  get carrying(): boolean {
+    return this.tracker.carrying;
+  }
+
+  private toWorld(at: Point): Point {
+    return screenToWorld(this.rig.view, this.rig.viewSize, at);
   }
 
   get viewSize(): Size {

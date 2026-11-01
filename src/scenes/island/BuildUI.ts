@@ -48,6 +48,8 @@ export interface UiSpot {
   readonly font?: number;
   /** The shop line: height of the sentence as measured (CSS px). */
   readonly textH?: number;
+  /** The card of a resident: how many rows it shows (M7). */
+  readonly rows?: number;
 }
 
 /** The words under the toolbar buttons and the shop tabs are at least this big (CSS px), else only the picture stays. */
@@ -136,11 +138,22 @@ export class BuildUI {
       this.tool.closeInfo();
       this.refresh();
     });
-    this.residentCard = new ResidentCard(scene, uiLayer, (time) => {
-      this.touched(time);
-      this.tool.closeInfo();
-      this.refresh();
-    });
+    this.residentCard = new ResidentCard(
+      scene,
+      uiLayer,
+      (time) => {
+        this.touched(time);
+        this.tool.closeInfo();
+        this.refresh();
+      },
+      (time) => {
+        // "Umziehen" (M7): the card closes, the hint bar asks for the new house.
+        this.touched(time);
+        this.board.clearExplanation();
+        this.tool.startMoveHome();
+        this.refresh();
+      },
+    );
     this.knownResidents = this.getState().nextResidentId;
     this.stock.update(this.getState().inventory, false);
     this.toolbarPanel = addGraphics(scene);
@@ -563,7 +576,7 @@ export class BuildUI {
     const inspected = this.tool.inspectedId;
     const cardOpen = this.tool.cardOpen;
     this.cardFallback = undefined;
-    let layout = layoutBuildUi({ ...input, infoOpen: cardOpen, hintHeight: this.measureHint() });
+    let layout = layoutBuildUi({ ...input, infoOpen: cardOpen, residentOpen: this.tool.inspectedResidentId !== undefined, hintHeight: this.measureHint() });
     if (cardOpen && layout.card && !layout.card.fits) {
       // No room for the card (a very low screen): its sentence goes into the hint bar instead.
       this.cardFallback = this.cardSentence(inspected);
@@ -652,11 +665,15 @@ export class BuildUI {
       const openCard = this.card.isOpen ? this.card : this.residentCard.isOpen ? this.residentCard : undefined;
       if (openCard) {
         const cardRect = openCard.rect;
-        const rows = openCard === this.residentCard ? { font: this.residentCard.rowsFont } : {};
+        const rows = openCard === this.residentCard ? { font: this.residentCard.rowsFont, rows: this.residentCard.rowCount } : {};
         spots['card'] = { x: cardRect.x + cardRect.width / 2, y: cardRect.y + cardRect.height / 2, enabled: true, w: cardRect.width, h: cardRect.height, ...rows };
         const close = openCard.closeSpot;
         const closeSize = 'size' in close ? close.size : 64;
         spots['card-close'] = { x: close.x, y: close.y, enabled: true, w: closeSize, h: closeSize };
+        const move = openCard === this.residentCard ? this.residentCard.moveSpot : undefined;
+        if (move) {
+          spots['card-move'] = { x: move.x, y: move.y, enabled: move.enabled, w: move.w, h: move.h, font: move.font };
+        }
       }
       for (const button of this.chipButtons.values()) {
         if (button.visible) {

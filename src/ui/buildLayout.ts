@@ -76,6 +76,8 @@ export interface BuildLayoutInput {
   readonly stockCount: number;
   /** Is the info card of a production building open? (Only while looking.) */
   readonly infoOpen: boolean;
+  /** Is the open card the card of a resident (M7: it has more rows, so its place may be taller)? */
+  readonly residentOpen?: boolean;
   /** Does the gear belong on screen (only while looking: no tool, no card, no shop)? */
   readonly hasMenu?: boolean;
 }
@@ -98,6 +100,9 @@ export interface BuildLayout {
   readonly confirm: Rect | undefined;
   readonly cancel: Rect | undefined;
 }
+
+/** The card of a resident is at most this high (CSS px): six rows, the picture and the button "Umziehen" (M7). */
+export const RESIDENT_CARD_HEIGHT = 330;
 
 export function layoutBuildUi(input: BuildLayoutInput): BuildLayout {
   const { width, height } = input;
@@ -131,7 +136,13 @@ export function layoutBuildUi(input: BuildLayoutInput): BuildLayout {
   }
 
   const card = input.infoOpen && !input.shopOpen
-    ? infoCardLayout({ top: stock.rect.y + stock.rect.height + GAP, bottom: toolbar.rect.y - GAP, width, zoom: zoom.rect })
+    ? infoCardLayout({
+        top: stock.rect.y + stock.rect.height + GAP,
+        bottom: toolbar.rect.y - GAP,
+        width,
+        zoom: zoom.rect,
+        ...(input.residentOpen === true ? { maxHeight: RESIDENT_CARD_HEIGHT } : {}),
+      })
     : undefined;
 
   const showMenu = input.hasMenu === true && !input.shopOpen && !input.infoOpen && !input.hasPreview && !input.hasChip;

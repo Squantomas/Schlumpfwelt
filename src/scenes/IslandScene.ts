@@ -3,6 +3,7 @@ import { CAMERA_CONFIG } from '../data/camera';
 import { buildingType } from '../data/buildings';
 import { buildingAt, isConnected } from '../sim/buildings';
 import { activityOf } from '../sim/residents';
+import { moodOf, workPaces } from '../sim/mood';
 import { hash2 } from '../sim/random';
 import type { GameSession } from '../save/session';
 import type { Simulation } from '../sim/simulation';
@@ -15,6 +16,7 @@ import { FrameStats } from '../ui/frameStats';
 import { simulationDelta } from '../ui/frameTime';
 import { glideAllowed, landingGlide } from '../ui/boatCamera';
 import { RESIDENT_BODY_Y, residentAt } from '../ui/residentHit';
+import { moodReason } from '../ui/residentInfo';
 import { RoundButton } from '../ui/RoundButton';
 import { COLORS, TILE_SIZE, rgb } from '../ui/style';
 import { onViewportChange, type ViewSize } from '../ui/viewport';
@@ -50,6 +52,11 @@ const TOP_DEPTH = 1_000_000;
 const PERF_EVERY = 20;
 /** How many of the last frames the published numbers cover. */
 const PERF_FRAMES = 300;
+/**
+ * Residents are picked up only from this zoom on (a tile of 32 CSS px or more, as at the start, M7): further out a
+ * press on one of many tiny figures would take the camera's drag away, and a tap still opens their card.
+ */
+const GRAB_MIN_ZOOM = 0.5;
 
 /** What a frame cost on the main thread (ms): the whole frame, the simulation in it, and drawing. */
 interface PerfMeter {
@@ -225,6 +232,17 @@ export class IslandScene extends Phaser.Scene {
       // The wheel is for the island only: not over panels, not while the menu or the shop covers it.
       blocksWheel: (x, y) => this.lost.isOpen || this.menu.isOpen || this.buildUI.shopOpen || this.buildUI.coversPoint(x, y) || this.buildUI.overMenuButton(x, y),
       onTap: (point, _screen, time) => this.handleTap(point, time),
+      // M7: a press on a resident while looking carries them to a house.
+      onGrab: (point) => this.grabResident(point),
+      onCarry: (point, screen) => {
+        this.buildTool.carryResident(point, this.buildUI.coversPoint(screen.x, screen.y));
+      },
+      onDrop: (point, screen) => {
+        this.dropResident(point, this.buildUI.coversPoint(screen.x, screen.y));
+      },
+      onCancelCarry: () => {
+        this.buildTool.cancelCarry();
+      },
     });
 
     const zoomIn = new RoundButton(this, 0, 0, {
@@ -382,7 +400,7 @@ export class IslandScene extends Phaser.Scene {
     // The glide to a boat counts real time (like the simulation); inertia and smooth zoom keep Phaser's delta.
     this.controller.update(delta, simulationDelta(this.game.loop.rawDelta, delta));
     this.publishCamera();
-    this.residentView.update(alpha, seconds, this.controller.view.zoom, this.buildTool.inspectedResidentId);
+    this.residentView.update(alpha, seconds, this.controller.view.zoom, this.buildTool.inspectedResidentId, this.buildTool.carried);
     this.updateVillage(seconds, delta);
 
     for (const { sprite, phase } of this.glints) {
@@ -676,6 +694,36 @@ export class IslandScene extends Phaser.Scene {
   }
 
   /**
+   * A press on the world (M7): a resident under the finger is picked up – only while looking, with nothing covering
+   * the island and from {@link GRAB_MIN_ZOOM} on. Moving the finger then carries them; without moving it stays a tap.
+   */
+  private grabResident(world: Point): boolean {
+    if (this.lost.isOpen || this.menu.isOpen || this.buildUI.shopOpen || this.buildTool.tool !== 'view' || this.controller.view.zoom < GRAB_MIN_ZOOM) {
+      return false;
+    }
+    const residentId = this.residentAtTap(world);
+    return residentId !== undefined && this.buildTool.grabResident(residentId, world);
+  }
+
+  /** Let go of a carried resident: into the house under the finger if it has room; a short notice says what happened. */
+  private dropResident(world: Point, overUi: boolean): void {
+    const carried = this.buildTool.carried;
+    const notice = this.buildTool.dropResident(world, overUi);
+    if (!carried) {
+      return;
+    }
+    const at = this.residentView.positionOf(carried.residentId) ?? world;
+    const moved = notice?.key === 'hint.homeMoved';
+    this.residentView.letGo(carried.residentId, at, moved ? carried.target?.houseId : undefined);
+    if (moved) {
+      this.village.puff(at.x, at.y - RESIDENT_BODY_Y, 0.5);
+    }
+    if (notice) {
+      this.buildUI.showNotice(notice.key, notice.params);
+    }
+  }
+
+  /**
    * The resident drawn under a tapped world point (where the picture is now), if any – within 24 CSS px of the body.
    * On a building that answers the tap (a production building, a house without a path, a sign) only close to the body:
    * far out the building keeps its picture (see `residentHit.ts`).
@@ -723,8 +771,9 @@ export class IslandScene extends Phaser.Scene {
     const state = this.simulation.state;
     if (state.tick !== this.producersTick) {
       this.producersTick = state.tick;
-      // [building id, status, times delivered] – changes rarely, so the page attribute is rarely written.
-      this.producers = JSON.stringify(state.production.map((p) => [p.buildingId, p.status, p.delivered]));
+      // [building id, status, times delivered, pace] – changes rarely, so the page attribute is rarely written.
+      const paces = workPaces(state);
+      this.producers = JSON.stringify(state.production.map((p) => [p.buildingId, p.status, p.delivered, paces.get(p.buildingId) ?? 100]));
     }
     if (state.tick !== this.residentsTick || revision !== this.publishedRevision) {
       this.residentsTick = state.tick;
@@ -763,6 +812,8 @@ export class IslandScene extends Phaser.Scene {
       residents: this.residentsText,
       boats: this.boatsText,
       residentCard: this.buildTool.inspectedResidentId === undefined ? '' : String(this.buildTool.inspectedResidentId),
+      drag: this.describeDrag(),
+      homeLabel: this.village.shownHomeLabel,
     });
     const saveInfo = this.session.describe();
     if (saveInfo !== this.savePublished) {
@@ -776,6 +827,23 @@ export class IslandScene extends Phaser.Scene {
    * what they do and carry, and where they are drawn – the feet in world px and the middle of the body on the screen
    * (CSS px), where a tap hits them – and `icon` 1 while the good they carry shows over their head.
    */
+  /** The resident being carried, for tests (`<html data-drag>`): who, where the finger is (CSS px) and the house under it. */
+  private describeDrag(): string {
+    const carried = this.buildTool.carried;
+    if (!carried) {
+      return '';
+    }
+    const view = this.controller.view;
+    const size = this.controller.viewSize;
+    const target = carried.target;
+    return JSON.stringify({
+      resident: carried.residentId,
+      sx: Math.round((carried.at.x - view.centerX) * view.zoom + size.width / 2),
+      sy: Math.round((carried.at.y - view.centerY) * view.zoom + size.height / 2),
+      ...(target ? { house: target.houseId, result: target.result, used: target.used, capacity: target.capacity } : {}),
+    });
+  }
+
   private publishResidents(): void {
     const state = this.simulation.state;
     const view = this.controller.view;
@@ -790,6 +858,7 @@ export class IslandScene extends Phaser.Scene {
     this.residentsText = JSON.stringify(
       state.residents.map((resident) => {
         const at = this.residentView.positionOf(resident.id);
+        const factors = moodOf(state, resident);
         return {
           id: resident.id,
           name: resident.name,
@@ -799,7 +868,11 @@ export class IslandScene extends Phaser.Scene {
           activity: activityOf(resident),
           carrying: resident.carrying ?? '',
           timer: resident.timer,
-          ...(at ? { x: round(at.x), y: round(at.y), ...screen(at.x, at.y - RESIDENT_BODY_Y), icon: at.carry ? 1 : 0 } : {}),
+          mood: factors.mood,
+          reason: moodReason(factors),
+          hungry: resident.hungry,
+          homeId: resident.home,
+          ...(at ? { x: round(at.x), y: round(at.y), ...screen(at.x, at.y - RESIDENT_BODY_Y), icon: at.carry ? 1 : 0, sign: at.sign ? 1 : 0 } : {}),
         };
       }),
     );

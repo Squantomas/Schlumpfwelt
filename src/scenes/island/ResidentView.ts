@@ -1,7 +1,9 @@
 import type Phaser from 'phaser';
+import { moodOf, type Mood } from '../../sim/mood';
 import { hash2 } from '../../sim/random';
 import { boatPoint, residentPoint } from '../../sim/residents';
 import type { Simulation } from '../../sim/simulation';
+import type { Point } from '../../ui/cameraMath';
 import type { ResidentSpot } from '../../ui/residentHit';
 import { TILE_SIZE, clamp } from '../../ui/style';
 import { goodTextureKey } from './goodTextures';
@@ -14,6 +16,7 @@ import {
   RESIDENT_CARRY_Y,
   RESIDENT_ORIGIN,
   RESIDENT_RING_KEY,
+  moodTextureKey,
   residentTextureKey,
 } from './residentTextures';
 
@@ -31,22 +34,53 @@ const BOAT_WATER_DOWN = 10;
 const BOAT_SCALE = 1.25;
 /** A boat comes into sight out at sea: it fades in over this many seconds. */
 const BOAT_FADE_IN = 0.8;
+/**
+ * The mood sign over a resident (M7): a heart (happy) or a cloud (sad), never for "normal". Each resident shows it
+ * now and then – for {@link SIGN_SECONDS} of every {@link SIGN_CYCLE} seconds, at their own time – so a big village
+ * does not turn into a sea of signs. Size in world px, at least {@link SIGN_MIN_CSS} CSS px.
+ */
+const SIGN_CYCLE = 15;
+const SIGN_SECONDS = 2.4;
+const SIGN_SIZE = 24;
+const SIGN_MIN_CSS = 16;
+/** A carried resident hangs this far above the finger (CSS px), so the finger does not hide them. */
+const CARRY_LIFT_CSS = 18;
+/** Let go somewhere without a house: the resident slides back to where they are in this many seconds. */
+const SLIDE_BACK = 0.28;
+/** A carried resident is drawn in front of everything in the world (but below the tap ring). */
+const CARRIED_DEPTH = 990_000;
 
 interface Figure {
   readonly sprite: Phaser.GameObjects.Image;
   hat: number;
   carry: Phaser.GameObjects.Image | undefined;
   carrying: string | null;
+  /** The mood sign over the head (made when first needed), the mood it shows and when that was worked out (tick). */
+  sign: Phaser.GameObjects.Image | undefined;
+  mood: Mood;
+  moodTick: number;
+  /**
+   * Let go (M7): slides from here (world px) to where they are, starting at this time (seconds). After a move into
+   * a house (`waitFor`) they stay where they were put down until the simulation has moved them in (the next tick).
+   */
+  back: { readonly from: Point; start: number; waitFor: number | undefined } | undefined;
   /** 1: looks right, -1: looks left (keeps the last way they walked). */
   facing: number;
   depth: number;
 }
 
-/** Where a resident is drawn (feet, world px) and whether the carried good shows over their head. */
+/** Where a resident is drawn (feet, world px), whether the carried good shows over their head and whether the mood sign does. */
 export interface DrawnResident {
   readonly x: number;
   readonly y: number;
   readonly carry: boolean;
+  readonly sign: boolean;
+}
+
+/** The resident the child is carrying (M7): who, and where the finger is (world px). */
+export interface CarriedResident {
+  readonly residentId: number;
+  readonly at: Point;
 }
 
 interface BoatFigure {
@@ -67,6 +101,11 @@ interface BoatFigure {
  * picture over the head) to the market. A boat is drawn in two parts with
  * the passenger between them. The figures take no taps themselves: the scene
  * asks {@link spots} (see `residentHit.ts`).
+ *
+ * M7: now and then a heart (happy) or a cloud (sad) floats over a resident;
+ * the mood of each figure is looked at once a second (and at once when the
+ * village changes), not every frame. A resident the child carries hangs under
+ * the finger, above everything; let go without moving house, they slide back.
  */
 export class ResidentView {
   private readonly figures = new Map<number, Figure>();
@@ -75,6 +114,9 @@ export class ResidentView {
   private spotList: ResidentSpot[] = [];
   /** Where each resident was drawn this frame (feet, world px) and whether the good they carry is shown over the head. */
   private readonly drawn = new Map<number, DrawnResident>();
+  private seconds = 0;
+  private moodRevision = -1;
+  private moodTick = -1;
 
   constructor(
     private readonly scene: Phaser.Scene,
@@ -96,16 +138,35 @@ export class ResidentView {
   }
 
   /**
+   * A carried resident was let go at `from` (world px): they slide back to where they are – or, after moving into
+   * house `movedTo`, wait there until the simulation has moved them in and then slide to its door.
+   */
+  letGo(residentId: number, from: Point, movedTo?: number): void {
+    const figure = this.figures.get(residentId);
+    if (figure) {
+      figure.back = { from, start: this.seconds, waitFor: movedTo };
+    }
+  }
+
+  /**
    * Draws the residents `alpha` (0 … 1) of a tick after the current state.
    * `seconds` is the smooth simulation time (for bobbing), `zoom` CSS px per
-   * world px, `selected` the resident whose card is open (a ring under them).
+   * world px, `selected` the resident whose card is open (a ring under them),
+   * `carried` the one the child is carrying (M7).
    */
-  update(alpha: number, seconds: number, zoom: number, selected: number | undefined): void {
+  update(alpha: number, seconds: number, zoom: number, selected: number | undefined, carried?: CarriedResident): void {
     const state = this.simulation.state;
     const seen = new Set<number>();
     const spots: ResidentSpot[] = [];
     this.drawn.clear();
+    this.seconds = seconds;
     const carrySize = clamp(CARRY_MIN_CSS / Math.max(zoom, 0.01), CARRY_SIZE, CARRY_SIZE * 2);
+    const signSize = clamp(SIGN_MIN_CSS / Math.max(zoom, 0.01), SIGN_SIZE, SIGN_SIZE * 2.5);
+    // The moods: all at once when the village changed (a flower was put down), else each resident once a second.
+    const allMoods = state.revision !== this.moodRevision;
+    const newTick = state.tick !== this.moodTick;
+    this.moodRevision = state.revision;
+    this.moodTick = state.tick;
     let ringAt: { x: number; y: number; scale: number } | undefined;
 
     for (const resident of state.residents) {
@@ -117,8 +178,23 @@ export class ResidentView {
           .setOrigin(RESIDENT_ORIGIN.x, RESIDENT_ORIGIN.y)
           .setScale(1 / TEXTURE_SCALE);
         this.layer.add(sprite);
-        figure = { sprite, hat: resident.hat, carry: undefined, carrying: null, facing: hash2(resident.id, 2, 9) < 0.5 ? -1 : 1, depth: Number.NaN };
+        figure = {
+          sprite,
+          hat: resident.hat,
+          carry: undefined,
+          carrying: null,
+          sign: undefined,
+          mood: 'normal',
+          moodTick: Number.NEGATIVE_INFINITY,
+          back: undefined,
+          facing: hash2(resident.id, 2, 9) < 0.5 ? -1 : 1,
+          depth: Number.NaN,
+        };
         this.figures.set(resident.id, figure);
+      }
+      if (allMoods || (newTick && (state.tick + resident.id) % 10 === 0) || figure.moodTick === Number.NEGATIVE_INFINITY) {
+        figure.mood = moodOf(state, resident).mood;
+        figure.moodTick = state.tick;
       }
       if (figure.hat !== resident.hat) {
         figure.hat = resident.hat;
@@ -129,13 +205,48 @@ export class ResidentView {
         // On the boat: the boat draws them.
         figure.sprite.setVisible(false);
         figure.carry?.setVisible(false);
+        figure.sign?.setVisible(false);
+        continue;
+      }
+      if (carried?.residentId === resident.id) {
+        // Carried by the child: under the finger, a little above it, swinging gently, in front of everything.
+        const liftWorld = CARRY_LIFT_CSS / Math.max(zoom, 0.01);
+        const footX = carried.at.x;
+        const footY = carried.at.y - liftWorld;
+        figure.back = undefined;
+        figure.sprite.setVisible(true).setAlpha(1).setPosition(footX, footY).setAngle(Math.sin(seconds * 7) * 8).setFlipX(figure.facing < 0);
+        figure.depth = Number.NaN;
+        figure.sprite.setDepth(CARRIED_DEPTH);
+        figure.carry?.setVisible(false);
+        this.drawSign(figure, figure.mood !== 'normal', footX, footY - RESIDENT_CARRY_Y - signSize / 2, CARRIED_DEPTH, signSize);
+        this.drawn.set(resident.id, { x: footX, y: footY, carry: false, sign: figure.sign?.visible === true });
         continue;
       }
       if (point.dx !== 0) {
         figure.facing = point.dx;
       }
-      const footX = (point.x + (hash2(resident.id, 17, 3) - 0.5) * SPREAD_X) * TILE_SIZE;
-      const footY = (point.y + FOOT_DOWN + (hash2(resident.id, 5, 11) - 0.5) * SPREAD_Y) * TILE_SIZE;
+      let footX = (point.x + (hash2(resident.id, 17, 3) - 0.5) * SPREAD_X) * TILE_SIZE;
+      let footY = (point.y + FOOT_DOWN + (hash2(resident.id, 5, 11) - 0.5) * SPREAD_Y) * TILE_SIZE;
+      if (figure.back?.waitFor !== undefined) {
+        // Put down on a house: they wait where they are until they live there (at most a second), then go to the door.
+        if (resident.home !== figure.back.waitFor && seconds - figure.back.start < 1) {
+          footX = figure.back.from.x;
+          footY = figure.back.from.y;
+        } else {
+          figure.back.waitFor = undefined;
+          figure.back.start = seconds;
+        }
+      }
+      if (figure.back && figure.back.waitFor === undefined) {
+        // Back to where they are, quickly and softly.
+        const done = clamp((seconds - figure.back.start) / SLIDE_BACK, 0, 1);
+        const ease = 1 - (1 - done) * (1 - done);
+        footX = figure.back.from.x + (footX - figure.back.from.x) * ease;
+        footY = figure.back.from.y + (footY - figure.back.from.y) * ease;
+        if (done >= 1) {
+          figure.back = undefined;
+        }
+      }
       const phase = seconds * 11 + resident.id * 1.3;
       let lift = 0;
       let angle = 0;
@@ -160,8 +271,13 @@ export class ResidentView {
         figure.sprite.setDepth(footY);
       }
       this.drawCarry(figure, resident.carrying, footX, footY - lift - RESIDENT_CARRY_Y - carrySize / 2, footY, carrySize);
+      // The mood sign takes the place of a carried good: only one thing floats over a head.
+      const signAt = (seconds + hash2(resident.id, 23, 7) * SIGN_CYCLE) % SIGN_CYCLE;
+      const signShown = figure.mood !== 'normal' && resident.carrying === null && signAt < SIGN_SECONDS;
+      const pop = signShown ? Math.min(1, signAt / 0.25, (SIGN_SECONDS - signAt) / 0.25) : 0;
+      this.drawSign(figure, signShown, footX, footY - lift - RESIDENT_CARRY_Y - signSize / 2 - (1 - pop) * 6, footY, signSize * (0.6 + 0.4 * pop));
       spots.push({ id: resident.id, x: footX, y: footY });
-      this.drawn.set(resident.id, { x: footX, y: footY, carry: figure.carry?.visible === true });
+      this.drawn.set(resident.id, { x: footX, y: footY, carry: figure.carry?.visible === true, sign: signShown });
       if (resident.id === selected) {
         ringAt = { x: footX, y: footY, scale: 1 };
       }
@@ -170,6 +286,7 @@ export class ResidentView {
       if (!seen.has(id)) {
         figure.sprite.destroy();
         figure.carry?.destroy();
+        figure.sign?.destroy();
         this.figures.delete(id);
       }
     }
@@ -204,7 +321,7 @@ export class ResidentView {
         passenger.sprite.setVisible(true).setPosition(seatX, seatY).setAngle(angle).setFlipX(flip).setDepth(water - 0.01).setAlpha(shown);
         passenger.depth = water - 0.01;
         spots.push({ id: boat.passenger, x: seatX, y: seatY });
-        this.drawn.set(boat.passenger, { x: seatX, y: seatY, carry: false });
+        this.drawn.set(boat.passenger, { x: seatX, y: seatY, carry: false, sign: false });
         if (boat.passenger === selected) {
           ringAt = { x, y: water + 4, scale: 1.5 };
         }
@@ -244,6 +361,22 @@ export class ResidentView {
     }
     figure.carrying = carrying;
     figure.carry.setVisible(true).setPosition(x, y).setDisplaySize(size, size).setDepth(depth + 0.01);
+  }
+
+  /** The heart or cloud over a head (M7), made when first needed. */
+  private drawSign(figure: Figure, shown: boolean, x: number, y: number, depth: number, size: number): void {
+    if (!shown) {
+      figure.sign?.setVisible(false);
+      return;
+    }
+    const key = moodTextureKey(figure.mood);
+    if (!figure.sign) {
+      figure.sign = this.scene.add.image(0, 0, key);
+      this.layer.add(figure.sign);
+    } else if (figure.sign.texture.key !== key) {
+      figure.sign.setTexture(key);
+    }
+    figure.sign.setVisible(true).setPosition(x, y).setDisplaySize(size, size).setDepth(depth + 0.02);
   }
 
   /** How many residents and boats are drawn (for the test marker). */

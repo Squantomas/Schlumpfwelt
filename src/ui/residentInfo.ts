@@ -1,6 +1,7 @@
 import { buildingType } from '../data/buildings';
 import { HAT_IDS } from '../data/residents';
 import { t, type TextKey } from '../data/texts';
+import { moodOf, type Mood, type MoodFactors, type MoodView } from '../sim/mood';
 import type { DeepReadonly } from '../sim/readonly';
 import { activityOf, type Resident } from '../sim/residents';
 import type { SimState } from '../sim/state';
@@ -10,10 +11,11 @@ import { itemName } from './costText';
  * What the card of a resident says (M6), without Phaser: the name, the job
  * (the job of the building they work at, "Holzfäller"), the colour of the hat,
  * the house they live in and – in one short sentence – what they are doing
- * right now. Pure and tested; the card only draws it.
+ * right now. Since M7 also how they feel and why ("Fröhlich – Deko am Haus.")
+ * and one tip that makes them happier. Pure and tested; the card only draws it.
  */
 
-export type ResidentInfoView = DeepReadonly<Pick<SimState, 'residents' | 'buildings'>>;
+export type ResidentInfoView = MoodView & DeepReadonly<Pick<SimState, 'residents' | 'buildings'>>;
 
 export interface ResidentInfo {
   readonly id: number;
@@ -24,6 +26,46 @@ export interface ResidentInfo {
   readonly lines: readonly string[];
   /** What the resident is doing now ("Geht zur Arbeit."). */
   readonly activity: string;
+  /** How they feel (M7) – the picture on the card – and in words, with the reason ("Fröhlich – Deko am Haus."). */
+  readonly mood: Mood;
+  readonly moodLine: string;
+  /** What would make them happier, or a word of praise when they are happy already. */
+  readonly tip: string;
+  /** Can they move house now? (Not while they are still on the boat.) */
+  readonly canMove: boolean;
+}
+
+/** Why a resident feels the way they do, in a few words: what hurts first (hunger, the way, no home), else the decoration. */
+export function moodReason(factors: MoodFactors): TextKey {
+  if (factors.hungry) {
+    return factors.far ? 'reason.hungryFar' : factors.homeless ? 'reason.hungryHomeless' : 'reason.hungry';
+  }
+  if (factors.far) {
+    return factors.deco ? 'reason.decoFar' : 'reason.far';
+  }
+  if (factors.homeless) {
+    return 'reason.homeless';
+  }
+  return factors.deco ? 'reason.deco' : 'reason.noDeco';
+}
+
+/** The one tip that helps this resident most (food, a nearer house, a house at all, decoration) – or praise when happy. */
+export function moodTip(factors: MoodFactors): TextKey {
+  if (factors.mood === 'happy') {
+    return 'tip.happy';
+  }
+  if (factors.hungry) {
+    return 'tip.food';
+  }
+  if (factors.far) {
+    return 'tip.near';
+  }
+  return factors.homeless ? 'tip.house' : 'tip.deco';
+}
+
+/** The mood in words with its reason: "Traurig – hat Hunger." */
+export function moodLine(factors: MoodFactors): string {
+  return t('resident.mood', { mood: t(`mood.${factors.mood}`), reason: t(moodReason(factors)) });
 }
 
 /** The text of a hat colour ("rot"); `hat.<id>` exists for every id (tested). */
@@ -53,6 +95,7 @@ export function residentInfo(view: ResidentInfoView, residentId: number): Reside
   }
   const home = resident.home === null ? undefined : view.buildings.find((b) => b.id === resident.home);
   const homeType = home ? buildingType(home.type) : undefined;
+  const factors = moodOf(view, resident);
   return {
     id: resident.id,
     name: resident.name,
@@ -63,7 +106,20 @@ export function residentInfo(view: ResidentInfoView, residentId: number): Reside
       homeType ? t('resident.home', { house: t(homeType.nameKey) }) : t('resident.homeless'),
     ],
     activity: activityText(resident),
+    mood: factors.mood,
+    moodLine: moodLine(factors),
+    tip: t(moodTip(factors)),
+    canMove: resident.doing !== 'boat',
   };
+}
+
+/**
+ * The rows of the card, from top to bottom: tall – job, hat, home, what they do, mood, tip; compact (a phone held
+ * sideways) – job, home, mood, tip (the hat is in the picture, what they do can be seen on the island).
+ */
+export function cardRows(info: ResidentInfo, compact: boolean): readonly string[] {
+  const [job = '', hat = '', home = ''] = info.lines;
+  return compact ? [job, home, info.moodLine, info.tip] : [job, hat, home, info.activity, info.moodLine, info.tip];
 }
 
 /** The card in one sentence, for the hint bar when the card does not fit on the screen: "Lumo: Geht zur Arbeit." */

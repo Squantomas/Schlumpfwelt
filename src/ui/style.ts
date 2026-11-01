@@ -157,6 +157,15 @@ export const COLORS = {
   sailShade: 0xe8dcc0,
   mast: 0x7a5232,
   wake: 0xffffff,
+  // Moods (M7): a red heart (happy), a sunny face (normal), a grey-blue cloud with a drop (sad).
+  moodHeart: 0xff5d7a,
+  moodHeartShade: 0xd93a5c,
+  moodFace: 0xffd84d,
+  moodFaceShade: 0xe8b52e,
+  moodCloud: 0xa9bccb,
+  moodCloudShade: 0x7f95a8,
+  moodDrop: 0x5aa9e6,
+  moodRim: 0xffffff,
 } as const;
 
 /** The colours of the residents' pointed hats, by the ids of `residents.json` (`hats`). */
