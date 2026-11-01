@@ -95,6 +95,8 @@ export function markVillage(info: {
   readonly drag: string;
   /** M7: the "2/2" shown over the house of a move preview, or an empty text. */
   readonly homeLabel: string;
+  /** M7: the tick of the simulation (to measure how fast a building works). */
+  readonly tick: string;
 }): void {
   const data = document.documentElement.dataset;
   const next = {
@@ -123,6 +125,7 @@ export function markVillage(info: {
     residentCard: info.residentCard,
     drag: info.drag,
     homeLabel: info.homeLabel,
+    tick: info.tick,
   };
   for (const [key, value] of Object.entries(next)) {
     if (data[key] !== value) {

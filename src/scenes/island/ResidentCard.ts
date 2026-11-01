@@ -4,6 +4,7 @@ import type { Rect } from '../../ui/cameraMath';
 import type { InfoCardLayout } from '../../ui/infoCardLayout';
 import { createLabel, setLabelSize } from '../../ui/label';
 import { CARD_ROW_GAP, TALL_ROWS, fitRows, residentCardLayout, type ResidentCardLayout } from '../../ui/residentCardLayout';
+import type { Mood } from '../../sim/mood';
 import { cardRows, type ResidentInfo } from '../../ui/residentInfo';
 import { RoundButton } from '../../ui/RoundButton';
 import { SquareButton } from '../../ui/SquareButton';
@@ -38,6 +39,7 @@ export class ResidentCard {
   private open = false;
   private rowFont = 0;
   private canMove = false;
+  private mood: Mood = 'normal';
 
   constructor(scene: Phaser.Scene, uiLayer: Phaser.GameObjects.Layer, onClose: (eventTime: number) => void, onMove: (eventTime: number) => void) {
     this.panel = addGraphics(scene);
@@ -87,6 +89,11 @@ export class ResidentCard {
   /** The font size of the rows (CSS px; the same for all of them), for the smoke test. */
   get rowsFont(): number {
     return this.rowFont;
+  }
+
+  /** The mood the picture in the corner shows (heart, face, cloud), for the smoke test. */
+  get shownMood(): Mood {
+    return this.mood;
   }
 
   /** How many rows the card shows now (six, or four on a compact card), for the smoke test. */
@@ -155,6 +162,7 @@ export class ResidentCard {
       .setDisplaySize(RESIDENT_SIZE.width * scale, RESIDENT_SIZE.height * scale)
       .setPosition(picture.x + picture.width / 2, picture.y + picture.height / 2);
     this.moodIcon.setTexture(moodTextureKey(info.mood)).setDisplaySize(parts.mood.width, parts.mood.height);
+    this.mood = info.mood;
     this.canMove = info.canMove;
     this.moveButton.setDimmed(!info.canMove);
 

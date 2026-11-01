@@ -48,8 +48,9 @@ export interface UiSpot {
   readonly font?: number;
   /** The shop line: height of the sentence as measured (CSS px). */
   readonly textH?: number;
-  /** The card of a resident: how many rows it shows (M7). */
+  /** The card of a resident: how many rows it shows and the mood its picture shows (M7). */
   readonly rows?: number;
+  readonly mood?: string;
 }
 
 /** The words under the toolbar buttons and the shop tabs are at least this big (CSS px), else only the picture stays. */
@@ -665,7 +666,7 @@ export class BuildUI {
       const openCard = this.card.isOpen ? this.card : this.residentCard.isOpen ? this.residentCard : undefined;
       if (openCard) {
         const cardRect = openCard.rect;
-        const rows = openCard === this.residentCard ? { font: this.residentCard.rowsFont, rows: this.residentCard.rowCount } : {};
+        const rows = openCard === this.residentCard ? { font: this.residentCard.rowsFont, rows: this.residentCard.rowCount, mood: this.residentCard.shownMood } : {};
         spots['card'] = { x: cardRect.x + cardRect.width / 2, y: cardRect.y + cardRect.height / 2, enabled: true, w: cardRect.width, h: cardRect.height, ...rows };
         const close = openCard.closeSpot;
         const closeSize = 'size' in close ? close.size : 64;

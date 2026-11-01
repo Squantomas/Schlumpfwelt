@@ -235,6 +235,10 @@ export class IslandScene extends Phaser.Scene {
       // M7: a press on a resident while looking carries them to a house.
       onGrab: (point) => this.grabResident(point),
       onCarry: (point, screen) => {
+        // Carrying starts: an old explanation ("Lumo wohnt jetzt hier!") gives way to what to do now.
+        if (!this.buildTool.carried) {
+          this.buildUI.clearNotice();
+        }
         this.buildTool.carryResident(point, this.buildUI.coversPoint(screen.x, screen.y));
       },
       onDrop: (point, screen) => {
@@ -814,6 +818,7 @@ export class IslandScene extends Phaser.Scene {
       residentCard: this.buildTool.inspectedResidentId === undefined ? '' : String(this.buildTool.inspectedResidentId),
       drag: this.describeDrag(),
       homeLabel: this.village.shownHomeLabel,
+      tick: String(state.tick),
     });
     const saveInfo = this.session.describe();
     if (saveInfo !== this.savePublished) {
@@ -822,11 +827,6 @@ export class IslandScene extends Phaser.Scene {
     }
   }
 
-  /**
-   * The residents and boats for tests (`<html data-residents data-boats>`, once per tick): who, where they work and live,
-   * what they do and carry, and where they are drawn – the feet in world px and the middle of the body on the screen
-   * (CSS px), where a tap hits them – and `icon` 1 while the good they carry shows over their head.
-   */
   /** The resident being carried, for tests (`<html data-drag>`): who, where the finger is (CSS px) and the house under it. */
   private describeDrag(): string {
     const carried = this.buildTool.carried;
@@ -844,6 +844,12 @@ export class IslandScene extends Phaser.Scene {
     });
   }
 
+  /**
+   * The residents and boats for tests (`<html data-residents data-boats>`, once per tick): who, where they work and live,
+   * what they do and carry, how they feel and why (M7), and where they are drawn – the feet in world px and the middle
+   * of the body on the screen (CSS px), where a tap hits them – `icon` 1 while the good they carry shows over their
+   * head and `sign` 1 while the heart or cloud of their mood shows.
+   */
   private publishResidents(): void {
     const state = this.simulation.state;
     const view = this.controller.view;
