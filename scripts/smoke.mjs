@@ -88,6 +88,7 @@
  * global vorinstallierte Paket (NODE_PATH oder `npm root -g`).
  */
 import { execSync, spawn, spawnSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import { createRequire } from 'node:module';
@@ -4334,6 +4335,37 @@ const TUTORIAL_SKIPPED = { format: 'village-tutorial', status: 'skipped' };
 const TUTORIAL_STEPS = ['resident', 'shop', 'deco', 'coins', 'house', 'path', 'praise'];
 const TEST_PIN = '2468';
 
+/** Die sichtbaren Texte des Spiels (wie `t()` in `src/data/texts.ts`: Platzhalter aus dem Theme und aus `params`). */
+const DATA_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'src', 'data');
+const GAME_TEXTS = JSON.parse(readFileSync(path.join(DATA_DIR, 'texts.de.json'), 'utf8'));
+const GAME_THEME = JSON.parse(readFileSync(path.join(DATA_DIR, 'theme.json'), 'utf8'));
+function gameText(key, params = {}) {
+  const values = { gameName: GAME_THEME.gameName, ...GAME_THEME.terms, ...params };
+  return String(GAME_TEXTS[key] ?? `?${key}?`).replace(/\{(\w+)\}/g, (all, name) => (name in values ? String(values[name]) : all));
+}
+
+/**
+ * Passt der Satz des geführten Starts zur Hand (Korrekturrunde 1)? Er steht dort, wo das Kind hinschaut (Hinweisleiste,
+ * feste Zeile des Shops, Tipp-Zeile der Bewohner-Karte) und sagt, was die Hand zeigt. Nur bei Zielen, die das offene
+ * Werkzeug selbst erklärt (Platz, ✓, Anfang und Ende des Wegs), darf der Hinweis des Werkzeugs dastehen.
+ * Gibt `undefined` zurück, wenn alles passt, sonst den Grund.
+ */
+function tutorialMismatch(tutorial, village, residentCard) {
+  if (!tutorial.sentence) return undefined;
+  const want = gameText(`tutorial.${tutorial.sentence}`);
+  const where = village.tool === 'shop' ? 'shop' : residentCard !== '' ? 'card' : 'hint';
+  const toolOwn = /^(place:|pathStart$|pathEnd$|spot:confirm$)/.test(tutorial.target) && village.tool !== 'view' && village.tool !== 'shop';
+  if (tutorial.at === where && tutorial.said === want) return undefined;
+  if (toolOwn && tutorial.at === '' && village.hint !== '') return undefined;
+  // Die Infokarte eines Gebäudes hat keine Zeile dafür (die Hand zeigt auf ihr ✕).
+  if (village.card !== '' && tutorial.target === 'spot:card-close') return undefined;
+  // Hinter einer Meldung (Neu im Shop, Erklärung) wartet die Hand.
+  if (tutorial.hx === undefined && where === 'hint' && tutorial.at === '') return undefined;
+  // Eine gesperrte Karte hat ihren Satz in der Zeile des Shops (er geht vor).
+  if (where === 'shop' && village.tip !== '') return undefined;
+  return `Satz „${tutorial.said}“ (${tutorial.at || 'nirgends'}, Hinweis „${village.hint}“) passt nicht zu Ziel ${tutorial.target}: erwartet „${want}“ in ${where}`;
+}
+
 /** Der lokale Kalendertag der Seite (`localDayKey`), wie ihn das Spiel rechnet. */
 async function localDay(page) {
   return page.evaluate(() => {
@@ -4416,6 +4448,7 @@ async function readParent(page) {
       limit: JSON.parse(d.limit ?? '{}'),
       night: JSON.parse(d.night ?? '{}'),
       bedtime: d.bedtime === '1',
+      residentCard: d.residentCard ?? '',
     };
   });
 }
@@ -4489,7 +4522,7 @@ async function testKidFriendly({ browser, profile, check, problems, name }) {
   const waitForScene = (scene) => page.waitForSelector(`html[data-scene="${scene}"]`, { state: 'attached', timeout: 20_000 });
   const size = { ...profile.context.viewport };
   const input = profile.context.hasTouch ? { tap: (p) => page.touchscreen.tap(p.x, p.y) } : { tap: (p) => page.mouse.click(p.x, p.y) };
-  const { step, tapUi } = buildHelpers({ page, check, size, input, name });
+  const { step, tapUi, openShop } = buildHelpers({ page, check, size, input, name });
   const near = (a, b, tolerance) => a !== undefined && b !== undefined && Math.hypot(a.x - b.x, a.y - b.y) <= tolerance;
   /** Tippt nacheinander auf die Ziffern (zwischen zwei Tipps ein paar Bilder Zeit). */
   const typeDigits = async (digits) => {
@@ -4536,8 +4569,46 @@ async function testKidFriendly({ browser, profile, check, problems, name }) {
     await sleep(500);
     await shot(`${name}-tutorial-hand`);
 
+    // --- Handy quer (568×320): das freie Band zwischen den Leisten ist niedrig – die Hand ist trotzdem da (Korrekturrunde 1) ---
+    step('M8: 568×320 – die Hand zeigt auf einen Bewohner, dann aufs ✕ der Karte');
+    {
+      const low = { width: 568, height: 320 };
+      await page.setViewportSize(low);
+      p = await waitForParent(page, (x) => x.tutorial.step === 'resident' && x.tutorial.hx !== undefined && x.tutorial.hx <= low.width, 'die Hand auf einem Bewohner bei 568×320', 7000);
+      const { residents } = await readResidents(page);
+      const hand = { x: p.tutorial.hx, y: p.tutorial.hy };
+      const nearest = residents.reduce((best, r) => (Math.hypot(r.sx - hand.x, r.sy - hand.y) < Math.hypot(best.sx - hand.x, best.sy - hand.y) ? r : best), residents[0]);
+      check(nearest && Math.hypot(nearest.sx - hand.x, nearest.sy - hand.y) <= 40, `568×320: die Hand ${JSON.stringify(hand)} zeigt auf keinen Bewohner`);
+      v = await readVillage(page);
+      check(p.tutorial.said === gameText('tutorial.resident') && v.hint === p.tutorial.said, `568×320: Satz „${p.tutorial.said}“, Hinweis „${v.hint}“`);
+      // Antippen öffnet die Karte (der erste Schritt), die Hand geht aufs ✕ der Karte, die Karte sagt es. Der Bewohner
+      // läuft (Headless zeichnet nur wenige Bilder pro Sekunde): wie ein Kind notfalls noch einmal tippen.
+      let opened = false;
+      for (let attempt = 0; attempt < 4 && !opened; attempt += 1) {
+        const now = attempt === 0 ? p : await waitForParent(page, (x) => x.tutorial.step !== 'resident' || x.tutorial.hx !== undefined, 'die Hand auf einem Bewohner (noch einmal)', 7000);
+        if (now.tutorial.step === 'resident') await input.tap({ x: now.tutorial.hx, y: now.tutorial.hy });
+        opened = await waitForParent(page, (x) => x.residentCard !== '', 'die Karte des Bewohners', 2500).then(
+          () => true,
+          () => false,
+        );
+      }
+      p = await waitForParent(page, (x) => x.tutorial.step === 'shop' && x.residentCard !== '' && x.tutorial.target === 'spot:card-close' && x.tutorial.hx !== undefined, 'die Karte mit der Hand auf ihrem ✕', 6000);
+      v = await readVillage(page);
+      check(near({ x: p.tutorial.hx, y: p.tutorial.hy }, v.ui['card-close'], 32), `568×320: die Hand ${JSON.stringify([p.tutorial.hx, p.tutorial.hy])} zeigt nicht aufs ✕ der Karte ${JSON.stringify(v.ui['card-close'])}`);
+      check(p.tutorial.at === 'card' && p.tutorial.said === gameText('tutorial.closeCard'), `568×320: auf der Karte steht „${p.tutorial.said}“ (${p.tutorial.at})`);
+      await shot(`${name}-tutorial-karte-quer`);
+      await tapUi('card-close');
+      p = await waitForParent(page, (x) => x.residentCard === '' && x.tutorial.target === 'spot:tool-shop' && x.tutorial.hx !== undefined, 'die Hand auf dem Shop nach dem ✕', 6000);
+      v = await readVillage(page);
+      check(v.hint === gameText('tutorial.shop') && near({ x: p.tutorial.hx, y: p.tutorial.hy }, v.ui['tool-shop'], 32), `568×320 nach dem ✕: Hinweis „${v.hint}“, Hand ${JSON.stringify([p.tutorial.hx, p.tutorial.hy])}`);
+      await page.setViewportSize(size);
+      await sleep(1200);
+    }
+
     // Der Hand folgen: jeder erledigte Schritt führt zum nächsten. Unterwegs einmal neu laden.
-    const seenSteps = [];
+    const seenSteps = ['resident'];
+    const wrongSentence = new Set();
+    const sentencesSeen = new Set();
     const wrongHand = new Set();
     let reloaded = false;
     let last = { key: '', at: 0 };
@@ -4552,10 +4623,29 @@ async function testKidFriendly({ browser, profile, check, problems, name }) {
         step(`M8: Schritt „${stepId}“ – „${v.hint}“`);
       }
       const hand = p.tutorial.hx === undefined ? undefined : { x: p.tutorial.hx, y: p.tutorial.hy };
+      // Satz und Hand passen zusammen (bei jedem Schritt, mit jedem Werkzeug).
+      const mismatch = tutorialMismatch(p.tutorial, v, p.residentCard);
+      const sentenceKey = `${stepId}:${v.tool}:${p.tutorial.target}`;
+      if (mismatch && !wrongSentence.has(sentenceKey)) {
+        await sleep(300);
+        const again = await readParent(page);
+        const vAgain = await readVillage(page);
+        const still = again.tutorial.step === stepId && vAgain.tool === v.tool ? tutorialMismatch(again.tutorial, vAgain, again.residentCard) : undefined;
+        if (still) {
+          wrongSentence.add(sentenceKey);
+          check(false, `Tutorial, Schritt ${stepId} (Werkzeug ${v.tool}): ${still}`);
+        }
+        continue;
+      }
+      if (p.tutorial.sentence) sentencesSeen.add(`${p.tutorial.sentence}@${p.tutorial.at || 'tool'}`);
       // Wohin die Hand zeigen muss (nur die eindeutigen Fälle).
       let expected;
-      if (v.tool === 'view') {
-        expected = { shop: 'tool-shop', deco: 'tool-shop', house: 'tool-shop', path: 'tool-path', coins: 'stock' }[stepId];
+      if (stepId === 'coins') {
+        expected = 'stock';
+      } else if (p.residentCard !== '' && stepId !== 'resident') {
+        expected = 'card-close';
+      } else if (v.tool === 'view') {
+        expected = { shop: 'tool-shop', deco: 'tool-shop', house: 'tool-shop', path: 'tool-path' }[stepId];
       } else if (v.tool === 'shop' && (stepId === 'deco' || stepId === 'house')) {
         const item = stepId === 'deco' ? 'item-flower' : 'item-house-red';
         expected = item in v.ui ? item : v.shop.startsWith(stepId === 'deco' ? 'deco:' : 'houses:') ? undefined : `tab-${stepId === 'deco' ? 'deco' : 'houses'}`;
@@ -4589,7 +4679,8 @@ async function testKidFriendly({ browser, profile, check, problems, name }) {
         await sleep(600);
         continue;
       }
-      if (!hand || (stepId === 'coins' && v.tool === 'view')) {
+      if (!hand || stepId === 'coins') {
+        // „Taler“: die Hand zeigt auf die Lagerleiste, erledigt wird es ohne Tipp, sobald der Markt verkauft.
         await sleep(400);
         continue;
       }
@@ -4608,7 +4699,8 @@ async function testKidFriendly({ browser, profile, check, problems, name }) {
     const mustSee = TUTORIAL_STEPS.filter((id) => id !== 'coins');
     check(mustSee.every((id) => seenSteps.includes(id)) && seenSteps.every((id, i) => i === 0 || TUTORIAL_STEPS.indexOf(id) > TUTORIAL_STEPS.indexOf(seenSteps[i - 1])), `Tutorial: Schritte ${seenSteps.join(' → ')} (erwartet ${TUTORIAL_STEPS.join(' → ')})`);
     check(reloaded, 'Tutorial: kein Neuladen mitten im geführten Start geprüft');
-    console.log(`  [${name}] geführter Start: ${seenSteps.join(' → ')}, fertig`);
+    console.log(`  [${name}] geführter Start: ${seenSteps.join(' → ')}, fertig; Sätze: ${[...sentencesSeen].join(', ')}`);
+    check(sentencesSeen.has('shop@hint') && [...sentencesSeen].some((x) => x.endsWith('@shop')), `Tutorial: Sätze ${[...sentencesSeen].join(', ')} (erwartet u. a. „shop“ in der Hinweisleiste und einen Satz in der Zeile des Shops)`);
     await sleep(1000);
     p = await readParent(page);
     check(p.tutorial.hx === undefined && !p.tutorial.shown, `Tutorial: nach dem Ende noch Hand oder Satz ${JSON.stringify(p.tutorial)}`);
@@ -4625,7 +4717,7 @@ async function testKidFriendly({ browser, profile, check, problems, name }) {
     // --- Eltern-Menü: PIN zweimal setzen (erst falsch wiederholt) ---
     step('M8: Eltern-Menü – PIN setzen');
     p = await openParents();
-    check(p.parent.split(':')[0] === 'newPin', `Eltern-Menü beim ersten Mal: „${p.parent}“ (erwartet: neue PIN)`);
+    check(p.parent === 'newPin:parent.firstPin' && p.parentText === gameText('parent.firstPin'), `Eltern-Menü beim ersten Mal: „${p.parent}“, „${p.parentText}“ (erwartet: neue PIN, wer zuerst wählt)`);
     v = await readVillage(page);
     checkParentSpots(v, size, check, 'Ziffernfeld');
     check(!('pin-forgot' in v.ui), 'Neue PIN: „PIN vergessen“ ist zu sehen');
@@ -4648,14 +4740,15 @@ async function testKidFriendly({ browser, profile, check, problems, name }) {
     v = await readVillage(page);
     checkParentSpots(v, size, check, 'Einstellungen');
     check(v.ui['limit-0']?.active === true, 'Einstellungen: „Aus“ ist nicht gewählt');
+    check(!('parent-extra' in v.ui), 'Einstellungen ohne Limit: „+10 Minuten“ ist zu sehen');
     const stored = await readSettingsEntry(page);
     check(stored?.pin && typeof stored.pin.hash === 'string' && !JSON.stringify(stored).includes(TEST_PIN), `PIN: gespeichert wird ${JSON.stringify(stored?.pin)} (erwartet: Hash, nie die Ziffern)`);
 
     // „Tutorial noch einmal“, dann überspringen.
     step('M8: „Tutorial noch einmal“ und Überspringen');
     await tapUi('parent-tutorial');
-    p = await waitForParent(page, (x) => x.tutorial.status === 'active', 'den neuen geführten Start');
-    await closeParents();
+    // Das Eltern-Feld geht dabei zu: das Kind sieht gleich die Hand.
+    p = await waitForParent(page, (x) => x.tutorial.status === 'active' && x.parent === 'closed', 'den neuen geführten Start mit geschlossenem Eltern-Feld');
     v = await waitForVillage(page, (x) => 'tutorial-skip' in x.ui, 'den Knopf zum Überspringen');
     await tapUi('tutorial-skip');
     p = await waitForParent(page, (x) => x.tutorial.status === 'skipped', 'den übersprungenen Start');
@@ -4684,14 +4777,10 @@ async function testKidFriendly({ browser, profile, check, problems, name }) {
     let numbers = (p.parentText.match(/\d+/g) ?? []).map(Number);
     check(numbers.length === 2 && numbers.every((n) => n >= 12 && n <= 29), `Rechenfrage: „${p.parentText}“`);
     await typeDigits('100');
+    // Die neue Aufgabe steht sofort im Satz („Leider falsch. Wie viel ist 17 × 23?“).
     p = await waitForParent(page, (x) => x.parent === 'question:parent.questionWrong', 'den Satz zur falschen Antwort');
-    await typeDigits('1');
-    p = await waitForParent(page, (x) => x.parent === 'question:parent.question', 'die neue Rechenfrage');
     numbers = (p.parentText.match(/\d+/g) ?? []).map(Number);
-    await page.waitForTimeout(100);
-    // Erst die eine Ziffer wieder löschen (sie stand schon im Feld), dann die Antwort.
-    await tapUi('pin-back');
-    await sleep(220);
+    check(p.parentText.startsWith('Leider falsch') && numbers.length === 2 && numbers.every((n) => n >= 12 && n <= 29), `Falsche Antwort: „${p.parentText}“ (erwartet: die neue Aufgabe im Satz)`);
     await typeDigits(String(numbers[0] * numbers[1]));
     await waitForParent(page, (x) => x.parent === 'newPin:parent.questionRight', 'die neue PIN nach der richtigen Antwort');
     // Wieder dieselbe PIN (der Test kennt sie), dann zu – und mit der richtigen PIN hinein.
@@ -4706,10 +4795,31 @@ async function testKidFriendly({ browser, profile, check, problems, name }) {
     await unlock();
     await closeParents();
 
-    // --- Tageslimit: kurz vor dem Ende (von außen ins Tageskonto geschrieben), Limit 15 Minuten ---
-    step('M8: Limit 15 Minuten, 14:40 schon gespielt');
+    // --- „Bald wird es Abend“ kommt, während der Shop offen ist: der Satz wartet, bis die Hinweisleiste ihn zeigt ---
+    step('M8: der sanfte Satz geht unter dem Shop nicht verloren');
     const entry = await readSettingsEntry(page);
     const today = await localDay(page);
+    await setSettingsFromOutside(page, { ...entry, day: today, usedMs: 10 * 60_000 - 8000, limitMinutes: 15, extraMinutes: 0 });
+    await enterIsland(page, profile, waitForScene, SAVE_URL);
+    await openShop();
+    p = await waitForParent(page, (x) => x.limit.warned === true, 'den sanften Satz (unter dem offenen Shop)', 20_000);
+    v = await readVillage(page);
+    check(v.shop !== 'closed' && v.hint === '', `Unter dem Shop: Shop ${v.shop}, Hinweis „${v.hint}“`);
+    // Ein Tipp in den Shop und das Schließen mit ✕ löschten früher den nie gezeigten Satz.
+    await tapUi('tab-deco');
+    await sleep(300);
+    await tapUi('shop-close');
+    // („Neu im Shop“ geht vor, höchstens 7 s.)
+    v = await waitForVillage(page, (x) => x.shop === 'closed' && x.hint.startsWith('Bald wird es Abend'), 'den sanften Satz nach dem Schließen des Shops', 12_000).catch(async (error) => {
+      throw new Error(`${error.message}; Hinweis „${(await readVillage(page)).hint}“, Konto ${JSON.stringify((await readParent(page)).limit)}`);
+    });
+    // Gezeigt: der nächste Tipp nimmt ihn weg.
+    await sleep(500);
+    await input.tap({ x: size.width / 2, y: size.height * 0.45 });
+    await waitForVillage(page, (x) => !x.hint.startsWith('Bald wird es Abend'), 'den Hinweis ohne den sanften Satz nach dem nächsten Tipp', 6000);
+
+    // --- Tageslimit: kurz vor dem Ende (von außen ins Tageskonto geschrieben), Limit 15 Minuten ---
+    step('M8: Limit 15 Minuten, 14:40 schon gespielt');
     await setSettingsFromOutside(page, { ...entry, day: today, usedMs: 14 * 60_000 + 40_000, limitMinutes: 0, extraMinutes: 0 });
     await enterIsland(page, profile, waitForScene, SAVE_URL);
     p = await waitForParent(page, (x) => x.limit.used >= 880, 'das Tageskonto mit 14:40');
@@ -4757,7 +4867,7 @@ async function testKidFriendly({ browser, profile, check, problems, name }) {
     const { residents: atNight } = await readResidents(page);
     check(atNight.length > 0 && atNight.every((r) => r.activity === 'sleep'), `Nacht: ${JSON.stringify(atNight.map((r) => [r.name, r.activity]))} (erwartet: alle schlafen)`);
     v = await readVillage(page);
-    check(spotFits(v.ui['night-parent'], size), `Nacht: Eltern-Knopf ${JSON.stringify(v.ui['night-parent'])}`);
+    check(spotFits(v.ui['night-parent'], size, 64) && v.ui['night-parent'].x < size.width / 3 && v.ui['night-parent'].y > size.height * 0.6, `Nacht: Eltern-Knopf ${JSON.stringify(v.ui['night-parent'])} (erwartet: ruhig unten links, mindestens 64 px)`);
     const nightTick = v.tick;
     const stockAtNight = v.stock;
     await input.tap(v.ui['tool-shop'] ?? { x: size.width / 2, y: size.height - 40 });
@@ -4796,7 +4906,7 @@ async function testKidFriendly({ browser, profile, check, problems, name }) {
       v = await waitForVillage(page, (x) => spotFits(x.ui['night-parent'], smallSize, 64), `den Eltern-Knopf der Nacht ganz im Bild bei ${small.width}×${small.height}`).catch(async (error) => {
         throw new Error(`${error.message}; Knopf ${JSON.stringify((await readVillage(page)).ui['night-parent'])}`);
       });
-      check(spotFits(v.ui['night-parent'], smallSize, 64), `${small.width}×${small.height}: Eltern-Knopf der Nacht ${JSON.stringify(v.ui['night-parent'])}`);
+      check(spotFits(v.ui['night-parent'], smallSize, 64) && v.ui['night-parent'].x < small.width / 3, `${small.width}×${small.height}: Eltern-Knopf der Nacht ${JSON.stringify(v.ui['night-parent'])} (erwartet: unten links)`);
       if (small.at === 'night') await shot(small.shotName);
       await tapUi('night-parent');
       await waitForParent(page, (x) => x.parent.startsWith('enterPin'), `das Ziffernfeld bei ${small.width}×${small.height}`);
@@ -4825,6 +4935,7 @@ async function testKidFriendly({ browser, profile, check, problems, name }) {
     await unlock();
     await tapUi('parent-extra');
     p = await waitForParent(page, (x) => x.parent === 'settings:parent.extraGiven' && x.limit.extra === 10, 'die 10 Minuten mehr');
+    check(/Heute gespielt: \d+ von 25 Min\./.test(p.parentText), `+10 Minuten: „${p.parentText}“ (erwartet: auch „Heute gespielt: … von 25 Min.“)`);
     await closeParents();
     p = await waitForParent(page, (x) => x.limit.phase === 'day' && !x.night.blocks && x.night.dark === 0, 'den hellen Tag', 10_000);
     const dayTick = await tickNow();
@@ -4880,6 +4991,46 @@ async function testKidFriendly({ browser, profile, check, problems, name }) {
     await openParents();
     await unlock();
     await closeParents();
+
+    // --- Ohne IndexedDB: beim ersten Öffnen stehen „speichert nichts“ und „PIN wählen“ zusammen da (Korrekturrunde 1) ---
+    step('M8: ohne IndexedDB – beide Sätze im Eltern-Menü');
+    const plain = await browser.newContext(profile.context);
+    try {
+      await plain.addInitScript(() => {
+        Object.defineProperty(window, 'indexedDB', {
+          get() {
+            throw new DOMException('Speicher gesperrt', 'SecurityError');
+          },
+        });
+      });
+      const lone = await plain.newPage();
+      lone.on('console', (message) => {
+        if (message.type() === 'error') problems.push(`Konsolenfehler (M8 ohne IndexedDB): ${message.text()}`);
+      });
+      lone.on('pageerror', (error) => problems.push(`Seitenfehler (M8 ohne IndexedDB): ${error.message}`));
+      const loneInput = profile.context.hasTouch ? { tap: (at) => lone.touchscreen.tap(at.x, at.y) } : { tap: (at) => lone.mouse.click(at.x, at.y) };
+      const loneUi = buildHelpers({ page: lone, check, size, input: loneInput, name });
+      // Wie im M5-Teil ohne IndexedDB: die erste Insel eines frischen Browsers braucht im Headless-Modus länger.
+      await lone.goto(SAVE_URL, { waitUntil: 'domcontentloaded', timeout: 60_000 });
+      await lone.waitForSelector('html[data-scene="boot"]', { state: 'attached', timeout: 40_000 });
+      await lone.waitForTimeout(500);
+      await loneInput.tap({ x: size.width / 2, y: size.height * 0.54 });
+      await lone.waitForSelector('html[data-scene="island"]', { state: 'attached', timeout: 40_000 });
+      await waitForCameraRest(lone);
+      await lone.waitForTimeout(1500);
+      await loneUi.tapUi('menu');
+      await waitForVillage(lone, (x) => x.menu === 'menu' && 'menu-parent' in x.ui, 'das Menü mit „Für Eltern“');
+      await loneUi.tapUi('menu-parent');
+      const first = await waitForParent(lone, (x) => x.parent.startsWith('newPin'), 'das Ziffernfeld ohne IndexedDB');
+      const both = `${gameText('parent.memoryOnly')} ${gameText('parent.newPin')}`;
+      check(first.parent === 'newPin:parent.memoryOnly' && first.parentText === both, `Ohne IndexedDB: „${first.parent}“, „${first.parentText}“ (erwartet: „${both}“)`);
+      check(JSON.parse(await lone.evaluate(() => document.documentElement.dataset.limit ?? '{}')).store === 'memory', 'Ohne IndexedDB: die Einstellungen liegen nicht im Arbeitsspeicher');
+      await loneUi.tapUi('pin-1');
+      const typed = await waitForParent(lone, (x) => x.parent === 'newPin:parent.firstPin', 'den Satz „PIN wählen“ nach der ersten Ziffer');
+      check(typed.parentText === gameText('parent.firstPin'), `Ohne IndexedDB nach der ersten Ziffer: „${typed.parentText}“`);
+    } finally {
+      await plain.close();
+    }
   } finally {
     await context.close();
   }
