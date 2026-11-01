@@ -13,6 +13,12 @@ import type { Point } from './cameraMath';
  *   gesture that was ever a pinch never ends as a tap. A finger that stays
  *   when the other one is lifted keeps panning without a jump.
  * - More than two pointers: the extra ones are ignored.
+ * - **Carrying (M7):** if the scene says that a first press picks something up
+ *   (`grab`: a resident under the finger), moving beyond `tapMaxMovePx`
+ *   carries it (`carry`, the picture does not move) and the release puts it
+ *   down (`drop`). Released without moving it is a tap as always. A second
+ *   finger ends the carrying without a drop (`cancelCarry`) and pinches – a
+ *   pinch stays a pinch. A press beside it pans the picture as before.
  */
 
 export interface GestureHandlers {
@@ -30,6 +36,17 @@ export interface GestureHandlers {
   tap(at: Point): void;
   /** Released while moving: speed in screen pixels per millisecond. */
   fling(vx: number, vy: number): void;
+  /**
+   * Optional (M7): does a first press at `at` pick something up (a resident)? Then moving carries it instead of
+   * panning. Not asked when the press only stopped a gliding picture.
+   */
+  grab?(at: Point): boolean;
+  /** What was picked up is carried to `at` (from the first move beyond the tap distance on). */
+  carry?(at: Point): void;
+  /** Released while carrying, at `at`. */
+  drop?(at: Point): void;
+  /** What was picked up is let go without a drop: released without moving (then `tap` follows), a second finger, or the system took the pointer. */
+  cancelCarry?(): void;
 }
 
 export interface GestureOptions {
@@ -59,7 +76,8 @@ interface Sample {
   readonly y: number;
 }
 
-type Mode = 'idle' | 'pending' | 'pan' | 'pinch';
+/** `hold`: pressed on something that can be carried, not moved yet; `carry`: carrying it. */
+type Mode = 'idle' | 'pending' | 'pan' | 'pinch' | 'hold' | 'carry';
 
 export class GestureTracker {
   private readonly pointers = new Map<number, Tracked>();
@@ -80,6 +98,11 @@ export class GestureTracker {
     return this.mode !== 'idle';
   }
 
+  /** True while something is being carried (moved beyond the tap distance after a grab). */
+  get carrying(): boolean {
+    return this.mode === 'carry';
+  }
+
   down(id: number, x: number, y: number, timeMs: number): void {
     if (this.pointers.has(id) || this.pointers.size >= 2) {
       return;
@@ -87,11 +110,16 @@ export class GestureTracker {
     this.pointers.set(id, { x, y, startX: x, startY: y });
     if (this.pointers.size === 1) {
       this.tapAllowed = !this.handlers.begin();
-      this.mode = 'pending';
+      this.mode = this.tapAllowed && this.handlers.grab?.({ x, y }) === true ? 'hold' : 'pending';
       this.lastX = x;
       this.lastY = y;
       this.samples = [{ t: timeMs, x, y }];
     } else {
+      // A second finger: whatever was picked up is let go, and the two fingers pinch.
+      if (this.mode === 'hold' || this.mode === 'carry') {
+        this.handlers.cancelCarry?.();
+        this.tapAllowed = false;
+      }
       this.mode = 'pinch';
       this.samples = [];
     }
@@ -116,6 +144,16 @@ export class GestureTracker {
 
     pointer.x = x;
     pointer.y = y;
+    if (this.mode === 'hold') {
+      if (Math.hypot(x - pointer.startX, y - pointer.startY) <= this.options.tapMaxMovePx) {
+        return;
+      }
+      this.mode = 'carry';
+    }
+    if (this.mode === 'carry') {
+      this.handlers.carry?.({ x, y });
+      return;
+    }
     if (this.mode === 'pending') {
       if (Math.hypot(x - pointer.startX, y - pointer.startY) <= this.options.tapMaxMovePx) {
         return;
@@ -151,6 +189,21 @@ export class GestureTracker {
         this.mode = 'idle';
         this.fling(timeMs);
         break;
+      case 'hold':
+        this.mode = 'idle';
+        if (Math.hypot(x - pointer.startX, y - pointer.startY) > this.options.tapMaxMovePx) {
+          // The moves may have been merged into this one event: it was carried after all.
+          this.handlers.carry?.({ x, y });
+          this.handlers.drop?.({ x, y });
+        } else {
+          this.handlers.cancelCarry?.();
+          this.handlers.tap({ x, y });
+        }
+        break;
+      case 'carry':
+        this.mode = 'idle';
+        this.handlers.drop?.({ x, y });
+        break;
       case 'pinch':
         this.continueWithRemaining();
         break;
@@ -167,6 +220,9 @@ export class GestureTracker {
     if (this.mode === 'pinch') {
       this.continueWithRemaining();
     } else {
+      if (this.mode === 'hold' || this.mode === 'carry') {
+        this.handlers.cancelCarry?.();
+      }
       this.mode = 'idle';
     }
   }
