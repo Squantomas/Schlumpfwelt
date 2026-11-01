@@ -4,7 +4,7 @@
  *
  *   npm run smoke                                # baut, startet `vite preview`, testet, räumt auf
  *   npm run smoke -- --no-build                  # vorhandenes dist/ verwenden
- *   npm run smoke -- --out docs/screenshots/m9   # anderer Screenshot-Ordner (Standard: m8)
+ *   npm run smoke -- --out docs/screenshots/m10  # anderer Screenshot-Ordner (Standard: m9)
  *   npm run smoke -- --m2-only                   # nur die Bau-Prüfungen (M2), ohne Kamera, Wirtschaft und Shop (schnell)
  *   npm run smoke -- --m3-only                   # nur die Wirtschafts-Prüfungen (M3), ohne Kamera, Bauen und Shop
  *   npm run smoke -- --m4-only                   # nur die Shop-Prüfungen (M4): Reiter, Schlösser, Freischaltung, Insel (etwa 5 Minuten)
@@ -12,6 +12,7 @@
  *   npm run smoke -- --m6-only                   # nur die Bewohner (M6): Karte, Tragen, Einladen, Boot, volles Dorf, Bildzeit
  *   npm run smoke -- --m7-only                   # nur Wohnen und Stimmung (M7): Stimmung, Deko, Ziehen, Umziehen, Arbeitstempo, Bildzeit
  *   npm run smoke -- --m8-only                   # nur Kinderfreundlich (M8): geführter Start, Eltern-Menü, Tageslimit, Gute Nacht
+ *   npm run smoke -- --m9-only                   # nur Aussehen und Klang (M9): Bilder, Rasterersatz, Ton, Schalter, Nacht, Bildzeit
  *   npm run smoke -- --profile tablet            # nur Tablet bzw. nur Desktop
  *
  * Öffnet das Spiel (feste Insel `?seed=1&nosave=1`) als Tablet (1024×768, Touch,
@@ -80,6 +81,14 @@
  * gespeichert, Tipps verschluckt), Neuladen in der Nacht (sofort Nacht), Eltern-Knopf, Ziffernfeld und Einstellungen auf
  * 320×568 und 568×320, „Heute noch 10 Minuten mehr“ (es wird hell), der nächste Tag (die Playwright-Uhr stellt nur das
  * Datum vor: Mitternacht im laufenden Spiel) und Export/Import ohne PIN und Limit.
+ * Seit M9 (Aussehen und Klang, `<html data-assets|audio>`, `menu-sound`, `parent-music|sfx` in `data-ui`): eigener frischer
+ * Kontext; alle Bilder sind gezeichnet (`data-assets`: so viele SVG wie Schlüssel, kein Raster, nichts fehlgeschlagen, keine
+ * Anfrage nach `assets/*.png|webp`, kein 404); ein zweiter Build mit einer Kopie von `public/` und zwei Dateien zeigt den
+ * Ersatz (das Titelbild als Raster, der kaputte Stern fällt auf das SVG zurück, beide stehen in der Liste des Service
+ * Workers); `data-audio` ist vor dem Start-Tipp gesperrt und danach an (Musik läuft, Tipp gezählt); versteckte Seite = stumm;
+ * „Ton an/aus“ hinter dem Zahnrad schaltet und bleibt nach dem Neuladen (Eltern-Einstellungen Version 2); Musik und
+ * Geräusche im Eltern-Menü; Abend → Musik leiser, Nacht → Musik aus und „Gute Nacht“; Bildzeit mit 40 Bewohnern bei
+ * 4-facher Drosselung; Menü und Eltern-Menü auf 320×568 und 568×320 ohne Überlappung.
  * Exitcode ≠ 0 bei Konsolenfehlern, Seitenfehlern, fehlgeschlagenen Requests,
  * fehlgeschlagenen Kamera-Prüfungen oder wenn das Spiel nicht in die
  * Insel-Szene wechselt.
@@ -89,11 +98,12 @@
  */
 import { execSync, spawn, spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { cp, mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import zlib from 'node:zlib';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const PORT = 4173;
@@ -107,26 +117,38 @@ const M5_ONLY = process.argv.includes('--m5-only');
 const M6_ONLY = process.argv.includes('--m6-only');
 const M7_ONLY = process.argv.includes('--m7-only');
 const M8_ONLY = process.argv.includes('--m8-only');
+const M9_ONLY = process.argv.includes('--m9-only');
 /** Mit einer der `--mN-only`-Optionen laufen nur die Prüfungen dieses Meilensteins (ohne die Kamera-Prüfungen am Anfang). */
-const ONLY = M2_ONLY || M3_ONLY || M4_ONLY || M5_ONLY || M6_ONLY || M7_ONLY || M8_ONLY;
+const ONLY = M2_ONLY || M3_ONLY || M4_ONLY || M5_ONLY || M6_ONLY || M7_ONLY || M8_ONLY || M9_ONLY;
 /** Laufen die Prüfungen des Meilensteins mit dieser Option? (Ohne Option alle.) */
 const runs = (flag) => !ONLY || flag;
 /** `--profile tablet|desktop`: nur dieses Gerät testen (zum Entwickeln). */
 const ONLY_PROFILE = argValue('--profile');
-const SCREENSHOT_DIR = path.resolve(ROOT, argValue('--out') ?? path.join('docs', 'screenshots', 'm8'));
+const SCREENSHOT_DIR = path.resolve(ROOT, argValue('--out') ?? path.join('docs', 'screenshots', 'm9'));
 /** Alle übrigen Screenshots (Kamera-Prüfungen früherer Meilensteine, Zwischenschritte) landen hier, nicht im Repo. */
 const TEMP_SCREENSHOT_DIR = path.join(os.tmpdir(), 'schlumpfwelt-smoke');
-/** Nur diese Bilder gehören in `docs/screenshots/mN/` – die Screenshots dieses Meilensteins (M8: Kinderfreundlich). */
+/** Nur diese Bilder gehören in `docs/screenshots/mN/` – die Screenshots dieses Meilensteins (M9: Aussehen und Klang). */
 const KEEP_SCREENSHOTS = new Set([
-  'tablet-tutorial-hand',
-  'tablet-eltern-pin',
-  'tablet-eltern-einstellungen',
-  'tablet-bald-abend',
-  'tablet-abend',
-  'tablet-gute-nacht',
-  'tablet-m8-handy-hochkant',
-  'tablet-m8-handy-quer',
+  'tablet-m9-start',
+  'tablet-m9-insel',
+  'tablet-m9-dorf',
+  'tablet-m9-menue-ton',
+  'tablet-m9-eltern-ton',
+  'tablet-m9-nacht',
+  'tablet-m9-handy-hochkant',
+  'tablet-m9-handy-quer',
 ]);
+/**
+ * M9: Ersatz eines gezeichneten Bilds durch eine Rasterdatei. Der Smoke baut einmal mit einer Kopie von `public/` (im
+ * temporären Verzeichnis, nie im Repo), in der zwei Dateien liegen, und liefert das auf einem zweiten Port aus.
+ */
+const RASTER_PORT = 4181;
+const RASTER_URL = `http://localhost:${RASTER_PORT}/Schlumpfwelt/`;
+const RASTER_DIR = path.join(os.tmpdir(), 'schlumpfwelt-raster');
+/** Ein lesbares Bild für das Titelbild und eine kaputte Datei für den Stern (das Spiel nimmt dann das gezeichnete). */
+const RASTER_PROBE = { good: 'title-scene.png', broken: 'ui-star.png' };
+/** Eine Anfrage nach einer Rasterdatei in `assets/` (die Gruppe ist der Dateiname). */
+const RASTER_REQUEST = /\/assets\/([^/?#]+\.(?:png|webp))(?:[?#]|$)/;
 
 /** Kachelgröße und Wasser-Rand der Kamera (siehe `TILE_SIZE` und `camera.json`). */
 const TILE = 64;
@@ -168,9 +190,9 @@ function run(command, args) {
   }
 }
 
-function startPreview() {
+function startPreview(port = PORT, outDir = undefined) {
   const vite = path.join(ROOT, 'node_modules', 'vite', 'bin', 'vite.js');
-  const server = spawn(process.execPath, [vite, 'preview', '--port', String(PORT), '--strictPort'], {
+  const server = spawn(process.execPath, [vite, 'preview', '--port', String(port), '--strictPort', ...(outDir ? ['--outDir', outDir] : [])], {
     cwd: ROOT,
     stdio: ['ignore', 'pipe', 'pipe'],
   });
@@ -181,21 +203,21 @@ function startPreview() {
   return server;
 }
 
-async function waitForServer(server, timeoutMs = 20_000) {
+async function waitForServer(server, url = URL, timeoutMs = 20_000) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     if (server.exitCode !== null) {
       throw new Error(`vite preview wurde beendet:\n${server.output()}`);
     }
     try {
-      const response = await fetch(URL);
+      const response = await fetch(url);
       if (response.ok) return;
     } catch {
       // Server startet noch.
     }
     await new Promise((resolve) => setTimeout(resolve, 200));
   }
-  throw new Error(`vite preview antwortet nicht auf ${URL}:\n${server.output()}`);
+  throw new Error(`vite preview antwortet nicht auf ${url}:\n${server.output()}`);
 }
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -4376,8 +4398,9 @@ async function localDay(page) {
 }
 
 /** Ein Eintrag der Eltern-Einstellungen im gespeicherten Format (`toStored` in `src/parent/settings.ts`). */
-function settingsEntry({ day, pin = null, limitMinutes = 0, usedMs = 0, extraMinutes = 0, tutorial }) {
-  return { format: 'village-parent', version: 1, pin, limitMinutes, day, usedMs, extraMinutes, ...(tutorial === undefined ? {} : { tutorial }) };
+function settingsEntry({ day, pin = null, limitMinutes = 0, usedMs = 0, extraMinutes = 0, tutorial, sound }) {
+  // Ohne `sound` im Format von Version 1 (das Spiel hebt es beim Lesen auf Version 2), mit `sound` in Version 2 (M9).
+  return { format: 'village-parent', version: sound === undefined ? 1 : 2, pin, limitMinutes, day, usedMs, extraMinutes, ...(tutorial === undefined ? {} : { tutorial }), ...(sound === undefined ? {} : { sound }) };
 }
 
 /** Der gespeicherte Eintrag der Eltern-Einstellungen (`null`, wenn keiner da ist). */
@@ -4486,7 +4509,7 @@ function spotsOverlap(a, b) {
  * einen anderen.
  */
 function checkParentSpots(village, size, check, when) {
-  const names = Object.keys(village.ui).filter((key) => /^(pin-|limit-|parent-(close|extra|pin|tutorial))/.test(key));
+  const names = Object.keys(village.ui).filter((key) => /^(pin-|limit-|parent-(close|extra|pin|tutorial|music|sfx))/.test(key));
   check(names.length > 0, `${when}: keine Knöpfe im Eltern-Menü`);
   for (const key of names) {
     check(spotFits(village.ui[key], size), `${when}: Knopf „${key}“ ${JSON.stringify(village.ui[key])} zu klein oder nicht ganz im Bild (${size.width}×${size.height})`);
@@ -5125,6 +5148,382 @@ async function testKidFriendly({ browser, profile, check, problems, name }) {
   }
 }
 
+// ---------------------------------------------------------------------------------------------------------------
+// M9: Aussehen und Klang
+// ---------------------------------------------------------------------------------------------------------------
+
+/** Ein PNG aus einer Farbe (`[r, g, b, a]`), ohne Abhängigkeit: Kopf, eine IDAT-Kette, Ende. */
+function solidPng(width, height, [r, g, b, a]) {
+  const crcTable = Array.from({ length: 256 }, (_, n) => {
+    let c = n;
+    for (let k = 0; k < 8; k += 1) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+    return c >>> 0;
+  });
+  const crc = (bytes) => {
+    let c = 0xffffffff;
+    for (const byte of bytes) c = crcTable[(c ^ byte) & 0xff] ^ (c >>> 8);
+    return (c ^ 0xffffffff) >>> 0;
+  };
+  const chunk = (type, data) => {
+    const body = Buffer.concat([Buffer.from(type, 'ascii'), data]);
+    const length = Buffer.alloc(4);
+    length.writeUInt32BE(data.length);
+    const sum = Buffer.alloc(4);
+    sum.writeUInt32BE(crc(body));
+    return Buffer.concat([length, body, sum]);
+  };
+  const header = Buffer.alloc(13);
+  header.writeUInt32BE(width, 0);
+  header.writeUInt32BE(height, 4);
+  header[8] = 8; // 8 Bit pro Kanal
+  header[9] = 6; // RGBA
+  const row = Buffer.concat([Buffer.from([0]), Buffer.from(Array.from({ length: width }, () => [r, g, b, a]).flat())]);
+  const pixels = zlib.deflateSync(Buffer.concat(Array.from({ length: height }, () => row)));
+  return Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), chunk('IHDR', header), chunk('IDAT', pixels), chunk('IEND', Buffer.alloc(0))]);
+}
+
+/**
+ * Baut das Spiel ein zweites Mal mit einer Kopie von `public/`, in der ein lesbares Titelbild und ein kaputter Stern
+ * liegen (`VILLAGE_PUBLIC_DIR`, Ausgabe im temporären Verzeichnis – das Repo bleibt unberührt), und startet dafür
+ * `vite preview` auf `RASTER_PORT`.
+ */
+async function startRasterProbe() {
+  await rm(RASTER_DIR, { recursive: true, force: true });
+  const publicDir = path.join(RASTER_DIR, 'public');
+  const outDir = path.join(RASTER_DIR, 'dist');
+  await cp(path.join(ROOT, 'public'), publicDir, { recursive: true });
+  // Kräftiges Magenta, damit der Ersatz im Screenshot sofort auffällt.
+  await writeFile(path.join(publicDir, 'assets', RASTER_PROBE.good), solidPng(64, 40, [230, 40, 200, 255]));
+  await writeFile(path.join(publicDir, 'assets', RASTER_PROBE.broken), Buffer.from('kein Bild'));
+  const vite = path.join(ROOT, 'node_modules', 'vite', 'bin', 'vite.js');
+  const build = spawnSync(process.execPath, [vite, 'build', '--outDir', outDir, '--emptyOutDir', '--logLevel', 'warn'], {
+    cwd: ROOT,
+    env: { ...process.env, VILLAGE_PUBLIC_DIR: publicDir },
+    encoding: 'utf8',
+  });
+  if (build.status !== 0) throw new Error(`Build mit Rasterbildern fehlgeschlagen:\n${build.stdout}\n${build.stderr}`);
+  const server = startPreview(RASTER_PORT, outDir);
+  await waitForServer(server, RASTER_URL);
+  return server;
+}
+
+async function readAudio(page) {
+  return JSON.parse(await page.evaluate(() => document.documentElement.dataset.audio ?? '{}'));
+}
+
+async function readAssets(page) {
+  return JSON.parse(await page.evaluate(() => document.documentElement.dataset.assets ?? '{}'));
+}
+
+async function waitForAudio(page, predicate, what, timeoutMs = 8000) {
+  const deadline = Date.now() + timeoutMs;
+  let audio;
+  while (Date.now() < deadline) {
+    audio = await readAudio(page);
+    if (predicate(audio)) return audio;
+    await sleep(150);
+  }
+  throw new Error(`Zeitüberschreitung beim Warten auf ${what} (data-audio: ${JSON.stringify(audio)})`);
+}
+
+/** Die Schlüssel aller Bilder, wie sie die Vorlagen in `docs/assets/` nennen (aus dem Katalog erzeugt). */
+async function catalogKeys() {
+  const files = (await readdir(path.join(ROOT, 'docs', 'assets'))).filter((file) => file.endsWith('.md') && file !== 'README.md');
+  const keys = [];
+  for (const file of files) {
+    const text = await readFile(path.join(ROOT, 'docs', 'assets', file), 'utf8');
+    for (const match of text.matchAll(/^## `([a-z0-9-]+)`$/gm)) keys.push(match[1]);
+  }
+  return keys.sort();
+}
+
+/** Die Knöpfe (Namen nach `pattern`) liegen ganz im Bild, sind mindestens 48 px groß und überdecken sich nicht. */
+function checkSpots(ui, pattern, size, check, when) {
+  const names = Object.keys(ui).filter((key) => pattern.test(key));
+  check(names.length > 0, `${when}: keine Knöpfe gefunden`);
+  for (const key of names) {
+    check(spotFits(ui[key], size), `${when}: „${key}“ ${JSON.stringify(ui[key])} zu klein oder nicht ganz im Bild (${size.width}×${size.height})`);
+  }
+  for (let i = 0; i < names.length; i += 1) {
+    for (let j = i + 1; j < names.length; j += 1) {
+      check(!spotsOverlap(ui[names[i]], ui[names[j]]), `${when}: „${names[i]}“ und „${names[j]}“ überdecken sich`);
+    }
+  }
+}
+
+/**
+ * M9: Der zweite Build (Kopie von `public/` mit zwei Rasterdateien): das Titelbild ist ein Raster, der kaputte Stern
+ * fällt auf sein SVG zurück, beide Dateien kommen mit 200 und stehen in der Liste des Service Workers.
+ */
+async function checkRasterProbe({ context, check, problems, name, keys }) {
+  console.log(`  [${name}] M9: eine Rasterdatei ersetzt das gezeichnete Bild, eine kaputte fällt auf das SVG zurück`);
+  const probe = await context.newPage();
+  const probeAssets = [];
+  probe.on('console', (message) => {
+    if (message.type() === 'error') problems.push(`Konsolenfehler (M9, Raster): ${message.text()}`);
+  });
+  probe.on('pageerror', (error) => problems.push(`Seitenfehler (M9, Raster): ${error.message}`));
+  probe.on('response', (response) => {
+    const file = RASTER_REQUEST.exec(response.url())?.[1];
+    if (file) probeAssets.push([file, response.status()]);
+    if (response.status() >= 400) problems.push(`HTTP ${response.status()} (M9, Raster): ${response.url()}`);
+  });
+  await probe.goto(`${RASTER_URL}?seed=1&nosave=1`, { waitUntil: 'load' });
+  await probe.waitForSelector('html[data-scene="boot"]', { state: 'attached', timeout: 30_000 });
+  await sleep(1200);
+  const replaced = await readAssets(probe);
+  check(replaced.keys?.['title-scene'] === 'raster', `Raster: Titelbild ${replaced.keys?.['title-scene']}, erwartet „raster“`);
+  check(replaced.keys?.['ui-star'] === 'svg', `Raster: der kaputte Stern ist ${replaced.keys?.['ui-star']}, erwartet „svg“ (Rückfall)`);
+  check(replaced.raster === 1 && replaced.svg === keys.length - 1 && replaced.failed.length === 0, `Raster: data-assets ${JSON.stringify({ svg: replaced.svg, raster: replaced.raster, failed: replaced.failed })}`);
+  const fetched = probeAssets.map(([file]) => file).sort();
+  check(JSON.stringify(fetched) === JSON.stringify([RASTER_PROBE.good, RASTER_PROBE.broken].sort()) && probeAssets.every(([, status]) => status === 200), `Raster: angefragt ${JSON.stringify(probeAssets)}`);
+  const worker = await (await fetch(`${RASTER_URL}sw.js`)).text();
+  check(worker.includes(`assets/${RASTER_PROBE.good}`) && worker.includes(`assets/${RASTER_PROBE.broken}`), 'Raster: die neuen Dateien fehlen in der Liste des Service Workers');
+  await probe.screenshot({ path: path.join(TEMP_SCREENSHOT_DIR, `${name}-m9-raster.png`), scale: 'css' });
+  await probe.close();
+  console.log(`  [${name}] Raster: ${JSON.stringify(probeAssets)}, Titelbild ${replaced.keys?.['title-scene']}, Stern ${replaced.keys?.['ui-star']}`);
+}
+
+/**
+ * M9 „Aussehen und Klang“ in einem eigenen, frischen Kontext: Bilder (alle gezeichnet, kein Raster, keine 404), der
+ * Ersatz durch Rasterdateien (zweiter Build), Ton nach dem Start-Tipp, versteckte Seite, Schalter hinter dem Zahnrad
+ * (bleibt nach dem Neuladen), Musik und Geräusche im Eltern-Menü, Abend und Nacht, Bildzeit mit 40 Bewohnern und die
+ * kleinen Schirme.
+ */
+async function testLookAndSound({ browser, profile, check, problems, name, rasterServer }) {
+  const context = await browser.newContext(profile.context);
+  const page = await context.newPage();
+  const assetRequests = [];
+  page.on('console', (message) => {
+    if (message.type() === 'error') problems.push(`Konsolenfehler (M9): ${message.text()}`);
+  });
+  page.on('pageerror', (error) => problems.push(`Seitenfehler (M9): ${error.message}`));
+  page.on('requestfailed', (request) => problems.push(`Request fehlgeschlagen (M9): ${request.url()}`));
+  page.on('request', (request) => {
+    if (RASTER_REQUEST.test(request.url())) assetRequests.push(request.url());
+  });
+  page.on('response', (response) => {
+    if (response.status() >= 400) problems.push(`HTTP ${response.status()} (M9): ${response.url()}`);
+  });
+  const shot = (shotName) => page.screenshot({ path: path.join(KEEP_SCREENSHOTS.has(shotName) ? SCREENSHOT_DIR : TEMP_SCREENSHOT_DIR, `${shotName}.png`), scale: 'css' });
+  const waitForScene = (scene) => page.waitForSelector(`html[data-scene="${scene}"]`, { state: 'attached', timeout: 20_000 });
+  const size = { ...profile.context.viewport };
+  const input = profile.context.hasTouch ? { tap: (p) => page.touchscreen.tap(p.x, p.y) } : { tap: (p) => page.mouse.click(p.x, p.y) };
+  const { step, tapUi } = buildHelpers({ page, check, size, input, name });
+  const day = await (async () => {
+    await page.goto(`${URL}manifest.webmanifest`, { waitUntil: 'load' });
+    return localDay(page);
+  })();
+  const readSound = async () => (await readSettingsEntry(page))?.sound;
+  /** Ein Tipp mitten auf die Insel; öffnet er eine Karte (Gebäude oder Bewohner), schließt ein Tipp auf ihr ✕ sie wieder. */
+  const tapIsland = async () => {
+    await input.tap({ x: size.width / 2, y: size.height / 2 });
+    await sleep(600);
+    const v = await readVillage(page);
+    if ('card-close' in v.ui) {
+      await tapUi('card-close');
+      await waitForVillage(page, (state) => !('card' in state.ui), 'die geschlossene Karte');
+    }
+  };
+  try {
+    // --- Bilder: alle gezeichnet, keine Anfrage nach Rasterdateien ---
+    step('M9: Bilder – alle Schlüssel gezeichnet, kein Raster, keine 404');
+    await setSettingsFromOutside(page, settingsEntry({ day, tutorial: TUTORIAL_SKIPPED }));
+    await page.goto(GAME_URL, { waitUntil: 'load' });
+    await waitForScene('boot');
+    await sleep(800);
+    const assets = await readAssets(page);
+    const keys = await catalogKeys();
+    const loadedKeys = Object.keys(assets.keys ?? {}).sort();
+    check(JSON.stringify(loadedKeys) === JSON.stringify(keys), `Bilder: ${loadedKeys.length} Schlüssel geladen, ${keys.length} im Katalog (fehlen: ${keys.filter((k) => !loadedKeys.includes(k)).join(', ')})`);
+    check(assets.svg === keys.length && assets.raster === 0 && Array.isArray(assets.failed) && assets.failed.length === 0, `Bilder: data-assets ${JSON.stringify({ svg: assets.svg, raster: assets.raster, failed: assets.failed })}`);
+    check(assetRequests.length === 0, `Bilder: Anfragen nach Rasterdateien ohne Datei: ${assetRequests.join(', ')}`);
+    console.log(`  [${name}] ${assets.svg} Bilder als SVG in ${assets.ms} ms`);
+    // Der zweite Build mit Rasterdateien (solange diese Seite ruhig auf dem Startschirm steht).
+    if (rasterServer) await checkRasterProbe({ context, check, problems, name, keys });
+
+    // --- Ton: vor dem ersten Tipp gesperrt, danach an ---
+    step('M9: Ton – gesperrt bis zum Start-Tipp, dann Musik');
+    let audio = await readAudio(page);
+    check(audio.state === 'locked' && audio.musicPlaying === false, `Ton vor dem Start-Tipp: ${JSON.stringify(audio)}`);
+    await shot(`${name}-m9-start`);
+    if (profile.context.hasTouch) await page.touchscreen.tap(size.width / 2, size.height * 0.54);
+    else await page.mouse.click(size.width / 2, size.height * 0.54);
+    await waitForScene('island');
+    audio = await waitForAudio(page, (a) => a.state === 'running' && a.musicPlaying === true && a.musicNotes > 0, 'laufende Musik nach dem Start-Tipp');
+    check(audio.on && audio.music && audio.sfx && audio.mode === 'day' && audio.played.tap >= 1, `Ton nach dem Start-Tipp: ${JSON.stringify(audio)}`);
+    await waitForCameraRest(page);
+    await sleep(2000);
+    await shot(`${name}-m9-insel`);
+    // Ein Tipp auf die Insel klingt (höchstens einmal pro Mindestabstand).
+    const tapsBefore = (await readAudio(page)).played.tap;
+    await tapIsland();
+    await waitForAudio(page, (a) => a.played.tap > tapsBefore, 'das Tipp-Geräusch auf der Insel');
+
+    // --- Versteckte Seite: stumm, danach weiter ---
+    step('M9: Ton – versteckte Seite ist stumm');
+    const setHidden = (hidden) =>
+      page.evaluate((value) => {
+        Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => (value ? 'hidden' : 'visible') });
+        Object.defineProperty(document, 'hidden', { configurable: true, get: () => value });
+        document.dispatchEvent(new Event('visibilitychange'));
+      }, hidden);
+    await setHidden(true);
+    audio = await waitForAudio(page, (a) => a.state === 'hidden' && a.musicPlaying === false, 'die stumme, versteckte Seite');
+    await setHidden(false);
+    audio = await waitForAudio(page, (a) => a.state === 'running' && a.musicPlaying === true, 'Ton wieder an nach dem Zeigen');
+
+    // --- Schalter hinter dem Zahnrad ---
+    step('M9: „Ton an/aus“ hinter dem Zahnrad, bleibt nach dem Neuladen');
+    await tapUi('menu');
+    let village = await waitForVillage(page, (v) => v.menu === 'menu' && 'menu-sound' in v.ui, 'das Menü mit „Ton“');
+    check(village.ui['menu-sound'].active === true && spotFits(village.ui['menu-sound'], size), `Menü: Ton-Knopf ${JSON.stringify(village.ui['menu-sound'])}`);
+    checkSpots(village.ui, /^menu-(save|load|sound|parent|close)$/, size, check, `Menü ${size.width}×${size.height}`);
+    await sleep(400);
+    await shot(`${name}-m9-menue-ton`);
+    await tapUi('menu-sound');
+    village = await waitForVillage(page, (v) => v.ui['menu-sound']?.active === false, 'den Ton-Knopf auf „aus“');
+    audio = await waitForAudio(page, (a) => a.on === false && a.musicPlaying === false, 'Ton aus');
+    const playedOff = audio.played.tap;
+    await tapUi('menu-close');
+    await waitForVillage(page, (v) => v.menu === 'closed', 'das geschlossene Menü');
+    await tapIsland();
+    check((await readAudio(page)).played.tap === playedOff, 'Ton aus: ein Tipp klingt trotzdem');
+    let stored = await readSound();
+    check(stored?.on === false, `Ton aus: Einstellungen ${JSON.stringify(stored)}`);
+    check((await readSettingsEntry(page))?.version === 2, `Einstellungen: Version ${(await readSettingsEntry(page))?.version}, erwartet 2`);
+    // Neuladen: der Schalter bleibt aus – schon auf dem Startschirm.
+    await page.goto(GAME_URL, { waitUntil: 'load' });
+    await waitForScene('boot');
+    await sleep(500);
+    audio = await readAudio(page);
+    check(audio.on === false, `Nach dem Neuladen ist der Ton wieder an: ${JSON.stringify(audio)}`);
+    if (profile.context.hasTouch) await page.touchscreen.tap(size.width / 2, size.height * 0.54);
+    else await page.mouse.click(size.width / 2, size.height * 0.54);
+    await waitForScene('island');
+    await sleep(1500);
+    audio = await readAudio(page);
+    check(audio.state === 'running' && audio.on === false && audio.musicPlaying === false, `Nach dem Neuladen, Ton aus: ${JSON.stringify(audio)}`);
+    await tapUi('menu');
+    village = await waitForVillage(page, (v) => v.menu === 'menu' && v.ui['menu-sound']?.active === false, 'den Ton-Knopf „aus“ nach dem Neuladen');
+    await tapUi('menu-sound');
+    await waitForAudio(page, (a) => a.on === true && a.musicPlaying === true, 'Ton wieder an');
+    stored = await readSound();
+    check(stored?.on === true, `Ton an: Einstellungen ${JSON.stringify(stored)}`);
+
+    // --- Musik und Geräusche im Eltern-Menü ---
+    step('M9: Musik und Geräusche getrennt im Eltern-Menü');
+    await tapUi('menu-parent');
+    await waitForParent(page, (p) => p.parent.startsWith('newPin'), 'das Ziffernfeld (neue PIN)');
+    for (const digit of '24682468') {
+      await tapUi(`pin-${digit}`);
+      await sleep(200);
+    }
+    await waitForParent(page, (p) => p.parent.startsWith('settings'), 'die Einstellungen');
+    village = await waitForVillage(page, (v) => 'parent-music' in v.ui && 'parent-sfx' in v.ui, 'Musik und Geräusche');
+    check(village.ui['parent-music'].active === true && village.ui['parent-sfx'].active === true, `Eltern-Menü: Musik ${JSON.stringify(village.ui['parent-music'])}, Geräusche ${JSON.stringify(village.ui['parent-sfx'])}`);
+    checkParentSpots(village, size, check, `Eltern-Menü ${size.width}×${size.height}`);
+    await tapUi('parent-music');
+    await waitForAudio(page, (a) => a.on && a.music === false && a.sfx && a.musicPlaying === false, 'Musik aus, Geräusche an');
+    await waitForVillage(page, (v) => v.ui['parent-music']?.active !== true, 'der Musik-Knopf „aus“');
+    await sleep(400);
+    await shot(`${name}-m9-eltern-ton`);
+    stored = await readSound();
+    check(stored?.music === false && stored?.sfx === true && stored?.on === true, `Musik aus: Einstellungen ${JSON.stringify(stored)}`);
+    await tapUi('parent-sfx');
+    await waitForAudio(page, (a) => a.sfx === false, 'Geräusche aus');
+    await tapUi('parent-music');
+    await tapUi('parent-sfx');
+    await waitForAudio(page, (a) => a.music && a.sfx && a.musicPlaying, 'Musik und Geräusche wieder an');
+    await tapUi('parent-close');
+    await waitForParent(page, (p) => p.parent === 'closed', 'das geschlossene Eltern-Menü');
+
+    // --- Abend und Nacht: Musik leiser, dann aus, „Gute Nacht“ ---
+    step('M9: Abend – Musik wird leiser, Nacht – Musik aus, „Gute Nacht“');
+    await setSettingsFromOutside(page, settingsEntry({ day, limitMinutes: 15, usedMs: 15 * 60_000 - 5_000, tutorial: TUTORIAL_SKIPPED, sound: { on: true, music: true, sfx: true } }));
+    await enterIsland(page, profile, waitForScene);
+    await waitForAudio(page, (a) => a.musicPlaying === true, 'Musik vor dem Abend');
+    await waitForParent(page, (p) => p.limit.phase === 'dusk', 'den Abend', 20_000);
+    audio = await waitForAudio(page, (a) => a.mode === 'dusk' && a.musicPlaying === false, 'Abend-Ton');
+    await waitForParent(page, (p) => p.limit.phase === 'night', 'die Nacht', 30_000);
+    audio = await waitForAudio(page, (a) => a.mode === 'night' && a.musicPlaying === false && a.played.goodNight >= 1, 'Nacht-Ton mit „Gute Nacht“');
+    await sleep(1500);
+    await shot(`${name}-m9-nacht`);
+    const notes = audio.musicNotes;
+    await sleep(2500);
+    audio = await readAudio(page);
+    check(audio.musicNotes === notes && audio.musicPlaying === false, `Nacht: die Musik spielt weiter (${notes} → ${audio.musicNotes} Noten)`);
+
+    // --- Bildzeit mit 40 Bewohnern ---
+    step(`M9: Bildzeit mit 40 Bewohnern bei ${PERF_LIMIT.rate}× CPU-Drosselung`);
+    await setSettingsFromOutside(page, settingsEntry({ day, tutorial: TUTORIAL_SKIPPED }));
+    await clearRecords(page);
+    await enterIsland(page, profile, waitForScene, SAVE_URL);
+    await waitForVillage(page, (v) => v.save.start === 'new' && v.save.store === 'indexedDb', 'ein neues Dorf mit Speicher', 20_000);
+    // Ein unverändertes neues Dorf speichert der Autosave nach spätestens einer Minute.
+    await waitForVillage(page, (v) => v.save.saves >= 1, 'den ersten Autosave des neuen Dorfs', 75_000);
+    const fresh = await waitForRecord(page, (r) => r.version === SAVE_VERSION && r.residents?.length === 2, 'den Spielstand des neuen Dorfs');
+    const names = JSON.parse(await readFile(path.join(ROOT, 'src', 'data', 'names.json'), 'utf8')).names;
+    const crowded = crowdedRecord(fresh, names, { residents: 40, houses: 10, producers: 6 });
+    await setRecordFromOutside(page, crowded.record);
+    await enterIsland(page, profile, waitForScene, SAVE_URL);
+    await waitForResidents(page, (st) => st.residents.length === 40 && st.residents.every((r) => r.x !== undefined), 'die 40 Bewohner', 15_000);
+    await sleep(2500);
+    await shot(`${name}-m9-dorf`);
+    const perf = await measureFrameTime({ context, page, check, name });
+
+    // --- Kleine Schirme ---
+    for (const [w, h] of [
+      [320, 568],
+      [568, 320],
+    ]) {
+      step(`M9: ${w}×${h} – Leisten, Menü und Eltern-Menü ohne Überlappung`);
+      const small = { width: w, height: h };
+      await page.setViewportSize(small);
+      await sleep(1200);
+      await waitForCameraRest(page);
+      village = await readVillage(page);
+      // Die Leisten (ihre Lage prüfen die Layout-Tests genau): Zahnrad ganz im Bild, die Werkzeuge im Bild und getrennt.
+      check(spotFits(village.ui.menu, small), `Leisten ${w}×${h}: Zahnrad ${JSON.stringify(village.ui.menu)}`);
+      const tools = Object.keys(village.ui).filter((key) => key.startsWith('tool-'));
+      check(tools.length === 4, `Leisten ${w}×${h}: ${tools.length} Werkzeuge`);
+      for (const key of tools) {
+        const spot = village.ui[key];
+        check(spot.x >= 24 && spot.x <= w - 24 && spot.y >= 24 && spot.y <= h - 24, `Leisten ${w}×${h}: ${key} bei ${spot.x},${spot.y} am Rand`);
+        for (const other of tools.filter((k) => k > key)) {
+          check(Math.max(Math.abs(spot.x - village.ui[other].x), Math.abs(spot.y - village.ui[other].y)) >= 48, `Leisten ${w}×${h}: ${key} und ${other} liegen aufeinander`);
+        }
+      }
+      await input.tap(village.ui.menu);
+      village = await waitForVillage(page, (v) => v.menu === 'menu' && 'menu-sound' in v.ui, `das Menü bei ${w}×${h}`);
+      checkSpots(village.ui, /^menu-(save|load|sound|parent|close)$/, small, check, `Menü ${w}×${h}`);
+      check(spotFits(village.ui['menu-panel'], small, 0), `Menü ${w}×${h}: das Feld ragt aus dem Bild`);
+      await sleep(400);
+      await shot(`${name}-m9-handy-${w < h ? 'hochkant' : 'quer'}`);
+      await input.tap(village.ui['menu-parent']);
+      // Die Einstellungen wurden vor der Bildzeit neu geschrieben (ohne PIN): erst eine neue PIN, danach nur noch eingeben.
+      const pad = await waitForParent(page, (p) => p.parent.startsWith('enterPin') || p.parent.startsWith('newPin'), `das Ziffernfeld bei ${w}×${h}`);
+      await sleep(300);
+      for (const digit of pad.parent.startsWith('newPin') ? '24682468' : '2468') {
+        await input.tap((await readVillage(page)).ui[`pin-${digit}`]);
+        await sleep(200);
+      }
+      await waitForParent(page, (p) => p.parent.startsWith('settings'), `die Einstellungen bei ${w}×${h}`);
+      village = await waitForVillage(page, (v) => 'parent-music' in v.ui, `Musik und Geräusche bei ${w}×${h}`);
+      checkParentSpots(village, small, check, `Eltern-Menü ${w}×${h}`);
+      await sleep(300);
+      await shot(`${name}-m9-eltern-${w < h ? 'hochkant' : 'quer'}`);
+      await input.tap(village.ui['parent-close']);
+      await waitForParent(page, (p) => p.parent === 'closed', 'das geschlossene Eltern-Menü');
+    }
+    await page.setViewportSize(profile.context.viewport);
+
+    return perf;
+  } finally {
+    await context.close();
+  }
+}
+
 async function enterIsland(page, profile, waitForScene, url = GAME_URL) {
   // Ein Abschnitt, der abbrach, kann den Bildschirm klein gelassen haben: jeder neue Start beginnt mit der Größe des Geräts.
   await page.setViewportSize(profile.context.viewport);
@@ -5139,7 +5538,7 @@ async function enterIsland(page, profile, waitForScene, url = GAME_URL) {
   await page.waitForTimeout(2500);
 }
 
-async function testProfile(browser, profile) {
+async function testProfile(browser, profile, rasterServer) {
   const problems = [];
   const context = await browser.newContext(profile.context);
   // Lässt sich das Zeichnen anhalten (`__holdFrames`), um Screenshots flüchtiger Effekte aufzunehmen.
@@ -5320,6 +5719,15 @@ async function testProfile(browser, profile) {
       problems.push(`Kinderfreundlich: ${error.message}`);
     }
   }
+  if (runs(M9_ONLY)) {
+    try {
+      // Die Seite der älteren Prüfungen ruht, damit sie der Bildzeit-Messung nicht Rechenzeit und Grafik wegnimmt.
+      await page.goto('about:blank');
+      await testLookAndSound({ browser, profile, check, problems, name: profile.name, rasterServer });
+    } catch (error) {
+      problems.push(`Aussehen und Klang: ${error.message}`);
+    }
+  }
   await cdp?.detach();
 
   await context.close();
@@ -5334,14 +5742,17 @@ async function main() {
   await mkdir(TEMP_SCREENSHOT_DIR, { recursive: true });
   const { chromium } = loadPlaywright();
   const server = startPreview();
+  let rasterServer;
   let failed = false;
 
   try {
     await waitForServer(server);
+    // M9: ein zweiter Build mit zwei Rasterdateien in einer Kopie von public/ (nur für die M9-Prüfungen).
+    if (runs(M9_ONLY)) rasterServer = await startRasterProbe();
     const browser = await chromium.launch();
     try {
       for (const profile of PROFILES.filter((p) => ONLY_PROFILE === undefined || p.name === ONLY_PROFILE)) {
-        const { info, problems } = await testProfile(browser, profile);
+        const { info, problems } = await testProfile(browser, profile, rasterServer);
         const status = problems.length === 0 ? 'OK' : 'FEHLER';
         console.log(`[${status}] ${profile.name}: Titel "${info.title}", Canvas ${info.canvasWidth}px für ${info.cssWidth} CSS-px`);
         for (const problem of problems) console.log(`  - ${problem}`);
@@ -5352,6 +5763,7 @@ async function main() {
     }
   } finally {
     server.kill();
+    rasterServer?.kill();
   }
 
   console.log(failed ? 'Smoke-Test fehlgeschlagen.' : `Smoke-Test bestanden. Screenshots: ${path.relative(ROOT, SCREENSHOT_DIR)}/`);
