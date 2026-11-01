@@ -14,6 +14,11 @@ import {
   startTutorial,
   storeTutorial,
   suggestPlace,
+  placeCandidates,
+  pickPlace,
+  tutorialGlideDue,
+  TUTORIAL_GLIDE_AFTER_MS,
+  TUTORIAL_GLIDE_AGAIN_MS,
   tutorialFor,
   pickTutorialResident,
   tutorialHint,
@@ -243,6 +248,21 @@ describe('Tutorial: wohin die Hand zeigt (M8)', () => {
     expect(handPose({ x: 200, y: 100 }, { width: 400, height: 800 })).toEqual({ x: 200, y: 100, fromBelow: true });
     expect(handPose({ x: -50, y: 2000 }, { width: 400, height: 800 })).toEqual({ x: 28, y: 772, fromBelow: false });
   });
+
+  it('liegt mit dem freien Band auf der Seite mit mehr Platz und ragt nie aus dem Bild (Korrekturrunde 2)', () => {
+    const phone = { width: 568, height: 320 };
+    // Placing on a phone held sideways: hint bar above (to 128), toolbar below (from 228). A place high in the band:
+    // the hand below it, not over the sentence.
+    const band = { top: 128, bottom: 228 };
+    expect(handPose({ x: 200, y: 170 }, phone, 28, band).fromBelow).toBe(true);
+    expect(handPose({ x: 200, y: 200 }, phone, 28, band).fromBelow).toBe(false);
+    // A button in the toolbar: the hand above it; the store bar at the top: below it.
+    expect(handPose({ x: 200, y: 270 }, phone, 28, band).fromBelow).toBe(false);
+    expect(handPose({ x: 60, y: 28 }, phone, 28, band).fromBelow).toBe(true);
+    // Never out of the screen, whatever the band says.
+    expect(handPose({ x: 200, y: 300 }, phone, 28, { top: 0, bottom: 320 }).fromBelow).toBe(false);
+    expect(handPose({ x: 200, y: 30 }, phone, 28, { top: 0, bottom: 20 }).fromBelow).toBe(true);
+  });
 });
 
 /** The real start village, with a tool whose commands are applied at once. */
@@ -317,5 +337,49 @@ describe('Tutorial im echten Startdorf: die Hand führt zum Ziel (M8)', () => {
   it('kein freier Platz in der Nähe: kein Vorschlag (die Hand zeigt dann nichts)', () => {
     const { state } = game();
     expect(suggestPlace(state, 'flower', { x: 1, y: 1 }, 1)).toBeUndefined();
+  });
+});
+
+describe('Tutorial: der Platz liegt im freien Band (M8, Korrekturrunde 2)', () => {
+  const size = { width: 568, height: 320 };
+  // A phone held sideways: the store bar above, the hint bar and the toolbar below.
+  const band = { top: 48, bottom: 146 };
+  const at = (x: number, y: number, sx: number, sy: number) => ({ tile: { x, y }, x: sx, y: sy });
+
+  it('nimmt den besten Platz, der im Band zu sehen ist – nicht einen unter einer Leiste oder einem Knopf', () => {
+    const underStock = at(1, 1, 200, 30);
+    const underHint = at(2, 1, 200, 180);
+    const underZoom = at(3, 1, 540, 90);
+    const free = at(4, 1, 300, 100);
+    const alsoFree = at(5, 1, 320, 110);
+    const zoomButton = (x: number, y: number): boolean => x > 500 && y < 140;
+    expect(pickPlace([underStock, underHint, underZoom, free, alsoFree], size, band, undefined, zoomButton)).toEqual(free);
+    // The one from before stays while it is to be seen.
+    expect(pickPlace([underStock, free, alsoFree], size, band, { x: 5, y: 1 }, zoomButton)).toEqual(alsoFree);
+    expect(pickPlace([underStock, underHint, underZoom], size, band, undefined, zoomButton)).toBeUndefined();
+    // A little inside the band, not right on its edge.
+    expect(pickPlace([at(6, 1, 300, 50), at(7, 1, 300, 144)], size, band, undefined, () => false)).toBeUndefined();
+  });
+
+  it('placeCandidates fängt mit dem Vorschlag an und enthält nur freie Plätze', () => {
+    const { state } = game();
+    const near = { x: state.buildings[0]?.x ?? 0, y: state.buildings[0]?.y ?? 0 };
+    for (const typeId of ['flower', 'house-red']) {
+      const tiles = placeCandidates(state, typeId, near);
+      expect(tiles[0]).toEqual(suggestPlace(state, typeId, near));
+      expect(tiles.length).toBeGreaterThan(10);
+      expect(new Set(tiles.map((tile) => `${String(tile.x)},${String(tile.y)}`)).size).toBe(tiles.length);
+    }
+  });
+
+  it('fährt erst nach einer Weile hin, dann höchstens alle paar Sekunden – und nie mehr, wenn das Kind selbst die Kamera bewegt hat', () => {
+    const search = { since: 1000, glidedAt: Number.NEGATIVE_INFINITY };
+    expect(tutorialGlideDue(search, 1000 + TUTORIAL_GLIDE_AFTER_MS - 1, false)).toBe(false);
+    expect(tutorialGlideDue(search, 1000 + TUTORIAL_GLIDE_AFTER_MS, false)).toBe(true);
+    const glided = { since: 1000, glidedAt: 5000 };
+    expect(tutorialGlideDue(glided, 5000 + TUTORIAL_GLIDE_AGAIN_MS - 1, false)).toBe(false);
+    expect(tutorialGlideDue(glided, 5000 + TUTORIAL_GLIDE_AGAIN_MS, false)).toBe(true);
+    // Korrekturrunde 2: once the child has moved the camera, the hand waits – no glide fetches them back.
+    expect(tutorialGlideDue(search, 1_000_000, true)).toBe(false);
   });
 });

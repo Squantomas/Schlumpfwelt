@@ -39,14 +39,19 @@ export class TutorialGuide {
    * Once per frame: points at `target` (CSS px, `radius` of the glow) or hides. `time` in ms (the scene's clock), for
    * the bobbing and the pulse.
    */
-  update(target: { readonly x: number; readonly y: number; readonly radius: number } | undefined, view: ViewSize, time: number): void {
+  update(
+    target: { readonly x: number; readonly y: number; readonly radius: number } | undefined,
+    view: ViewSize,
+    time: number,
+    band?: { readonly top: number; readonly bottom: number },
+  ): void {
     if (!target) {
       this.shownAt = undefined;
       this.hand.setVisible(false);
       this.glow.setVisible(false);
       return;
     }
-    const pose = handPose(target, view);
+    const pose = handPose(target, view, undefined, band);
     this.shownAt = pose;
     const beat = Math.sin((time / TUTORIAL_RULES.pulseMs) * Math.PI * 2);
     const radius = Math.max(26, Math.min(70, target.radius));

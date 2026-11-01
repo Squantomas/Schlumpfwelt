@@ -175,3 +175,16 @@ describe('Satz des Tutorials vor dem Werkzeug, wenn er woandershin führt (M8, K
     expect(pickHint({ ...sources, shopOpen: true })).toBeUndefined();
   });
 });
+
+describe('Dringende Hinweise des Werkzeugs vor jedem Satz des Tutorials (M8, Korrekturrunde 2)', () => {
+  it('ein Grund, eine Erstattung oder Tragen geht auch vor einen festen Satz, aber nie vor eine Meldung', () => {
+    const sources = { shopOpen: false, cardOpen: false, toolHint: 'Da ist Wasser.', toolProblem: true, tutorial: 'Schau oben: Der Markt bringt Taler!', tutorialFirst: true };
+    expect(pickHint(sources)).toEqual({ text: 'Da ist Wasser.', source: 'tool' });
+    expect(pickHint({ ...sources, toolProblem: false })?.source).toBe('tutorial');
+    expect(pickHint({ ...sources, tutorialFirst: false })?.source).toBe('tool');
+    expect(pickHint({ ...sources, message: 'Neu im Shop: Bank!' })?.source).toBe('message');
+    expect(pickHint({ ...sources, cardOpen: true })).toBeUndefined();
+    // Without a hint of the tool the flag means nothing.
+    expect(pickHint({ ...sources, toolHint: undefined })?.source).toBe('tutorial');
+  });
+});

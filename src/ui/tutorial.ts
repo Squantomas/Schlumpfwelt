@@ -375,8 +375,17 @@ function offsets(radius: number): readonly Tile[] {
  * (a path to the house) has something to do.
  */
 export function suggestPlace(state: PlacementView, typeId: string, near: Tile, radius = TUTORIAL_RULES.searchRadius): Tile | undefined {
+  return placeCandidates(state, typeId, near, radius)[0];
+}
+
+/**
+ * All the places `suggestPlace` would take, best first (Korrekturrunde 2: the scene takes the first one that is to be
+ * seen in the free band, `pickPlace`). Worked out once per change of the village – not in every frame.
+ */
+export function placeCandidates(state: PlacementView, typeId: string, near: Tile, radius = TUTORIAL_RULES.searchRadius): readonly Tile[] {
   const house = buildingType(typeId)?.category === 'house';
-  let fallback: Tile | undefined;
+  const best: Tile[] = [];
+  const later: Tile[] = [];
   for (const offset of offsets(radius)) {
     const tile = { x: near.x + offset.x, y: near.y + offset.y };
     const anchor = anchorFor(typeId, tile);
@@ -384,12 +393,64 @@ export function suggestPlace(state: PlacementView, typeId: string, near: Tile, r
     if (result !== 'ok' && result !== 'cost') {
       continue;
     }
-    if (!house || !wouldBeConnected(state, typeId, anchor.x, anchor.y)) {
-      return tile;
-    }
-    fallback ??= tile;
+    (!house || !wouldBeConnected(state, typeId, anchor.x, anchor.y) ? best : later).push(tile);
   }
-  return fallback;
+  return [...best, ...later];
+}
+
+/** A place on the screen: the tile and the middle of it (CSS px). */
+export interface ScreenPlace {
+  readonly tile: Tile;
+  readonly x: number;
+  readonly y: number;
+}
+
+/**
+ * Where the hand of "put it here" points (Korrekturrunde 2: on a phone held sideways the suggested place lay under the
+ * hint bar – the hand covered the sentence, and the place could not be tapped): the first place (best first) whose
+ * middle is in the free band, a little inside, and not under a button (`covered`). The one from before (`sticky`)
+ * stays while it is still there. `undefined`: none can be seen – the scene then glides there gently, or looks for a
+ * place near the middle of the band.
+ */
+export function pickPlace(
+  places: readonly ScreenPlace[],
+  view: { readonly width: number; readonly height: number },
+  band: { readonly top: number; readonly bottom: number },
+  sticky: Tile | undefined,
+  covered: (x: number, y: number) => boolean,
+): ScreenPlace | undefined {
+  const free = inFreeBand(view, band, covered);
+  const seen = places.filter((place) => free(place.x, place.y));
+  return seen.find((place) => sticky !== undefined && place.tile.x === sticky.x && place.tile.y === sticky.y) ?? seen[0];
+}
+
+/**
+ * Is a point (CSS px) in the free band between the bars, a little inside, on the screen and not under a button? There
+ * the hand may point at a place in the world (a tap there reaches the island).
+ */
+export function inFreeBand(
+  view: { readonly width: number; readonly height: number },
+  band: { readonly top: number; readonly bottom: number },
+  covered: (x: number, y: number) => boolean,
+): (x: number, y: number) => boolean {
+  const top = Math.max(0, Math.min(band.top, view.height));
+  const bottom = Math.max(top, Math.min(band.bottom, view.height));
+  const inset = Math.min(RESIDENT_EDGE, (bottom - top) / 4);
+  return (x, y) => x >= RESIDENT_EDGE && x <= view.width - RESIDENT_EDGE && y >= top + inset && y <= bottom - inset && !covered(x, y);
+}
+
+/** In the first step nobody could be tapped this long (ms) before the camera glides to someone (M8). */
+export const TUTORIAL_GLIDE_AFTER_MS = 1200;
+/** … and not again before this (ms): a child who moves the camera away is not followed at once. */
+export const TUTORIAL_GLIDE_AGAIN_MS = 6000;
+
+/**
+ * May the guided start let the camera glide to its target now (nothing to tap is to be seen since `since`, the last
+ * glide was at `glidedAt`)? Never once the child has moved the camera themselves (Korrekturrunde 2: a child who goes
+ * exploring is not fetched back again and again) – the hand then waits until the target is in the picture.
+ */
+export function tutorialGlideDue(search: { readonly since: number; readonly glidedAt: number }, now: number, movedByChild: boolean): boolean {
+  return !movedByChild && now - search.since >= TUTORIAL_GLIDE_AFTER_MS && now - search.glidedAt >= TUTORIAL_GLIDE_AGAIN_MS;
 }
 
 /**
@@ -442,12 +503,29 @@ export function pathTargets(state: PlacementView): { readonly start: Tile; reado
   return undefined;
 }
 
+/** How long the hand is from the fingertip to the wrist (CSS px, see `TutorialGuide`), with the bobbing. */
+export const HAND_LENGTH = 80;
+
 /**
  * Where the hand sits: its fingertip on the point, the hand above it pointing down – or below it pointing up when the
- * point is high on the screen. The point is kept on the screen (`margin` from the edges).
+ * point is high on the screen. The point is kept on the screen (`margin` from the edges). With the free `band` between
+ * the bars (Korrekturrunde 2) the hand lies on the side of the point where the band has more room: on a phone held
+ * sideways the band is low, and a hand above a place in it covered the sentence in the hint bar. It never sticks out
+ * of the screen.
  */
-export function handPose(point: { readonly x: number; readonly y: number }, view: { readonly width: number; readonly height: number }, margin = 28): { readonly x: number; readonly y: number; readonly fromBelow: boolean } {
+export function handPose(
+  point: { readonly x: number; readonly y: number },
+  view: { readonly width: number; readonly height: number },
+  margin = 28,
+  band?: { readonly top: number; readonly bottom: number },
+): { readonly x: number; readonly y: number; readonly fromBelow: boolean } {
   const x = Math.min(Math.max(point.x, margin), Math.max(margin, view.width - margin));
   const y = Math.min(Math.max(point.y, margin), Math.max(margin, view.height - margin));
-  return { x, y, fromBelow: y < view.height * 0.4 };
+  let fromBelow = band ? band.bottom - y > y - band.top : y < view.height * 0.4;
+  if (fromBelow && y + HAND_LENGTH > view.height) {
+    fromBelow = false;
+  } else if (!fromBelow && y - HAND_LENGTH < 0) {
+    fromBelow = true;
+  }
+  return { x, y, fromBelow };
 }

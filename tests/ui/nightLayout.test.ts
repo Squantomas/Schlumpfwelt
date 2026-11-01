@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Rect } from '../../src/ui/cameraMath';
+import { toolbarPanel } from '../../src/ui/buildLayout';
+import { TOOLS } from '../../src/ui/buildTool';
 import { NIGHT_BUTTON_LOW, nightLayout, nightLook } from '../../src/ui/nightLayout';
 
 const SCREENS: readonly (readonly [number, number])[] = [
@@ -38,6 +40,25 @@ describe('Gute-Nacht-Ebene: Mond, Sterne, Satz und Eltern-Knopf (M8)', () => {
       }
     });
   }
+
+  for (const [width, height] of SCREENS.filter(([w, h]) => h > w)) {
+    it(`${String(width)}×${String(height)} hochkant: der Knopf liegt nicht über der Werkzeugleiste (Korrekturrunde 2)`, () => {
+      const toolbar = toolbarPanel(width, height, TOOLS.length).rect;
+      const layout = nightLayout(width, height, toolbar);
+      expect(apart(layout.button, toolbar)).toBe(true);
+      expect(apart(layout.caption, toolbar)).toBe(true);
+      expect(apart(layout.text, layout.button)).toBe(true);
+      expect(layout.text.height).toBeGreaterThanOrEqual(60);
+      expect(layout.button.width).toBeGreaterThanOrEqual(NIGHT_BUTTON_LOW);
+      expect(layout.button.x + layout.button.width / 2).toBeLessThan(width / 3);
+      expect(layout.button.y + layout.button.height).toBeGreaterThan(height * 0.6);
+    });
+  }
+
+  it('quer bleibt der Knopf unten links in der Ecke (dort ist genug Platz neben der Leiste)', () => {
+    expect(nightLayout(568, 320, toolbarPanel(568, 320, TOOLS.length).rect)).toEqual(nightLayout(568, 320));
+    expect(nightLayout(1024, 768, toolbarPanel(1024, 768, TOOLS.length).rect)).toEqual(nightLayout(1024, 768));
+  });
 
   it('ist immer gleich (kein Zufall)', () => {
     expect(nightLayout(1024, 768)).toEqual(nightLayout(1024, 768));

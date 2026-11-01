@@ -4,6 +4,7 @@ import type { DayPhase } from '../../parent/dayClock';
 import { addGraphics } from '../../ui/FastGraphics';
 import { createLabel, setLabelSize } from '../../ui/label';
 import { nightLayout, nightLook, type NightLayout, type NightLook } from '../../ui/nightLayout';
+import type { Rect } from '../../ui/cameraMath';
 import { RoundButton } from '../../ui/RoundButton';
 import { COLORS } from '../../ui/style';
 import type { ViewSize } from '../../ui/viewport';
@@ -52,9 +53,10 @@ export class NightLayer {
     return this.look.sky > 0;
   }
 
-  layout(size: ViewSize): void {
+  /** `toolbar`: where the toolbar is (the button keeps clear of it on a narrow upright screen). */
+  layout(size: ViewSize, toolbar?: Rect): void {
     const { width, height } = size;
-    const layout = nightLayout(width, height);
+    const layout = nightLayout(width, height, toolbar);
     this.layoutData = layout;
     this.veil.setSize(width, height);
     if (this.veil.input) {

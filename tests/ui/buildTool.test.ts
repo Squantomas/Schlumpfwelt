@@ -6,6 +6,9 @@ import { t } from '../../src/data/texts';
 import { BuildTool, TOOLS, anchorFor, problemHint, type RefundInfo } from '../../src/ui/buildTool';
 import { DROP_DWELL_MS } from '../../src/ui/residentDrag';
 import { shopItems } from '../../src/data/buildings';
+import { TUTORIAL_RULES } from '../../src/data/tutorial';
+import { pickHint } from '../../src/ui/messageBoard';
+import { tutorialHint } from '../../src/ui/tutorial';
 import { buildConnected, fillTerrain, grassState, pathAt, run, setStore, setTerrainAt } from '../sim/helpers';
 
 /** A tool on a grass map whose commands are applied right away (the real game applies them at the next tick). */
@@ -1691,5 +1694,101 @@ describe('Umziehen (M7): über die Karte und per Ziehen', () => {
     tool.carryResident(center(13, 8));
     tool.selectTool('move');
     expect(tool.carried).toBeUndefined();
+  });
+});
+
+describe('Der geführte Start verschluckt nie Fehler und Trage-Hinweise (M8, Korrekturrunde 2)', () => {
+  const center = (x: number, y: number): { x: number; y: number } => ({ x: (x + 0.5) * 64, y: (y + 0.5) * 64 });
+  const step = (id: string) => TUTORIAL_RULES.steps.find((s) => s.id === id);
+  /** What the hint bar shows with the tool and this step of the guided start (as `BuildUI.hintText` puts it together). */
+  function bar(tool: BuildTool, stepId: string): { text: string; source: string } | undefined {
+    const hint = tutorialHint(step(stepId), { tool: tool.tool, shopTab: tool.shopTab, item: tool.item, preview: tool.preview(), canConfirm: tool.canConfirm });
+    const key = tool.hint;
+    return pickHint({
+      shopOpen: tool.shopOpen,
+      cardOpen: false,
+      toolHint: key ? t(key, tool.hintParams) : undefined,
+      toolProblem: tool.hintUrgent,
+      tutorial: hint ? `tutorial:${hint.sentence}` : undefined,
+      tutorialFirst: hint?.firm ?? false,
+    });
+  }
+
+  it('einfache Werkzeug-Hinweise sind nicht dringend, Gründe, Erstattung, Fehlendes und Tragen schon', () => {
+    const state = grassState();
+    setTerrainAt(state, 9, 9, 'water');
+    setStore(state, { coins: 50 });
+    const { tool } = setup(state);
+    tool.chooseItem('flower');
+    expect(tool.hint).toBe('hint.place');
+    expect(tool.hintUrgent).toBe(false);
+    tool.tap({ x: 9, y: 9 });
+    expect(tool.hint).toBe('hint.water');
+    expect(tool.hintUrgent).toBe(true);
+    tool.selectTool('path');
+    expect(tool.hintUrgent).toBe(false);
+    tool.exitTool();
+    expect(tool.hint).toBeUndefined();
+    expect(tool.hintUrgent).toBe(false);
+  });
+
+  it('Taler-Schritt, „Platzieren“ noch an: Wasser angetippt → der Grund steht da, nicht „Schau oben …“', () => {
+    const state = grassState();
+    setTerrainAt(state, 9, 9, 'water');
+    setStore(state, { coins: 50 });
+    const { tool } = setup(state);
+    tool.chooseItem('flower');
+    // Nothing wrong yet: the firm sentence of the step goes before the plain "Tippe auf die Wiese".
+    expect(bar(tool, 'coins')).toEqual({ text: 'tutorial:coins', source: 'tutorial' });
+    tool.tap({ x: 9, y: 9 });
+    expect(bar(tool, 'coins')).toEqual({ text: t('hint.water'), source: 'tool' });
+  });
+
+  it('Taler-Schritt mit zu wenig Talern: der Satz sagt, was fehlt', () => {
+    const state = grassState();
+    setStore(state, { coins: 0 });
+    const { tool } = setup(state);
+    tool.selectTool('shop');
+    tool.chooseItem('fountain');
+    expect(tool.hint).toBe('hint.missing');
+    expect(bar(tool, 'coins')?.source).toBe('tool');
+    expect(bar(tool, 'coins')?.text).toBe(t('hint.missing', tool.hintParams));
+  });
+
+  it('Lob, während ein Bewohner getragen wird: es steht „Zieh … auf ein Haus“ und „Lass … los“, nicht „Super!“', () => {
+    const state = grassState(32);
+    run(
+      state,
+      { type: 'placePaths', tiles: Array.from({ length: 20 }, (_, i) => ({ x: 2 + i, y: 10 })) },
+      { type: 'placeBuilding', buildingType: 'house-red', x: 4, y: 8 },
+      { type: 'placeBuilding', buildingType: 'berry-garden', x: 4, y: 11 },
+      { type: 'placeBuilding', buildingType: 'house-big', x: 12, y: 7 },
+    );
+    const { tool } = setup(state);
+    const gardener = state.residents[0]?.id ?? -1;
+    const name = state.residents[0]?.name ?? '';
+    expect(bar(tool, 'praise')).toEqual({ text: 'tutorial:praise', source: 'tutorial' });
+    expect(tool.grabResident(gardener, center(5, 10))).toBe(true);
+    tool.carryResident(center(9, 4));
+    expect(bar(tool, 'praise')).toEqual({ text: t('hint.dragHome', { name }), source: 'tool' });
+    tool.carryResident(center(13, 8));
+    tool.updateCarry(0);
+    tool.updateCarry(DROP_DWELL_MS);
+    expect(tool.hint).toBe('hint.dragDrop');
+    expect(bar(tool, 'praise')?.text).toBe(t('hint.dragDrop', { name }));
+  });
+
+  it('„Tippe auf den blauen Pfeil“ bei roter Vorschau: erst der Grund, ohne Fehler wieder der Pfeil', () => {
+    const state = grassState();
+    fillTerrain(state, 8, 8, 3, 3, 'water');
+    const { tool } = setup(state);
+    tool.selectTool('path');
+    // The step wants the shop: the firm sentence leads away from the path tool.
+    expect(bar(tool, 'shop')).toEqual({ text: 'tutorial:exit', source: 'tutorial' });
+    tool.tap({ x: 9, y: 9 });
+    expect(tool.hintUrgent).toBe(true);
+    expect(bar(tool, 'shop')).toEqual({ text: t(tool.hint ?? 'hint.water', tool.hintParams), source: 'tool' });
+    tool.selectTool('demolish');
+    expect(bar(tool, 'shop')).toEqual({ text: 'tutorial:exit', source: 'tutorial' });
   });
 });

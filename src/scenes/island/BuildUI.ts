@@ -647,6 +647,7 @@ export class BuildUI {
       cardFallback: this.cardFallback,
       message: covered ? undefined : this.board.current(this.scene.time.now, this.newsAllowed()),
       toolHint: hint ? t(hint, this.tool.hintParams) : undefined,
+      toolProblem: !covered && this.tool.hintUrgent,
       tutorial: this.tutorialText,
       tutorialFirst: this.tutorialFirm,
     });

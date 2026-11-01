@@ -32,18 +32,28 @@ const SKY: readonly (readonly [number, number, number])[] = [
   [0.05, 0.84, 1.1], [0.3, 0.9, 0.7], [0.7, 0.88, 0.9], [0.95, 0.8, 0.8], [0.4, 0.72, 0.6], [0.64, 0.72, 0.7],
 ];
 
+function apart(a: Rect, b: Rect): boolean {
+  return a.x + a.width <= b.x || b.x + b.width <= a.x || a.y + a.height <= b.y || b.y + b.height <= a.y;
+}
+
 function inside(x: number, y: number, rect: Rect, pad: number): boolean {
   return x >= rect.x - pad && x <= rect.x + rect.width + pad && y >= rect.y - pad && y <= rect.y + rect.height + pad;
 }
 
-export function nightLayout(width: number, height: number): NightLayout {
+/**
+ * `toolbar`: the (dimmed) toolbar below the layer. On a narrow screen held upright it reaches into the lower left
+ * corner – then the button stands above it, so that it does not lie over "Weg" and "Shop" (Korrekturrunde 2).
+ */
+export function nightLayout(width: number, height: number, toolbar?: Rect): NightLayout {
   const low = height < 420;
   const short = Math.min(width, height);
   const radius = Math.min(64, Math.max(26, short * 0.08));
   const moon = { x: width * 0.74, y: NIGHT_MARGIN + radius + (low ? 4 : short * 0.06), radius };
   const diameter = low ? NIGHT_BUTTON_LOW : NIGHT_BUTTON;
   const captionW = Math.max(diameter, Math.min(CAPTION_W, width - 2 * NIGHT_MARGIN));
-  const button: Rect = { x: NIGHT_MARGIN + (captionW - diameter) / 2, y: height - NIGHT_MARGIN - CAPTION_H - 2 - diameter, width: diameter, height: diameter };
+  const corner: Rect = { x: NIGHT_MARGIN, y: height - NIGHT_MARGIN - CAPTION_H - 2 - diameter, width: captionW, height: diameter + 2 + CAPTION_H };
+  const lift = height > width && toolbar !== undefined && !apart(corner, toolbar) ? corner.y + corner.height - (toolbar.y - 8) : 0;
+  const button: Rect = { x: NIGHT_MARGIN + (captionW - diameter) / 2, y: corner.y - Math.max(0, lift), width: diameter, height: diameter };
   const caption: Rect = { x: NIGHT_MARGIN, y: button.y + diameter + 2, width: captionW, height: CAPTION_H };
   const textFont = width < 420 || low ? 24 : 32;
   const textTop = moon.y + radius + 12;

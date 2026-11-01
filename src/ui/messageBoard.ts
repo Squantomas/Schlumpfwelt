@@ -92,9 +92,11 @@ export type HintSource = 'card' | 'message' | 'tool' | 'tutorial';
  * 2. an open card: nothing beside it – only its own sentence when it does not fit (`cardFallback`);
  * 3. a message of the board: news ("Neu im Shop", while it runs) or an explanation (errors, letting go of a carried
  *    resident, the boat, "Bald wird es Abend …" – each stays until the next tap);
- * 4. the hint of the tool (what to tap next, carrying a resident) – unless the tutorial's sentence is `tutorialFirst`
- *    (it leads away from the tool: "Tippe auf den blauen Pfeil …", Korrekturrunde 1);
- * 5. the sentence of the tutorial, only when nothing else has something to say.
+ * 4. an urgent hint of the tool (`toolProblem`: why a preview is red, what demolishing gives back, what is missing,
+ *    a missing path, what to do with a carried resident – Korrekturrunde 2);
+ * 5. a `tutorialFirst` sentence of the tutorial (it leads away from the tool: "Tippe auf den blauen Pfeil …");
+ * 6. the plain hint of the tool (what to tap next);
+ * 7. the sentence of the tutorial, only when nothing else has something to say.
  * So the tutorial never hides anything – and nothing hides it for good: every message above it goes away with a tap
  * or by itself (news), and a tool hint with the end of the tool; then its sentence is there again.
  */
@@ -104,6 +106,8 @@ export function pickHint(sources: {
   readonly cardFallback?: string | undefined;
   readonly message?: string | undefined;
   readonly toolHint?: string | undefined;
+  /** The tool hint is urgent (a problem, a refund, carrying): it goes before every sentence of the tutorial. */
+  readonly toolProblem?: boolean;
   readonly tutorial?: string | undefined;
   readonly tutorialFirst?: boolean;
 }): { readonly text: string; readonly source: HintSource } | undefined {
@@ -115,6 +119,9 @@ export function pickHint(sources: {
   }
   if (sources.message !== undefined) {
     return { text: sources.message, source: 'message' };
+  }
+  if (sources.toolProblem === true && sources.toolHint !== undefined) {
+    return { text: sources.toolHint, source: 'tool' };
   }
   if (sources.tutorialFirst === true && sources.tutorial !== undefined) {
     return { text: sources.tutorial, source: 'tutorial' };

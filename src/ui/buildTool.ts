@@ -584,33 +584,53 @@ export class BuildTool {
    * red preview says why it does not work.
    */
   get hint(): TextKey | undefined {
-    const problem = this.problemOf(this.preview());
-    if (problem) {
-      return problem;
-    }
+    return this.describeHint()?.key;
+  }
+
+  /**
+   * Does the hint say something the child must not miss (M8, Korrekturrunde 2): why a preview is red, what demolishing
+   * gives back, what is missing, that a house needs a path, or what to do with a carried resident? Then it goes before
+   * every sentence of the guided start; only the plain "what to tap next" of a tool may give way to it.
+   */
+  get hintUrgent(): boolean {
+    return this.describeHint()?.urgent === true;
+  }
+
+  private describeHint(): { readonly key: TextKey; readonly urgent: boolean } | undefined {
+    const urgent = (key: TextKey): { key: TextKey; urgent: boolean } => ({ key, urgent: true });
+    const plain = (key: TextKey | undefined): { key: TextKey; urgent: boolean } | undefined => (key === undefined ? undefined : { key, urgent: false });
     const preview = this.preview();
+    const problem = this.problemOf(preview);
+    if (problem) {
+      return urgent(problem);
+    }
     if (preview.kind === 'demolish' && totalUnits(preview.refund) > 0) {
-      return 'hint.refund';
+      return urgent('hint.refund');
     }
     if (preview.kind === 'invite') {
-      return 'hint.invite';
+      return plain('hint.invite');
     }
     if (this.drag.carried) {
-      return preview.kind === 'home' && !preview.waiting ? 'hint.dragDrop' : 'hint.dragHome';
+      return urgent(preview.kind === 'home' && !preview.waiting ? 'hint.dragDrop' : 'hint.dragHome');
     }
     if (preview.kind === 'home') {
-      return 'hint.homeConfirm';
+      return plain('hint.homeConfirm');
     }
     // A place that works, but where the building will have no path yet: say what to do next.
     const noPath = this.noPathHint(preview);
     if (noPath) {
-      return noPath;
+      return urgent(noPath);
     }
     // Before a place is tapped: an item the player can not pay for says what is missing.
     const item = this.item;
     if (preview.kind === 'none' && item && this.variantChosen && !this.itemAffordable) {
-      return totalUnits(missingFor(this.getState(), item)) === 1 ? 'hint.missingOne' : 'hint.missing';
+      return urgent(totalUnits(missingFor(this.getState(), item)) === 1 ? 'hint.missingOne' : 'hint.missing');
     }
+    return plain(this.plainHint(item));
+  }
+
+  /** What to tap next with the tool on (no problem, nothing to explain). */
+  private plainHint(item: string | undefined): TextKey | undefined {
     switch (this.current) {
       case 'view':
       case 'shop':
