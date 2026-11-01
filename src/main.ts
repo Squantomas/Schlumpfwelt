@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 import './style.css';
 import { t } from './data/texts';
+import { AudioEngine } from './audio/engine';
 import { BootScene } from './scenes/BootScene';
 import { IslandScene } from './scenes/IslandScene';
 import { registerServiceWorker } from './pwa/registerServiceWorker';
@@ -88,6 +89,14 @@ async function start(root: HTMLElement): Promise<void> {
   whenLeaving(() => {
     void parent.flush();
   });
+  // Sound (M9): our own Web Audio layer (Phaser's sound stays off); the start screen's tap unlocks it. A hidden page is
+  // silent at once; the switches live in the parents' settings.
+  const audio = new AudioEngine();
+  audio.setSwitches(parent.sound);
+  audio.setHidden(document.visibilityState === 'hidden');
+  document.addEventListener('visibilitychange', () => {
+    audio.setHidden(document.visibilityState === 'hidden');
+  });
   const view = measureViewport(root);
 
   const game = new Phaser.Game({
@@ -96,7 +105,7 @@ async function start(root: HTMLElement): Promise<void> {
     backgroundColor: COLORS.water,
     banner: false,
     disableContextMenu: true,
-    // No sound until M9; then the start screen tap unlocks Web Audio.
+    // Phaser's own sound stays off: the game's sounds are made by `src/audio/` (M9).
     audio: { noAudio: true },
     scale: {
       mode: Phaser.Scale.NONE,
@@ -109,7 +118,7 @@ async function start(root: HTMLElement): Promise<void> {
     render: {
       antialias: true,
     },
-    scene: [new BootScene(), new IslandScene(session, parent)],
+    scene: [new BootScene(audio), new IslandScene(session, parent, audio)],
   });
 
   game.events.once(Phaser.Core.Events.READY, () => {

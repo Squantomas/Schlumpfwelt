@@ -6,9 +6,10 @@ import { COLORS, clamp, rgb } from '../ui/style';
 import { onViewportChange, type ViewSize } from '../ui/viewport';
 import { TITLE_KEY } from '../art/catalog';
 import { TITLE_SIZE } from '../art/title';
+import type { AudioEngine } from '../audio/engine';
 import { loadArt } from './art/artLoader';
 import { SCENES } from './keys';
-import { markActiveScene } from './sceneMarker';
+import { markActiveScene, markAudio } from './sceneMarker';
 
 const FADE_MS = 250;
 
@@ -24,7 +25,7 @@ const FADE_MS = 250;
 export class BootScene extends Phaser.Scene {
   private started = false;
 
-  constructor() {
+  constructor(private readonly audio: AudioEngine) {
     super(SCENES.boot);
   }
 
@@ -40,6 +41,7 @@ export class BootScene extends Phaser.Scene {
 
   private showTitle(): void {
     markActiveScene(SCENES.boot);
+    markAudio(this.audio.describe());
 
     const picture = this.add.image(0, 0, TITLE_KEY);
     const tapZone = this.add.zone(0, 0, 1, 1).setOrigin(0, 0).setInteractive({ useHandCursor: true });
@@ -86,7 +88,10 @@ export class BootScene extends Phaser.Scene {
       return;
     }
     this.started = true;
-    // M9: unlock audio here – browsers only allow sound after a user gesture.
+    // Browsers (tablets above all) allow sound only after a touch: this tap unlocks it (M9).
+    this.audio.unlock();
+    this.audio.play('tap', this.time.now);
+    markAudio(this.audio.describe());
     this.cameras.main.fadeOut(FADE_MS, ...rgb(COLORS.water));
     this.cameras.main.once(Phaser.Cameras.Scene2D.Events.FADE_OUT_COMPLETE, () => {
       this.scene.start(SCENES.island);

@@ -9,6 +9,17 @@ const SIM_IMPORT_MESSAGE =
 const PARENT_IMPORT_MESSAGE =
   'src/parent/ (Eltern, Tageslimit) ist Phaser-frei: kein Phaser und keine Imports aus scenes/, ui/ oder main (siehe CLAUDE.md).';
 
+const AUDIO_IMPORT_MESSAGE =
+  'src/audio/ (Ton) ist Phaser-frei: kein Phaser und keine Imports aus scenes/, ui/, save/, parent/, sim/, art/ oder main (siehe CLAUDE.md).';
+
+const ART_IMPORT_MESSAGE =
+  'src/art/ (Bilder als SVG) ist reines TypeScript: kein Phaser, keine Imports aus scenes/, save/, parent/, sim/, audio/ oder main, aus ui/ nur style (siehe CLAUDE.md).';
+
+const WEB_AUDIO_MESSAGE = 'Web Audio gibt es nur in src/audio/ (siehe CLAUDE.md, Regel 17).';
+
+/** Web Audio: only the sound layer may make an audio context. */
+const WEB_AUDIO_GLOBALS = ['AudioContext', 'webkitAudioContext', 'OfflineAudioContext'];
+
 const SIM_DETERMINISM_MESSAGE =
   'src/sim/ ist deterministisch: keine Wanduhr, kein Math.random – Zeit kommt über die Ticks, Zufall nur über einen eigenen Seed-RNG in src/sim/.';
 
@@ -104,6 +115,16 @@ export default defineConfig(
     },
   },
 
+  // Web Audio lives only in src/audio/ (M9). The blocks of src/sim/, src/parent/, src/audio/ and src/art/ below set
+  // their own list of globals and repeat this one.
+  {
+    files: ['src/**/*.ts'],
+    ignores: ['src/audio/**'],
+    rules: {
+      'no-restricted-globals': ['error', ...WEB_AUDIO_GLOBALS.map((name) => ({ name, message: WEB_AUDIO_MESSAGE }))],
+    },
+  },
+
   // Architecture rule: the simulation must stay independent of Phaser, the
   // display and the browser, and deterministic (no wall clock, no Math.random),
   // so it can be unit-tested, replayed and saved as plain data.
@@ -116,7 +137,22 @@ export default defineConfig(
           paths: [{ name: 'phaser', message: SIM_IMPORT_MESSAGE }],
           patterns: [
             {
-              group: ['phaser/*', '**/scenes', '**/scenes/**', '**/ui', '**/ui/**', '**/save', '**/save/**', '**/parent', '**/parent/**', '**/main'],
+              group: [
+                'phaser/*',
+                '**/scenes',
+                '**/scenes/**',
+                '**/ui',
+                '**/ui/**',
+                '**/save',
+                '**/save/**',
+                '**/parent',
+                '**/parent/**',
+                '**/audio',
+                '**/audio/**',
+                '**/art',
+                '**/art/**',
+                '**/main',
+              ],
               message: SIM_IMPORT_MESSAGE,
             },
           ],
@@ -128,6 +164,7 @@ export default defineConfig(
           name,
           message: 'src/sim/ darf nicht auf Browser, Netz, Timer, Wanduhr oder Phaser zugreifen.',
         })),
+        ...WEB_AUDIO_GLOBALS.map((name) => ({ name, message: WEB_AUDIO_MESSAGE })),
       ],
       'no-restricted-properties': [
         'error',
@@ -160,8 +197,91 @@ export default defineConfig(
           ],
         },
       ],
-      'no-restricted-globals': ['error', { name: 'Phaser', message: PARENT_IMPORT_MESSAGE }],
+      'no-restricted-globals': [
+        'error',
+        { name: 'Phaser', message: PARENT_IMPORT_MESSAGE },
+        ...WEB_AUDIO_GLOBALS.map((name) => ({ name, message: WEB_AUDIO_MESSAGE })),
+      ],
       'no-restricted-syntax': ['error', { selector: 'ImportExpression', message: 'Keine dynamischen Imports in src/parent/.' }],
+    },
+  },
+
+  // The sound layer (M9): Web Audio and the recipes, free of Phaser and the display, testable with a fake audio context.
+  // Nothing of the game imports it except main and the scenes; src/sim/ never does.
+  {
+    files: ['src/audio/**/*.ts'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          paths: [{ name: 'phaser', message: AUDIO_IMPORT_MESSAGE }],
+          patterns: [
+            {
+              group: [
+                'phaser/*',
+                '**/scenes',
+                '**/scenes/**',
+                '**/ui',
+                '**/ui/**',
+                '**/save',
+                '**/save/**',
+                '**/parent',
+                '**/parent/**',
+                '**/sim',
+                '**/sim/**',
+                '**/art',
+                '**/art/**',
+                '**/main',
+              ],
+              message: AUDIO_IMPORT_MESSAGE,
+            },
+          ],
+        },
+      ],
+      'no-restricted-globals': ['error', { name: 'Phaser', message: AUDIO_IMPORT_MESSAGE }],
+      'no-restricted-syntax': ['error', { selector: 'ImportExpression', message: 'Keine dynamischen Imports in src/audio/.' }],
+    },
+  },
+
+  // The pictures (M9): pure SVG strings from the colour tokens – no browser, no Phaser, no chance (the same picture
+  // every time), so they can be tested and turned into prompt templates in Node.
+  {
+    files: ['src/art/**/*.ts'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          paths: [{ name: 'phaser', message: ART_IMPORT_MESSAGE }],
+          patterns: [
+            {
+              group: [
+                'phaser/*',
+                '**/scenes',
+                '**/scenes/**',
+                '**/ui/*',
+                '!**/ui/style',
+                '**/save',
+                '**/save/**',
+                '**/parent',
+                '**/parent/**',
+                '**/sim',
+                '**/sim/**',
+                '**/audio',
+                '**/audio/**',
+                '**/main',
+              ],
+              message: ART_IMPORT_MESSAGE,
+            },
+          ],
+        },
+      ],
+      'no-restricted-globals': [
+        'error',
+        ...SIM_RESTRICTED_GLOBALS.map((name) => ({ name, message: ART_IMPORT_MESSAGE })),
+        ...WEB_AUDIO_GLOBALS.map((name) => ({ name, message: WEB_AUDIO_MESSAGE })),
+      ],
+      'no-restricted-properties': ['error', { object: 'Math', property: 'random', message: 'Bilder sehen jedes Mal gleich aus: kein Math.random in src/art/.' }],
+      'no-restricted-syntax': ['error', { selector: 'ImportExpression', message: 'Keine dynamischen Imports in src/art/.' }],
     },
   },
 );

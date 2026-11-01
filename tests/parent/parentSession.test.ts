@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { ParentSession } from '../../src/parent/parentSession';
-import { readSettings } from '../../src/parent/settings';
+import { SETTINGS_VERSION, readSettings } from '../../src/parent/settings';
 import { MemorySettingsStore, type SettingsStore } from '../../src/parent/settingsStore';
 import type { DayClockOptions } from '../../src/parent/dayClock';
 
@@ -115,7 +115,7 @@ describe('ParentSession: PIN, Limit und Konto, gespeichert neben dem Dorf (M8)',
 
   it('ein Eintrag einer neueren Version wird gelesen, aber nie überschrieben – einmal ein Satz (Korrekturrunde 1)', async () => {
     let writes = 0;
-    const newer = { format: 'village-parent', version: 2, pin: null, limitMinutes: 45, day: DAY, usedMs: 60_000, extraMinutes: 0 };
+    const newer = { format: 'village-parent', version: SETTINGS_VERSION + 1, pin: null, limitMinutes: 45, day: DAY, usedMs: 60_000, extraMinutes: 0 };
     const store: SettingsStore = {
       kind: 'indexedDb',
       load: () => Promise.resolve(structuredClone(newer)),
@@ -175,5 +175,47 @@ describe('ParentSession: PIN, Limit und Konto, gespeichert neben dem Dorf (M8)',
     session.setLimit(15);
     frames(session, 2000);
     expect(JSON.parse(session.describe())).toMatchObject({ phase: 'day', used: 2, allowed: 900, limit: 15, extra: 0, warned: false, day: DAY, store: 'memory', pin: false });
+  });
+});
+
+describe('ParentSession: Ton an/aus (M9)', () => {
+  it('ohne Eintrag ist der Ton an; ein Umschalten wird sofort geschrieben und bleibt nach dem Neuladen', async () => {
+    const store = new MemorySettingsStore();
+    const session = await ParentSession.open(store, DAY, OPTIONS);
+    expect(session.sound).toEqual({ on: true, music: true, sfx: true });
+    session.setSound({ on: false });
+    session.setSound({ music: false });
+    await session.flush();
+    const again = await ParentSession.open(store, DAY, OPTIONS);
+    expect(again.sound).toEqual({ on: false, music: false, sfx: true });
+    expect(readSettings(await store.load(), DAY).sound).toEqual({ on: false, music: false, sfx: true });
+  });
+
+  it('ein Eintrag aus M8 (Version 1) bekommt den Ton an und wird als Version 2 geschrieben', async () => {
+    const store = new MemorySettingsStore({ format: 'village-parent', version: 1, pin: null, limitMinutes: 30, day: DAY, usedMs: 1000, extraMinutes: 0 });
+    const session = await ParentSession.open(store, DAY, OPTIONS);
+    expect(session.sound).toEqual({ on: true, music: true, sfx: true });
+    expect(session.clock.limitMinutes).toBe(30);
+    session.setSound({ sfx: false });
+    await session.flush();
+    expect(await store.load()).toMatchObject({ version: 2, limitMinutes: 30, sound: { on: true, music: true, sfx: false } });
+  });
+
+  it('eine neuere Version wird auch beim Umschalten des Tons nie überschrieben', async () => {
+    let writes = 0;
+    const store: SettingsStore = {
+      kind: 'indexedDb',
+      load: () => Promise.resolve({ format: 'village-parent', version: SETTINGS_VERSION + 1, day: DAY, sound: { on: false, music: true, sfx: true } }),
+      save: () => {
+        writes += 1;
+        return Promise.resolve();
+      },
+    };
+    const session = await ParentSession.open(store, DAY, OPTIONS);
+    expect(session.sound.on).toBe(false);
+    session.setSound({ on: true });
+    await session.flush();
+    expect(writes).toBe(0);
+    expect(session.sound.on).toBe(true);
   });
 });

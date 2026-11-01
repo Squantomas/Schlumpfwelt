@@ -213,3 +213,55 @@ describe('Theme: auch Build-Skripte, Symbole und Manifest kennen keinen Markenna
     expect(indexHtml).not.toMatch(/#[0-9a-f]{6}/i);
   });
 });
+
+const AUDIO_FILE = 'src/audio/engine.ts';
+const ART_FILE = 'src/art/svg.ts';
+
+describe('Architektur: Ton (src/audio/) und Bilder (src/art/) (M9)', { timeout: 30_000 }, () => {
+  it.each([
+    ['Phaser', "import Phaser from 'phaser';\nexport const game = Phaser.AUTO;\n"],
+    ['Szenen', "import { IslandScene } from '../scenes/IslandScene';\nexport const s = IslandScene;\n"],
+    ['UI', "import { COLORS } from '../ui/style';\nexport const c = COLORS;\n"],
+    ['Simulation', "import { TICK_MS } from '../sim/clock';\nexport const x = TICK_MS;\n"],
+    ['Eltern', "import { DayClock } from '../parent/dayClock';\nexport const c = DayClock;\n"],
+    ['Bilder', "import { Svg } from '../art/svg';\nexport const s = Svg;\n"],
+  ])('src/audio/ verbietet Imports: %s', async (_name, code) => {
+    expect(await architectureViolations(AUDIO_FILE, code)).toContain('no-restricted-imports');
+  });
+
+  it('src/audio/ darf Web Audio, Browser und die Daten benutzen', async () => {
+    const code = "import { SOUND_BOOK } from './recipes';\nimport sounds from '../data/sounds.json';\nexport const x = [SOUND_BOOK, sounds, new AudioContext(), document.hidden];\n";
+    expect(await architectureViolations(AUDIO_FILE, code)).toEqual([]);
+  });
+
+  it.each([
+    ['src/sim/', SIM_FILE],
+    ['src/parent/', PARENT_FILE],
+    ['eine Szene', SCENE_FILE],
+    ['src/art/', ART_FILE],
+  ])('Web Audio nur in src/audio/: nicht in %s', async (_name, file) => {
+    expect(await architectureViolations(file, 'export const ctx = new AudioContext();\n')).toEqual(['no-restricted-globals']);
+  });
+
+  it('src/sim/ importiert weder Ton noch Bilder', async () => {
+    expect(await architectureViolations(SIM_FILE, "import { AudioEngine } from '../audio/engine';\nexport const a = AudioEngine;\n")).toContain('no-restricted-imports');
+    expect(await architectureViolations(SIM_FILE, "import { Svg } from '../art/svg';\nexport const s = Svg;\n")).toContain('no-restricted-imports');
+  });
+
+  it.each([
+    ['Phaser', "import Phaser from 'phaser';\nexport const game = Phaser.AUTO;\n"],
+    ['Szenen', "import { IslandScene } from '../scenes/IslandScene';\nexport const s = IslandScene;\n"],
+    ['UI außer style', "import { BuildTool } from '../ui/buildTool';\nexport const b = BuildTool;\n"],
+    ['Simulation', "import { TICK_MS } from '../sim/clock';\nexport const x = TICK_MS;\n"],
+    ['Ton', "import { AudioEngine } from '../audio/engine';\nexport const a = AudioEngine;\n"],
+  ])('src/art/ verbietet Imports: %s', async (_name, code) => {
+    expect(await architectureViolations(ART_FILE, code)).toContain('no-restricted-imports');
+  });
+
+  it('src/art/ ist rein: kein Browser, kein Zufall; die Farben aus ui/style und die Daten sind erlaubt', async () => {
+    expect(await architectureViolations(ART_FILE, 'export const w = window.innerWidth;\n')).toEqual(['no-restricted-globals']);
+    expect(await architectureViolations(ART_FILE, 'export const r = Math.random();\n')).toEqual(['no-restricted-properties']);
+    const code = "import { COLORS } from '../ui/style';\nimport { BUILDING_TYPES } from '../data/buildings';\nexport const x = [COLORS, BUILDING_TYPES, Math.round(1.5)];\n";
+    expect(await architectureViolations(ART_FILE, code)).toEqual([]);
+  });
+});

@@ -135,6 +135,10 @@ export class VillageView {
   private readonly smokes: Smoke[] = [];
   private readonly nextSmoke = new Map<number, number>();
   private revision = -1;
+  /** The sound of the change being drawn now (M9), one per change. */
+  private heard: 'build' | 'path' | 'demolish' | undefined;
+  /** A sound of the village (M9): something was built, moved, laid, taken away, or the market sold. */
+  onSound: ((kind: 'build' | 'path' | 'demolish' | 'coins') => void) | undefined;
   private liftedId: number | undefined;
   private tintedId: number | undefined;
 
@@ -186,9 +190,13 @@ export class VillageView {
     }
     const animate = this.revision >= 0;
     this.revision = state.revision;
+    this.heard = undefined;
     this.syncBuildings(animate);
     this.syncPaths(animate);
     this.syncSigns(animate);
+    if (animate && this.heard) {
+      this.onSound?.(this.heard);
+    }
     this.signTick = state.tick;
     if (this.inspectId !== undefined) {
       // The building may have moved: draw its area again.
@@ -197,6 +205,14 @@ export class VillageView {
       this.setInspect(id);
     }
     return true;
+  }
+
+  /** One sound for a whole change: building wins over a path, and taking away wins over both (the puff is what you see). */
+  private hear(kind: 'build' | 'path' | 'demolish'): void {
+    const rank = { path: 0, build: 1, demolish: 2 } as const;
+    if (!this.heard || rank[kind] > rank[this.heard]) {
+      this.heard = kind;
+    }
   }
 
   private syncBuildings(animate: boolean): void {
@@ -223,6 +239,7 @@ export class VillageView {
         this.sprites.set(building.id, entry);
         if (animate) {
           this.popIn(image);
+          this.hear('build');
         }
       } else if (entry.x !== building.x || entry.y !== building.y) {
         entry.x = building.x;
@@ -231,6 +248,7 @@ export class VillageView {
         entry.image.setPosition(baseX, baseY).setDepth(baseY - 4);
         if (animate) {
           this.popIn(entry.image);
+          this.hear('build');
         }
       }
     }
@@ -239,6 +257,7 @@ export class VillageView {
         const type = buildingType(entry.typeId);
         if (animate && type) {
           this.puff((entry.x + type.footprint.w / 2) * TILE_SIZE, (entry.y + type.footprint.h / 2) * TILE_SIZE, Math.max(type.footprint.w, type.footprint.h));
+          this.hear('demolish');
         }
         entry.image.destroy();
         this.sprites.delete(id);
@@ -267,6 +286,7 @@ export class VillageView {
           if (image) {
             if (animate) {
               this.puff((x + 0.5) * TILE_SIZE, (y + 0.5) * TILE_SIZE, 0.7);
+              this.hear('demolish');
             }
             image.destroy();
             this.pathImages.delete(index);
@@ -284,6 +304,7 @@ export class VillageView {
           this.layer.add(created);
           this.pathImages.set(index, created);
           if (animate) {
+            this.hear('path');
             created.setAlpha(0.2);
             this.scene.tweens.add({ targets: created, alpha: 1, duration: 180 });
           }
@@ -532,6 +553,9 @@ export class VillageView {
       return;
     }
     const amounts: [string, number][] = rules.sell ? [['coins', producer.lastSale]] : Object.entries(rules.outputs);
+    if (rules.sell && producer.lastSale > 0) {
+      this.onSound?.('coins');
+    }
     this.popAmounts((building.x + type.footprint.w / 2) * TILE_SIZE, building.y * TILE_SIZE - type.look.rise * 0.5, amounts, zoom);
   }
 

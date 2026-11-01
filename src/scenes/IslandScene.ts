@@ -9,6 +9,8 @@ import type { ParentSession } from '../parent/parentSession';
 import { moodOf, workPaces } from '../sim/mood';
 import { hash2 } from '../sim/random';
 import type { GameSession } from '../save/session';
+import type { AudioEngine } from '../audio/engine';
+import type { SoundKind } from '../audio/recipes';
 import type { Simulation } from '../sim/simulation';
 import { isLand, landBounds, terrainAt, type Terrain } from '../sim/world';
 import { BuildTool, TOOLS, type Preview } from '../ui/buildTool';
@@ -78,7 +80,7 @@ import { VillageMenu } from './island/VillageMenu';
 import { VillageView } from './island/VillageView';
 import { WorldCameraController } from './island/WorldCameraController';
 import { ISLAND_EVENTS, SCENES, type TileTapEvent } from './keys';
-import { markActiveScene, markCamera, markParent, markPerf, markSave, markTap, markVillage } from './sceneMarker';
+import { markActiveScene, markAudio, markCamera, markParent, markPerf, markSave, markTap, markVillage } from './sceneMarker';
 
 /** Tap ring: how long it takes to grow and fade away (ms). */
 const RING_MS = 900;
@@ -242,9 +244,15 @@ export class IslandScene extends Phaser.Scene {
   private dayKey = { at: Number.NEGATIVE_INFINITY, key: '' };
   private dayPublished = '';
 
+  /** Boats that carry a guest: when the guest steps ashore, the boat sound plays (M9). */
+  private boatsWithGuest = new Set<number>();
+  /** When `data-audio` was last published (ms). */
+  private audioMarkedAt = Number.NEGATIVE_INFINITY;
+
   constructor(
     private readonly session: GameSession,
     private readonly parent: ParentSession,
+    private readonly audio: AudioEngine,
   ) {
     super(SCENES.island);
     this.simulation = session.simulation;
@@ -312,11 +320,16 @@ export class IslandScene extends Phaser.Scene {
     this.buildWaves(seed);
     this.village = new VillageView(this, this.worldLayer, this.simulation);
     this.village.sync();
+    this.village.onSound = (kind) => {
+      this.playSound(kind);
+    };
+    this.boatsWithGuest = new Set(this.simulation.state.boats.filter((boat) => boat.passenger !== null).map((boat) => boat.id));
     this.residentView = new ResidentView(this, this.worldLayer, this.simulation);
     this.buildTool = new BuildTool(
       () => this.simulation.state,
       (command) => {
         if (command.type === 'assignHome') {
+          this.playSound('moveHome');
           // Moving house (✓ on the card, or let go on a house): the figure glides from where it is drawn now to the
           // door of the new home – nobody jumps across the island.
           const at = this.residentView.positionOf(command.residentId);
@@ -420,6 +433,9 @@ export class IslandScene extends Phaser.Scene {
       },
       () => this.menu.isOpen,
     );
+    this.buildUI.onSound = (kind) => {
+      this.playSound(kind);
+    };
     this.buildUI.onSkipTutorial = () => {
       this.setTutorial(skipTutorial(this.tutorial));
       this.buildUI.showNotice('tutorial.skipped');
@@ -597,6 +613,11 @@ export class IslandScene extends Phaser.Scene {
     }
     this.updateWaves(seconds);
     this.updateTreeSway(seconds);
+    this.audio.update();
+    if (time - this.audioMarkedAt >= 500 || time < this.audioMarkedAt) {
+      this.audioMarkedAt = time;
+      markAudio(this.audio.describe());
+    }
     this.updateTutorial(time);
   }
 
@@ -628,6 +649,8 @@ export class IslandScene extends Phaser.Scene {
     for (const event of events) {
       this.dayEvent(event);
     }
+    // The music fades out in the evening and is off at night; in the morning it comes back (M9).
+    this.audio.setMode(clock.phase === 'dusk' ? 'dusk' : clock.phase === 'night' ? 'night' : 'day');
     this.night.update(clock.phase, clock.phaseTime, frameMs, DAY_CLOCK_OPTIONS.duskMinMs, DAY_CLOCK_OPTIONS.dawnMs);
   }
 
@@ -662,6 +685,7 @@ export class IslandScene extends Phaser.Scene {
       case 'night':
         // The night: the game stands still and is saved – nothing is made, nothing is lost. The evening's sentence has said its piece.
         this.buildUI.clearAllNotices();
+        this.playSound('goodNight');
         this.simulation.send({ type: 'setPaused', paused: true });
         this.simulation.applyPending();
         void this.session.autosave?.flush();
@@ -910,6 +934,16 @@ export class IslandScene extends Phaser.Scene {
       this.glideToChosenHouse(gestureActive);
     }
     const boats = this.simulation.state.boats;
+    // A guest steps ashore: the boat sound (M9).
+    if (boats.length > 0 || this.boatsWithGuest.size > 0) {
+      const withGuest = new Set(boats.filter((boat) => boat.passenger !== null).map((boat) => boat.id));
+      for (const id of this.boatsWithGuest) {
+        if (!withGuest.has(id)) {
+          this.playSound('boat');
+        }
+      }
+      this.boatsWithGuest = withGuest;
+    }
     if (boats.length === 0 && this.seenBoats.size === 0) {
       return;
     }
@@ -1074,6 +1108,7 @@ export class IslandScene extends Phaser.Scene {
     let x1 = Number.NEGATIVE_INFINITY;
     let y1 = Number.NEGATIVE_INFINITY;
     let landChanged = false;
+    let cleared = false;
     const changed: { x: number; y: number }[] = [];
     for (let y = 0; y < world.height; y += 1) {
       for (let x = 0; x < world.width; x += 1) {
@@ -1086,6 +1121,7 @@ export class IslandScene extends Phaser.Scene {
           x1 = Math.max(x1, x);
           y1 = Math.max(y1, y);
           landChanged ||= isLand(now) !== (before !== undefined && isLand(before));
+          cleared ||= now === 'grass' && (before === 'forest' || before === 'rock');
           this.drawnTerrain[y * world.width + x] = now;
         }
       }
@@ -1093,6 +1129,8 @@ export class IslandScene extends Phaser.Scene {
     if (changed.length === 0) {
       return;
     }
+    // Planted, set or filled – or a planted tree or rock taken away (M9).
+    this.playSound(cleared ? 'demolish' : 'build');
     // Ground: only the blocks the changed tiles touch are painted again and uploaded to the graphics card.
     const started = performance.now();
     const touched = new Set<string>();
@@ -1182,6 +1220,11 @@ export class IslandScene extends Phaser.Scene {
     }
   }
 
+  /** A noise of the game (M9); the engine leaves it out when it came too soon after the same one, or the sound is off. */
+  private playSound(kind: SoundKind): void {
+    this.audio.play(kind, this.time.now);
+  }
+
   /** Small waves that run up to the beach now and then: on some sea tiles next to land (M9, only a picture). */
   private buildWaves(seed: number): void {
     const { world } = this.simulation.state;
@@ -1254,6 +1297,7 @@ export class IslandScene extends Phaser.Scene {
       return;
     }
     this.worldTapped = true;
+    this.playSound('tap');
     // The open shop covers the island: a tap beside the panel closes it and does nothing else (no building, no ring).
     if (this.buildUI.shopOpen) {
       this.buildTool.closeShop();

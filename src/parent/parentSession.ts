@@ -1,7 +1,7 @@
 import { PARENT_RULES } from '../data/parent';
 import { DayClock, DAY_CLOCK_OPTIONS, type DayClockOptions, type DayEvent, type DayInput } from './dayClock';
 import { isPin, makePin, newSalt, pinMatches } from './pin';
-import { newerSettings, readSettings, toStored, type ParentSettings } from './settings';
+import { newerSettings, readSettings, toStored, type ParentSettings, type SoundSettings } from './settings';
 import { MemorySettingsStore, type SettingsStore } from './settingsStore';
 
 /**
@@ -23,6 +23,7 @@ export class ParentSession {
   private pin: ParentSettings['pin'];
   private pinLost: boolean;
   private tutorialRecord: unknown;
+  private soundSettings: SoundSettings;
   private sinceSaveMs = 0;
   private writing: Promise<void> = Promise.resolve();
   private stopped: () => boolean = () => false;
@@ -43,6 +44,7 @@ export class ParentSession {
     this.pin = settings.pin;
     this.pinLost = settings.pinLost;
     this.tutorialRecord = settings.tutorial;
+    this.soundSettings = settings.sound;
     this.clock = new DayClock({ day: settings.day, usedMs: settings.usedMs, extraMinutes: settings.extraMinutes }, settings.limitMinutes, options);
   }
 
@@ -128,6 +130,17 @@ export class ParentSession {
     void this.save();
   }
 
+  /** The sound switches (M9). */
+  get sound(): SoundSettings {
+    return this.soundSettings;
+  }
+
+  /** Changes sound switches and writes them at once (they stay after a reload). */
+  setSound(change: Partial<SoundSettings>): void {
+    this.soundSettings = { ...this.soundSettings, ...change };
+    void this.save();
+  }
+
   get tutorial(): unknown {
     return this.tutorialRecord;
   }
@@ -167,6 +180,7 @@ export class ParentSession {
       extraMinutes: account.extraMinutes,
       pinLost: this.pinLost,
       tutorial: this.tutorialRecord,
+      sound: this.soundSettings,
     };
   }
 

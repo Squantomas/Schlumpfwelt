@@ -96,6 +96,8 @@ export class BuildUI {
   private hintSource: HintSource | undefined;
   /** "Skip the tutorial" was tapped. */
   onSkipTutorial: (() => void) | undefined;
+  /** A sound of the controls (M9): a tap, „geht nicht“, something new in the shop. */
+  onSound: ((kind: 'tap' | 'error' | 'unlock') => void) | undefined;
   private readonly confirmButton: RoundButton;
   private readonly cancelButton: RoundButton;
   private readonly toolButtons = new Map<ToolbarToolId, SquareButton>();
@@ -239,6 +241,7 @@ export class BuildUI {
         this.shop.clearTip();
         const notice = this.tool.chooseItem(typeId);
         if (notice) {
+          this.onSound?.('error');
           this.showNotice(notice);
         } else {
           // Starting with a clean slate: an old note does not belong to the new item.
@@ -277,6 +280,7 @@ export class BuildUI {
         this.touched(time);
         const notice = this.tool.confirm();
         if (notice) {
+          this.onSound?.('error');
           this.showNotice(notice, this.tool.hintParams);
         } else {
           // Built: an old note ("Hier geht das nicht.") must not stay on.
@@ -326,6 +330,7 @@ export class BuildUI {
   touched(eventTime: number): void {
     this.lastUiTap = eventTime;
     this.touches += 1;
+    this.onSound?.('tap');
   }
 
   /** How many taps on controls there were so far (the guided start counts any tap, M8). */
@@ -712,6 +717,7 @@ export class BuildUI {
     const news = this.tool.takeAnnouncements();
     if (news.length > 0) {
       this.board.announce(newItemsText(news), NEWS_MS);
+      this.onSound?.('unlock');
       this.lastMessage = undefined;
     }
     // The numbers pop when they change; cards that can (not) be paid for change with them.
