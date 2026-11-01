@@ -2825,6 +2825,20 @@ const ACTIVITIES = ['boat', 'toWork', 'work', 'carry', 'toHome', 'rest', 'stroll
 /** Im Stehen (nicht unterwegs): so ein Bewohner lässt sich sicher antippen. */
 const STANDING = ['work', 'rest', 'visit', 'wait'];
 const NO_OFFSET = { dx: 0, dy: 0 };
+/** Von der Körpermitte bis oben an die Mütze (Welt-px, `RESIDENT_HIT_TOP − RESIDENT_BODY_Y` in `src/ui/residentHit.ts`). */
+const HAT_ABOVE_BODY = 16;
+/** Von der Körpermitte bis unten an den Bauch (Welt-px, `RESIDENT_BODY_Y − RESIDENT_HIT_BOTTOM`). */
+const BELLY_BELOW_BODY = 14;
+/** So weit reicht ein Bewohner auf einem Gebäude, das auf den Tipp antwortet (Welt-px, `RESIDENT_REACH_ON_BUILDING`). */
+const REACH_ON_BUILDING = 24;
+/** So weit neben dem Körper (Welt-px, mindestens) gehört ein Tipp auf einem Produktionsgebäude dem Gebäude. */
+const BEYOND_HAT = 30;
+/** Abstand (Welt-px) eines Tipps `offset` CSS-px neben der Körpermitte zum Körper (der Strecke vom Bauch bis zur Mütze). */
+const bodyDistance = (offset, zoom) => {
+  const ox = offset.dx / zoom;
+  const oy = offset.dy / zoom;
+  return Math.hypot(ox, Math.max(0, -HAT_ABOVE_BODY - oy, oy - BELLY_BELOW_BODY));
+};
 /** Tipps so weit neben die Körpermitte eines Bewohners (CSS-px) müssen ihn noch treffen (Regel 8: 48 px, also 24 px Radius). */
 const TAP_OFFSETS = [
   { dx: 20, dy: 0 },
@@ -2965,14 +2979,15 @@ async function testResidents({ context, page, check, shot, size, input, name, pr
   };
   /**
    * Ein stehender Bewohner (noch mindestens 3 s), dessen Körpermitte um `offset` (CSS-px) verschoben an einer gut
-   * antippbaren Stelle des Bildschirms liegt; jeder andere Bewohner steht mindestens 30 px weiter vom Tipp weg.
+   * antippbaren Stelle des Bildschirms liegt; jeder andere Bewohner steht mindestens 30 px weiter vom Tipp weg. Die
+   * Bewohner in `skip` nicht.
    */
-  const standingOnScreen = (state, ui, view, offset = NO_OFFSET) => {
+  const standingOnScreen = (state, ui, view, offset = NO_OFFSET, skip = new Set()) => {
     const top = (ui.stock ? ui.stock.y + ui.stock.h / 2 : 0) + 40;
     const bottom = (ui['tool-path'] ? ui['tool-path'].y - 52 : view.height) - 40;
     const reach = Math.hypot(offset.dx, offset.dy) + 30;
     return state.residents.find((r) => {
-      if (!STANDING.includes(r.activity) || r.timer <= 30 || r.sx === undefined) return false;
+      if (!STANDING.includes(r.activity) || r.timer <= 30 || r.sx === undefined || skip.has(r.id)) return false;
       const x = r.sx + offset.dx;
       const y = r.sy + offset.dy;
       if (!(x > 40 && x < view.width - 90 && y > top && y < bottom)) return false;
@@ -2983,19 +2998,48 @@ async function testResidents({ context, page, check, shot, size, input, name, pr
    * Tippt einen stehenden Bewohner an (um `offset` CSS-px neben seine Körpermitte) und wartet auf seine Karte. Ein
    * Arbeiter geht los, sobald sein Gebäude liefert (Tragen), auch mitten in seiner Arbeitszeit: Ist der Bewohner beim
    * Tipp schon losgegangen, gilt der Versuch nicht und ein neuer folgt; stand er still, ist ein Fehlschlag ein Fehler.
+   * Weit herausgezoomt behält ein Produktionsgebäude Tipps, die mehr als 24 Welt-px vom Körper entfernt sind
+   * (Korrekturrunde 2): Geht dann seine Infokarte auf, folgt der Regel gemäß ein anderer Bewohner.
    */
   const tapResident = async (view, what, offset = NO_OFFSET) => {
     const ui = (await readVillage(page)).ui;
+    const skip = new Set();
     for (let attempt = 1; ; attempt += 1) {
-      const { found: target } = await waitForResidents(page, (state) => standingOnScreen(state, ui, view, offset), `einen stehenden Bewohner im Bild (${what})`, 60_000);
+      const { found: target } = await waitForResidents(page, (state) => standingOnScreen(state, ui, view, offset, skip), `einen stehenden Bewohner im Bild (${what})`, 60_000);
       const point = { x: target.sx + offset.dx, y: target.sy + offset.dy };
       await input.tap(point);
       const hit = await waitForResidents(page, (state) => state.card === String(target.id), `die Karte von ${target.name} nach dem Tipp ${offset.dx}/${offset.dy} px neben die Körpermitte (${what})`, attempt < 3 ? 2500 : 5000).catch((error) => error);
       if (hit instanceof Error) {
-        const now = (await readResidents(page)).residents.find((r) => r.id === target.id);
+        const after = await readResidents(page);
+        const now = after.residents.find((r) => r.id === target.id);
         const walkedOff = !now || !STANDING.includes(now.activity) || Math.hypot(now.sx - target.sx, now.sy - target.sy) > 3;
-        if (attempt < 3 && walkedOff && (await readResidents(page)).card === '') {
+        if (attempt < 3 && walkedOff && after.card === '') {
           console.log(`  [${name}] (${what}: ${target.name} ging gerade los – ${now?.activity}, noch einmal)`);
+          if ((await readVillage(page)).card !== '') {
+            // Der Tipp traf das Gebäude, an dem er eben noch stand.
+            await tapUi('card-close');
+            await waitForVillage(page, (v) => v.card === '', `die geschlossene Infokarte (${what})`, 4000);
+          }
+          await sleep(400);
+          continue;
+        }
+        // Beim Aussuchen stand jeder andere mindestens 30 px weiter vom Tipp weg als der Bewohner: Geht dessen Karte
+        // auf, ist er seitdem herangelaufen (etwa der Gärtner, der Beeren zum Markt bringt) – der nächste gewinnt.
+        const other = after.card !== '' && after.card !== String(target.id) ? after.residents.find((r) => String(r.id) === after.card) : undefined;
+        if (attempt < 3 && other) {
+          console.log(`  [${name}] (${what}: ${other.name} lief gerade an ${target.name} vorbei – ${other.activity}, noch einmal)`);
+          await closeCard(`${what}, ${other.name}`);
+          await sleep(400);
+          continue;
+        }
+        const zoomNow = (await readCamera(page)).zoom;
+        const kept = after.card === '' ? (await readVillage(page)).card : '';
+        if (attempt < 6 && kept !== '' && bodyDistance(offset, zoomNow) > REACH_ON_BUILDING) {
+          const building = (await readVillage(page)).buildings.find((b) => String(b.id) === kept);
+          console.log(`  [${name}] (${what}: bei Zoom ${zoomNow.toFixed(2)} behielt ${building?.type ?? kept} den Tipp ${Math.round(bodyDistance(offset, zoomNow))} Welt-px neben ${target.name} – ein anderer)`);
+          await tapUi('card-close');
+          await waitForVillage(page, (v) => v.card === '', `die geschlossene Infokarte (${what})`, 4000);
+          skip.add(target.id);
           await sleep(400);
           continue;
         }
@@ -3013,7 +3057,8 @@ async function testResidents({ context, page, check, shot, size, input, name, pr
   };
   /**
    * Regel 8: Tipps 20 und 22 CSS-px neben die Körpermitte treffen den Bewohner noch (ein Kreis von 24 CSS-px Radius,
-   * auch auf Gebäuden); jede Karte hat Zeilen von mindestens 12 px.
+   * ab Zoom 1 auch auf jedem Gebäude, weiter draußen auf einem Produktionsgebäude höchstens 24 Welt-px – siehe
+   * `tapResident`); jede Karte hat Zeilen von mindestens 12 px.
    */
   const tapBesideResidents = async (view, what) => {
     const buildingsHit = [];
@@ -3048,6 +3093,88 @@ async function testResidents({ context, page, check, shot, size, input, name, pr
     await tapUi('card-close');
     await waitForResidents(page, (state) => state.card === '', `die geschlossene Karte (${what})`, 4000);
   };
+  /**
+   * Korrekturrunde 2: Weit herausgezoomt (Zoom ≤ 0,5) behält der Markt seine Tipps, auch wenn sein Händler davor
+   * steht – ein Tipp auf den Markt 30–44 Welt-px neben dem Körper des Händlers (über der Mütze, links, rechts oder unter
+   * dem Bauch, je nachdem, wo der Markt liegt) öffnet die Infokarte des Markts; mit 24 CSS-px Radius auf jedem
+   * Gebäude (Korrekturrunde 1) hätte er den Händler getroffen. Danach zoomt die Kamera wieder so nah wie vorher.
+   */
+  const farTapOnMarket = async (view, what) => {
+    let outs = 0;
+    while ((await readCamera(page)).zoom > 0.5 + 1e-6 && outs < 6) {
+      await zoom('zoom-out', 1);
+      outs += 1;
+    }
+    const cam = await readCamera(page);
+    const market = (await readVillage(page)).buildings.find((b) => b.type === 'market');
+    check(market !== undefined && 24 / cam.zoom > BEYOND_HAT && BEYOND_HAT > REACH_ON_BUILDING, `${what}: Markt ${JSON.stringify(market)}, Zoom ${cam.zoom}`);
+    const size = market ? footprintOf(market.type) : 0;
+    const onMarket = (w) => market && Math.floor(w.x / TILE) >= market.x && Math.floor(w.x / TILE) < market.x + size && Math.floor(w.y / TILE) >= market.y && Math.floor(w.y / TILE) < market.y + size;
+    const toScreen = (w) => ({ x: (w.x - cam.x) * cam.zoom + view.width / 2, y: (w.y - cam.y) * cam.zoom + view.height / 2 });
+    /**
+     * Punkte 30–44 Welt-px neben dem Körper (Füße bei `r.x`/`r.y`, Körper von 42 bis 12 px darüber), die auf dem Markt
+     * liegen – mehr als die 24 Welt-px auf einem Gebäude, weniger als die 24 CSS-px von vorher (48 Welt-px bei Zoom 0,5).
+     */
+    const spotFor = (r) =>
+      [BEYOND_HAT, BEYOND_HAT + 4, BEYOND_HAT + 8, BEYOND_HAT + 14]
+        .filter((d) => d < 24 / cam.zoom)
+        .flatMap((d) => [
+          { d, side: 'über der Mütze', x: r.x, y: r.y - 42 - d },
+          { d, side: 'links', x: r.x - d, y: r.y - 27 },
+          { d, side: 'rechts', x: r.x + d, y: r.y - 27 },
+          { d, side: 'unter dem Bauch', x: r.x, y: r.y - 12 + d },
+        ])
+        .filter(onMarket)
+        .map((w) => ({ ...w, screen: toScreen(w) }))
+        .find(({ screen }) => screen.x > 40 && screen.x < view.width - 90 && screen.y > 100 && screen.y < view.height - 140);
+    let last;
+    for (let attempt = 1; market; attempt += 1) {
+      const { found } = await waitForResidents(
+        page,
+        (s) => {
+          last = s.residents.find((r) => r.job === 'market');
+          const r = last;
+          if (!r || r.activity !== 'work' || r.timer <= 30 || r.x === undefined) return undefined;
+          const spot = spotFor(r);
+          if (!spot || !s.residents.every((o) => o.id === r.id || o.sx === undefined || Math.hypot(o.sx - spot.screen.x, o.sy - spot.screen.y) > 60)) return undefined;
+          return { trader: r, spot };
+        },
+        `den Händler bei der Arbeit mit dem Markt neben sich (${what}; Markt ${JSON.stringify(market)}, Zoom ${cam.zoom})`,
+        60_000,
+      ).catch((error) => {
+        throw new Error(`${error.message}; Händler zuletzt ${JSON.stringify(last)}`);
+      });
+      const { trader, spot } = found;
+      await input.tap(spot.screen);
+      const opened = await waitForVillage(page, (v) => v.card !== '', `eine Infokarte nach dem Tipp ${spot.side} ${trader.name} (${what})`, attempt < 3 ? 2500 : 5000).catch((error) => error);
+      const after = await readResidents(page);
+      const now = after.residents.find((r) => r.id === trader.id);
+      const stayed = now && now.activity === 'work' && Math.hypot(now.sx - trader.sx, now.sy - trader.sy) <= 3;
+      // Ein anderer, der gerade vorbeiläuft (der Gärtner bringt Beeren zum Markt), darf den Tipp nehmen: noch einmal.
+      const passer = after.card !== '' && after.card !== String(trader.id) ? after.residents.find((r) => String(r.id) === after.card) : undefined;
+      if (attempt < 3 && (!stayed || passer)) {
+        console.log(`  [${name}] (${what}: ${passer ? `${passer.name} lief gerade vorbei` : `${trader.name} ging gerade los – ${now?.activity}`}, noch einmal)`);
+        if (after.card !== '') {
+          await closeCard(`${what}, noch einmal`);
+        } else if (!(opened instanceof Error)) {
+          await tapUi('card-close');
+          await waitForVillage(page, (v) => v.card === '', `die geschlossene Infokarte (${what}, noch einmal)`, 4000);
+        }
+        await sleep(600);
+        continue;
+      }
+      const ok = !(opened instanceof Error) && opened.card === String(market.id) && after.card === '';
+      check(ok, `${what}: Tipp ${spot.d} Welt-px ${spot.side} ${trader.name} (Füße ${trader.x},${trader.y}, Markt ${JSON.stringify(market)}) bei Zoom ${cam.zoom}: Infokarte „${opened instanceof Error ? '' : opened.card}“ statt „${market.id}“, Bewohner-Karte „${after.card}“`);
+      if (ok) console.log(`  [${name}] ${what}: bei Zoom ${cam.zoom.toFixed(2)} öffnet ein Tipp auf den Markt ${spot.d} Welt-px ${spot.side} ${trader.name} die Infokarte des Markts, nicht seine`);
+      if (!(opened instanceof Error)) {
+        await tapUi('card-close');
+        await waitForVillage(page, (v) => v.card === '', `die geschlossene Infokarte (${what})`, 4000);
+      }
+      if (after.card !== '') await closeCard(`${what}, Händler`);
+      break;
+    }
+    await zoom('zoom-in', outs);
+  };
 
   // --- Das Startdorf: zwei Bewohner (Gärtner und Händler) im roten Haus ---
   step('Bewohner: das Startdorf');
@@ -3071,6 +3198,7 @@ async function testResidents({ context, page, check, shot, size, input, name, pr
   console.log(`  [${name}] Karte von ${target.name} (${target.job}, Mütze ${target.hat}, Zeilen ${village.ui.card.font} px) geöffnet und geschlossen`);
   await sleep(400);
   await tapBesideResidents(size, profile.name === 'tablet' ? 'Tablet' : 'Desktop');
+  await farTapOnMarket(size, profile.name === 'tablet' ? 'Tablet weit draußen' : 'Desktop weit draußen');
 
   // --- Tragen: der Gärtner bringt Beeren zum Markt, über dem Kopf sichtbar ---
   step('Bewohner: Tragen ist sichtbar');
