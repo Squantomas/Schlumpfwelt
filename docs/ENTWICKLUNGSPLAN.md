@@ -49,7 +49,7 @@ Bau-Materialien (Holz, Stein) werden fürs Bauen verbraucht, Endprodukte (Möbel
 ### Schlümpfe
 - Name, Beruf, Mützenfarbe, Stimmung (fröhlich / normal / traurig, ab M7) – antippen zeigt eine Karte
 - **Arbeit**: Jedes Produktionsgebäude hat sofort einen Arbeiter (ein freier Schlumpf oder ein neuer, der kostenlos mit dem Boot kommt). Die Schlümpfe tragen die Waren sichtbar zum Markt; der Ertrag hängt davon nicht ab, so bremsen sie die Wirtschaft nie (Entscheidung M6)
-- **Zuhause**: Häuser haben Platz für 2–4 Schlümpfe; wer keins hat, zieht von selbst ins nächste Haus mit Platz (Entscheidung M6: kein Ziehen per Drag & Drop, kein Ertrag nach Wohnort – ein Umzug über die Karte ist ab M7 denkbar)
+- **Zuhause**: Häuser haben Platz für 2–4 Schlümpfe; wer keins hat, zieht von selbst ins nächste Haus mit Platz (Entscheidung M6: kein Ziehen per Drag & Drop, kein Ertrag nach Wohnort – ein Umzug über die Karte ist ab M7 denkbar). Ab M7 wirkt die Wegelänge zwischen Zuhause und Arbeit **nur auf die Stimmung**: Tragen bleibt Anzeige, ein langer Weg kostet nie direkt Ertrag
 - **Bedürfnisse (sanft)**: Essen, ein Zuhause, Deko in der Nähe → Stimmung → Arbeitstempo
 - Neue Schlümpfe kommen per Boot, nachdem man sie im Shop eingeladen hat (Reiter Häuser). Voraussetzung: ein freies Haus
 
@@ -110,7 +110,7 @@ Jeder Meilenstein endet mit einer Version, die auf GitHub Pages läuft und auf d
 | **M4** | Shop | Reiter Häuser, Deko, Gebäude, Insel; Freischaltungen über Dorf-Fortschritt; Insel gestalten (Baum, Fels, Strand, Wiese) |
 | **M5** | Speichern | IndexedDB-Autosave, Export/Import, als Web-App installierbar |
 | **M6** | Schlümpfe | Namen, Berufe, laufen auf Wegen, tragen Waren, Einladen im Shop, Ankunft per Boot |
-| **M7** | Wohnen & Stimmung | Häuser zuweisen, Wegelänge, Essen, Deko-Bonus, Stimmung → Arbeitstempo |
+| **M7** | Wohnen & Stimmung | Häuser zuweisen, Wegelänge (wirkt nur auf die Stimmung, nie direkt auf den Ertrag), Essen, Deko-Bonus, Stimmung → Arbeitstempo |
 | **M8** | Kinderfreundlich | Tutorial (erste 5 Min), Eltern-Menü mit PIN und Tageslimit, Gute-Nacht-Sequenz |
 | **M9** | Look & Sound | Stil-Leitfaden, KI-Grafiken, Animationen, Musik, Geräusche |
 | — | **🎉 Erster Spieltest mit den Kindern** | Komplettes Spiel mit Tutorial, Grafik und Sound. Beobachten statt erklären, Erkenntnisse als Issues → fließen in M10 |
