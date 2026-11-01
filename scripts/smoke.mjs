@@ -1629,7 +1629,10 @@ async function testEconomy({ page, check, shot, size, input, name }) {
     let lastFailure = '';
     for (let attempt = 0; attempt < 3 && !opened; attempt += 1) {
       const camNow = attempt === 0 ? cam2 : await cameraAtRest();
-      v = await readVillage(page);
+      // Im Anschauen steht die Hinweisleiste über der Werkzeugleiste und auf kleinen Schirmen über dem Garten: „Neu im
+      // Shop: …“ (seit M7 schaltet das fröhliche Startdorf genau hier Strand und Wiese frei) schluckt den Tipp. Sie
+      // verschwindet nach 7 s von selbst.
+      v = await waitForVillage(page, (state) => !/Neu im Shop/.test(state.hint), `das Ende von „Neu im Shop“ bei ${w}×${h}`, 10_000);
       // Seit M6 auch kein Bewohner: ein Tipp nahe an seinem Körper öffnet seine Karte statt der des Gartens.
       const residentsNow = (await readResidents(page)).residents.filter((r) => r.sx !== undefined);
       const reach = Math.max(16 * camNow.zoom, 24) + 16 * camNow.zoom + 8;
