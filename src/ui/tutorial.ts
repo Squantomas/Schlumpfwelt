@@ -193,6 +193,8 @@ export interface TutorialUi {
   readonly item: string | undefined;
   readonly preview: Preview;
   readonly canConfirm: boolean;
+  /** An open card: of a resident or of a building (it covers the hint bar while looking). */
+  readonly card?: 'resident' | 'info' | undefined;
 }
 
 /**
@@ -207,71 +209,151 @@ export type TutorialTarget =
   | { readonly kind: 'pathEnd' }
   | { readonly kind: 'none' };
 
-const spot = (name: string): TutorialTarget => ({ kind: 'spot', name });
+/**
+ * What the sentence says: the sentence of the step, or one that leads back to it first (close the card, close the shop,
+ * end the tool with the blue arrow, back to the shop with the chip). Each belongs to its own target of the hand.
+ */
+export type TutorialSentence = TutorialStepId | 'closeCard' | 'closeShop' | 'exit' | 'chip';
 
-/** Back to looking at the island: close the shop, or end a tool. */
-function backToView(ui: TutorialUi): TutorialTarget | undefined {
-  if (ui.tool === 'shop') {
-    return spot('shop-close');
-  }
-  return ui.tool === 'view' ? undefined : spot('exit');
+/**
+ * The hand and the sentence that go together (Korrekturrunde 1): `firm` – the sentence goes before the hint of the
+ * open tool (it leads elsewhere, so the tool's "Tippe auf die Wiese …" would not match the hand). Without `firm`, the
+ * tool's own hint says what the hand shows (the place, the ✓) and goes first.
+ */
+export interface TutorialHint {
+  readonly target: TutorialTarget;
+  readonly sentence: TutorialSentence;
+  readonly firm: boolean;
 }
 
-function buyTarget(step: TutorialStepDef, ui: TutorialUi, category: 'deco' | 'house'): TutorialTarget {
+const spot = (name: string): TutorialTarget => ({ kind: 'spot', name });
+const hintOf = (target: TutorialTarget, sentence: TutorialSentence, firm = false): TutorialHint => ({ target, sentence, firm });
+
+/** Back to looking at the island: close the shop, or end the tool (with the blue arrow in the hint bar). */
+function backToView(ui: TutorialUi): TutorialHint | undefined {
+  if (ui.tool === 'shop') {
+    return hintOf(spot('shop-close'), 'closeShop');
+  }
+  return ui.tool === 'view' ? undefined : hintOf(spot('exit'), 'exit', true);
+}
+
+function buyHint(step: TutorialStepDef, ui: TutorialUi, category: 'deco' | 'house'): TutorialHint {
   const item = step.item ?? '';
+  const id = step.id;
   switch (ui.tool) {
     case 'view':
-      return spot('tool-shop');
+      return hintOf(spot('tool-shop'), id);
     case 'shop': {
       const tab = shopCategoryOf(item);
-      return tab !== undefined && ui.shopTab !== tab ? spot(`tab-${tab}`) : spot(`item-${item}`);
+      return hintOf(tab !== undefined && ui.shopTab !== tab ? spot(`tab-${tab}`) : spot(`item-${item}`), id);
     }
     case 'place': {
       const chosen = ui.item;
       if (chosen === undefined || buildingType(chosen)?.category !== category) {
-        return spot('chip');
+        return hintOf(spot('chip'), 'chip', true);
       }
-      return ui.canConfirm ? spot('confirm') : { kind: 'place', typeId: chosen };
+      return hintOf(ui.canConfirm ? spot('confirm') : { kind: 'place', typeId: chosen }, id);
     }
     case 'path':
     case 'move':
     case 'demolish':
     case 'home':
-      return spot('exit');
+      return hintOf(spot('exit'), 'exit', true);
+  }
+}
+
+/** The hand and its sentence for this step and these controls. */
+export function tutorialHint(step: TutorialStepDef | undefined, ui: TutorialUi): TutorialHint | undefined {
+  if (!step) {
+    return undefined;
+  }
+  // An open card covers the hint bar: first close it (the first step is done by opening it).
+  if (ui.card !== undefined && step.id !== 'resident' && ui.tool !== 'shop') {
+    return hintOf(spot('card-close'), 'closeCard', true);
+  }
+  switch (step.id) {
+    case 'resident':
+      return backToView(ui) ?? hintOf({ kind: 'resident' }, 'resident');
+    case 'shop':
+      return ui.tool === 'view' ? hintOf(spot('tool-shop'), 'shop') : (backToView(ui) ?? hintOf({ kind: 'none' }, 'shop'));
+    case 'deco':
+      return buyHint(step, ui, 'deco');
+    case 'house':
+      return buyHint(step, ui, 'house');
+    case 'coins':
+      // The store bar is always to be seen, with any tool and over the shop: the market earns while the child goes on.
+      return hintOf(spot('stock'), 'coins', true);
+    case 'praise':
+      // The praise points at nothing; it goes before the tool's hint (the path just laid leaves the tool on) and ends
+      // with the next tap. Over the shop the child first closes it.
+      return ui.tool === 'shop' ? hintOf(spot('shop-close'), 'closeShop') : hintOf({ kind: 'none' }, 'praise', true);
+    case 'path': {
+      if (ui.tool === 'view') {
+        return hintOf(spot('tool-path'), 'path');
+      }
+      if (ui.tool !== 'path') {
+        return backToView(ui) ?? hintOf({ kind: 'none' }, 'path');
+      }
+      if (ui.canConfirm) {
+        return hintOf(spot('confirm'), 'path');
+      }
+      return hintOf(ui.preview.kind === 'path' ? { kind: 'pathEnd' } : { kind: 'pathStart' }, 'path');
+    }
   }
 }
 
 export function tutorialTarget(step: TutorialStepDef | undefined, ui: TutorialUi): TutorialTarget {
-  if (!step) {
-    return { kind: 'none' };
-  }
-  switch (step.id) {
-    case 'resident':
-      return backToView(ui) ?? { kind: 'resident' };
-    case 'shop':
-      return ui.tool === 'view' ? spot('tool-shop') : (backToView(ui) ?? { kind: 'none' });
-    case 'deco':
-      return buyTarget(step, ui, 'deco');
-    case 'house':
-      return buyTarget(step, ui, 'house');
-    case 'coins':
-      return backToView(ui) ?? spot('stock');
-    case 'praise':
-      // The praise is only seen in the hint bar while looking at the island: a tool still open (the path just laid) is ended first.
-      return backToView(ui) ?? { kind: 'none' };
-    case 'path': {
-      if (ui.tool === 'view') {
-        return spot('tool-path');
-      }
-      if (ui.tool !== 'path') {
-        return backToView(ui) ?? { kind: 'none' };
-      }
-      if (ui.canConfirm) {
-        return spot('confirm');
-      }
-      return ui.preview.kind === 'path' ? { kind: 'pathEnd' } : { kind: 'pathStart' };
+  return tutorialHint(step, ui)?.target ?? { kind: 'none' };
+}
+
+/** A resident on the screen (CSS px: the middle of the body, where a tap finds them). */
+export interface ScreenResident {
+  readonly id: number;
+  readonly x: number;
+  readonly y: number;
+}
+
+/** The resident the hand points at; `onScreen` false: nobody can be tapped now, the camera should glide to this one. */
+export interface ResidentChoice extends ScreenResident {
+  readonly onScreen: boolean;
+}
+
+/** How far inside the screen (CSS px) a resident must be for the hand to point at them. */
+export const RESIDENT_EDGE = 24;
+
+/**
+ * Which resident the hand of the first step points at (Korrekturrunde 1: on a phone held sideways the free band
+ * between the bars is low, and nobody was inside it – the hand was missing). In this order:
+ * 1. a resident in the free band (between the bars, a little inside);
+ * 2. else any resident on the screen who is not under a bar or a button (`covered`) – a tap there reaches them;
+ * 3. else nobody can be tapped: the one nearest to the middle of the band, with `onScreen` false (the scene lets the
+ *    camera glide there gently).
+ * The one from before (`sticky`) stays as long as they are in the best group, so the hand does not jump about.
+ */
+export function pickTutorialResident(
+  residents: readonly ScreenResident[],
+  view: { readonly width: number; readonly height: number },
+  band: { readonly top: number; readonly bottom: number },
+  sticky: number | undefined,
+  covered: (x: number, y: number) => boolean,
+): ResidentChoice | undefined {
+  const top = Math.max(0, Math.min(band.top, view.height));
+  const bottom = Math.max(top, Math.min(band.bottom, view.height));
+  const inset = Math.min(RESIDENT_EDGE, (bottom - top) / 4);
+  const middle = { x: view.width / 2, y: (top + bottom) / 2 };
+  const onScreen = (r: ScreenResident): boolean =>
+    r.x >= RESIDENT_EDGE && r.x <= view.width - RESIDENT_EDGE && r.y >= RESIDENT_EDGE && r.y <= view.height - RESIDENT_EDGE && !covered(r.x, r.y);
+  const inBand = (r: ScreenResident): boolean => onScreen(r) && r.y >= top + inset && r.y <= bottom - inset;
+  const distance = (r: ScreenResident): number => Math.hypot(r.x - middle.x, r.y - middle.y);
+  for (const group of [residents.filter(inBand), residents.filter(onScreen)]) {
+    const kept = group.find((r) => r.id === sticky);
+    const best = kept ?? [...group].sort((a, b) => distance(a) - distance(b) || a.id - b.id)[0];
+    if (best) {
+      return { id: best.id, x: best.x, y: best.y, onScreen: true };
     }
   }
+  const nearest = [...residents].sort((a, b) => distance(a) - distance(b) || a.id - b.id)[0];
+  return nearest ? { id: nearest.id, x: nearest.x, y: nearest.y, onScreen: false } : undefined;
 }
 
 /** Tiles within `radius` of (0, 0), nearest first (rings by distance, then row by row). */

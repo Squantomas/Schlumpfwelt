@@ -15,6 +15,8 @@ import {
   storeTutorial,
   suggestPlace,
   tutorialFor,
+  pickTutorialResident,
+  tutorialHint,
   tutorialTarget,
   villageCounts,
   type TutorialRecord,
@@ -139,16 +141,42 @@ describe('Tutorial: wohin die Hand zeigt (M8)', () => {
     expect(tutorialTarget(undefined, ui)).toEqual({ kind: 'none' });
   });
 
-  it('beim Lob mit offenem Werkzeug zuerst auf das ✕ (sonst stünde das Lob nie da)', () => {
-    expect(tutorialTarget(step('praise'), { ...ui, tool: 'path' })).toEqual({ kind: 'spot', name: 'exit' });
-    expect(tutorialTarget(step('praise'), { ...ui, tool: 'shop' })).toEqual({ kind: 'spot', name: 'shop-close' });
+  it('das Lob zeigt auf nichts und geht vor den Hinweis des Werkzeugs; über dem Shop erst das ✕', () => {
+    expect(tutorialHint(step('praise'), { ...ui, tool: 'path' })).toEqual({ target: { kind: 'none' }, sentence: 'praise', firm: true });
+    expect(tutorialHint(step('praise'), ui)).toEqual({ target: { kind: 'none' }, sentence: 'praise', firm: true });
+    expect(tutorialHint(step('praise'), { ...ui, tool: 'shop' })).toEqual({ target: { kind: 'spot', name: 'shop-close' }, sentence: 'closeShop', firm: false });
   });
 
-  it('erst zurück zum Anschauen, wenn ein anderes Werkzeug an ist', () => {
-    expect(tutorialTarget(step('resident'), { ...ui, tool: 'shop' })).toEqual({ kind: 'spot', name: 'shop-close' });
-    expect(tutorialTarget(step('coins'), { ...ui, tool: 'move' })).toEqual({ kind: 'spot', name: 'exit' });
-    expect(tutorialTarget(step('deco'), { ...ui, tool: 'demolish' })).toEqual({ kind: 'spot', name: 'exit' });
-    expect(tutorialTarget(step('path'), { ...ui, tool: 'shop' })).toEqual({ kind: 'spot', name: 'shop-close' });
+  it('erst zurück zum Anschauen, wenn ein anderes Werkzeug an ist – mit eigenem Satz', () => {
+    expect(tutorialHint(step('resident'), { ...ui, tool: 'shop' })).toEqual({ target: { kind: 'spot', name: 'shop-close' }, sentence: 'closeShop', firm: false });
+    expect(tutorialHint(step('deco'), { ...ui, tool: 'demolish' })).toEqual({ target: { kind: 'spot', name: 'exit' }, sentence: 'exit', firm: true });
+    expect(tutorialHint(step('path'), { ...ui, tool: 'shop' })).toEqual({ target: { kind: 'spot', name: 'shop-close' }, sentence: 'closeShop', firm: false });
+    expect(tutorialHint(step('path'), { ...ui, tool: 'place', item: 'flower' })).toEqual({ target: { kind: 'spot', name: 'exit' }, sentence: 'exit', firm: true });
+    expect(tutorialHint(step('resident'), { ...ui, tool: 'move' })).toEqual({ target: { kind: 'spot', name: 'exit' }, sentence: 'exit', firm: true });
+  });
+
+  it('Taler: immer auf die Lagerleiste, mit jedem Werkzeug und über dem Shop – kein Wechsel nötig', () => {
+    for (const tool of ['view', 'place', 'path', 'move', 'demolish', 'shop'] as const) {
+      expect(tutorialHint(step('coins'), { ...ui, tool, item: 'flower' })).toEqual({ target: { kind: 'spot', name: 'stock' }, sentence: 'coins', firm: true });
+    }
+  });
+
+  it('eine offene Karte: die Hand zeigt auf ihr ✕, der Satz sagt es (der erste Schritt gilt schon beim Öffnen)', () => {
+    for (const id of ['shop', 'deco', 'coins', 'house', 'path', 'praise']) {
+      for (const card of ['resident', 'info'] as const) {
+        expect(tutorialHint(step(id), { ...ui, card })).toEqual({ target: { kind: 'spot', name: 'card-close' }, sentence: 'closeCard', firm: true });
+      }
+    }
+    expect(tutorialHint(step('resident'), { ...ui, card: 'info' })?.target).toEqual({ kind: 'resident' });
+  });
+
+  it('das Werkzeug sagt selbst, was die Hand zeigt (Platz, ✓, Weg); der Chip und der Pfeil haben eigene Sätze', () => {
+    expect(tutorialHint(step('deco'), { ...ui, tool: 'place', item: 'flower' })).toEqual({ target: { kind: 'place', typeId: 'flower' }, sentence: 'deco', firm: false });
+    expect(tutorialHint(step('deco'), { ...ui, tool: 'place', item: 'flower', canConfirm: true })).toEqual({ target: { kind: 'spot', name: 'confirm' }, sentence: 'deco', firm: false });
+    expect(tutorialHint(step('house'), { ...ui, tool: 'place', item: 'flower' })).toEqual({ target: { kind: 'spot', name: 'chip' }, sentence: 'chip', firm: true });
+    expect(tutorialHint(step('path'), { ...ui, tool: 'path' })).toEqual({ target: { kind: 'pathStart' }, sentence: 'path', firm: false });
+    expect(tutorialHint(step('house'), { ...ui, tool: 'shop' })).toEqual({ target: { kind: 'spot', name: 'item-house-red' }, sentence: 'house', firm: false });
+    expect(tutorialHint(undefined, ui)).toBeUndefined();
   });
 
   it('Blume: Shop, Reiter Deko, Karte, Platz, ✓', () => {
@@ -177,6 +205,37 @@ describe('Tutorial: wohin die Hand zeigt (M8)', () => {
     expect(tutorialTarget(path, { ...ui, tool: 'path', preview: { kind: 'path', tiles: [{ x: 1, y: 1, status: 'ok' }] } })).toEqual({ kind: 'pathEnd' });
     expect(tutorialTarget(path, { ...ui, tool: 'path', preview: { kind: 'path', tiles: [], error: 'noRoute' } })).toEqual({ kind: 'pathEnd' });
     expect(tutorialTarget(path, { ...ui, tool: 'path', preview: { kind: 'path', tiles: [] }, canConfirm: true })).toEqual({ kind: 'spot', name: 'confirm' });
+  });
+
+  it('Bewohner: erst im freien Band, sonst sichtbar und nicht unter einer Leiste, sonst die Kamera hin (568×320)', () => {
+    // A phone held sideways (568×320): the band between store bar and hint bar is only 98 px high.
+    const size = { width: 568, height: 320 };
+    const band = { top: 48, bottom: 146 };
+    // Hint bar (146–218) and toolbar (228–312) below the band, both between x 56 and 476.
+    const hintBar = (x: number, y: number) => y >= 146 && x >= 56 && x <= 476;
+    const eppi = { id: 1, x: 241, y: 137 };
+    const rindo = { id: 2, x: 363, y: 233 };
+    // Eppi is in the band, but low in it (the old rule wanted 24 px inside and found nobody).
+    expect(pickTutorialResident([eppi, rindo], size, band, undefined, hintBar)).toEqual({ ...eppi, onScreen: true });
+    // Only Rindo, under the toolbar: nobody can be tapped – the camera should glide to him.
+    expect(pickTutorialResident([rindo], size, band, undefined, hintBar)).toEqual({ ...rindo, onScreen: false });
+    // Right of the bars: on the screen and free, so the hand points there.
+    const free = { id: 3, x: 520, y: 260 };
+    expect(pickTutorialResident([rindo, free], size, band, undefined, hintBar)).toEqual({ ...free, onScreen: true });
+    // Off the screen: the nearest one, for the camera.
+    expect(pickTutorialResident([{ id: 4, x: -400, y: 90 }, { id: 5, x: 900, y: 90 }], size, band, undefined, () => false)).toEqual({ id: 5, x: 900, y: 90, onScreen: false });
+    expect(pickTutorialResident([], size, band, undefined, () => false)).toBeUndefined();
+  });
+
+  it('Bewohner: der von vorher bleibt, solange er in der besten Gruppe ist', () => {
+    const size = { width: 1024, height: 768 };
+    const band = { top: 80, bottom: 600 };
+    const middle = { id: 1, x: 512, y: 340 };
+    const side = { id: 2, x: 200, y: 200 };
+    expect(pickTutorialResident([middle, side], size, band, undefined, () => false)?.id).toBe(1);
+    expect(pickTutorialResident([middle, side], size, band, 2, () => false)?.id).toBe(2);
+    // The one from before went under a bar: the hand moves to one in the band.
+    expect(pickTutorialResident([middle, { ...side, y: 700 }], size, band, 2, () => false)?.id).toBe(1);
   });
 
   it('die Hand zeigt von oben, bei Zielen oben auf dem Schirm von unten, und bleibt auf dem Schirm', () => {

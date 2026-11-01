@@ -35,6 +35,8 @@ export interface WorldCameraOptions {
   readonly onCarry?: (world: Point, screen: Point) => void;
   readonly onDrop?: (world: Point, screen: Point, eventTime: number) => void;
   readonly onCancelCarry?: () => void;
+  /** May a held resident be carried now (false: the evening covers the island)? */
+  readonly mayCarry?: () => boolean;
   /** Optional: one finger starts to drag the picture; `screen` is where it was pressed (CSS px). */
   readonly onPanStart?: (world: Point, screen: Point) => void;
 }
@@ -81,6 +83,7 @@ export class WorldCameraController {
         carry: (at) => options.onCarry?.(this.toWorld(at), at),
         drop: (at) => options.onDrop?.(this.toWorld(at), at, this.upTime),
         cancelCarry: () => options.onCancelCarry?.(),
+        mayCarry: () => options.mayCarry?.() !== false,
         panStart: (at) => options.onPanStart?.(this.toWorld(at), at),
       },
       { tapMaxMovePx: options.tapMaxMovePx },
@@ -107,6 +110,11 @@ export class WorldCameraController {
 
   get view(): CameraRig['view'] {
     return this.rig.view;
+  }
+
+  /** Lets go of a resident that is held or carried (the evening, M8): the rest of the touch does nothing. */
+  letGo(): void {
+    this.tracker.letGo();
   }
 
   /**

@@ -4,7 +4,6 @@ import { buildingType } from '../data/buildings';
 import { buildingAt, isConnected, type Tile } from '../sim/buildings';
 import { activityOf, allAsleep } from '../sim/residents';
 import { t, type TextKey } from '../data/texts';
-import type { TutorialStepId } from '../data/tutorial';
 import { DAY_CLOCK_OPTIONS, localDayKey, type DayEvent } from '../parent/dayClock';
 import type { ParentSession } from '../parent/parentSession';
 import { moodOf, workPaces } from '../sim/mood';
@@ -25,14 +24,17 @@ import {
   advanceTutorial,
   currentStep,
   pathTargets,
+  pickTutorialResident,
   readTutorial,
   skipTutorial,
   startTutorial,
   storeTutorial,
   suggestPlace,
-  tutorialTarget,
+  tutorialHint,
   villageCounts,
+  type TutorialHint,
   type TutorialRecord,
+  type TutorialSentence,
 } from '../ui/tutorial';
 import { moodReason } from '../ui/residentInfo';
 import { RoundButton } from '../ui/RoundButton';
@@ -82,9 +84,17 @@ const GRAB_MIN_ZOOM = 0.5;
 const HOUSE_LABEL_ROOM = 44;
 /** The local date is looked at this often (ms): a new day (also at midnight while playing) starts a new account. */
 const DAY_KEY_EVERY = 1000;
+/** In the first step of the guided start nobody could be tapped this long (ms): the camera glides to a resident. */
+const TUTORIAL_GLIDE_AFTER_MS = 1200;
+/** … and not again before this (ms): a child who moves the camera away is not followed at once. */
+const TUTORIAL_GLIDE_AGAIN_MS = 6000;
 
-/** The sentence of each step of the guided start (M8). */
-const TUTORIAL_TEXTS: Readonly<Record<TutorialStepId, TextKey>> = {
+/** The sentence of each step of the guided start (M8), and of the ways back to it (Korrekturrunde 1). */
+const TUTORIAL_TEXTS: Readonly<Record<TutorialSentence, TextKey>> = {
+  closeCard: 'tutorial.closeCard',
+  closeShop: 'tutorial.closeShop',
+  exit: 'tutorial.exit',
+  chip: 'tutorial.chip',
   resident: 'tutorial.resident',
   shop: 'tutorial.shop',
   deco: 'tutorial.deco',
@@ -185,6 +195,9 @@ export class IslandScene extends Phaser.Scene {
   private tutorialPath: { revision: number; targets: ReturnType<typeof pathTargets> } | undefined;
   /** The resident the hand points at (kept while they stay in the picture, so the hand does not jump about). */
   private tutorialResident: number | undefined;
+  /** Nobody to point at in the first step since `since`: the camera glides to a resident (last at `glidedAt`). */
+  private tutorialSearch: { since: number; glidedAt: number } | undefined;
+  private tutorialHint: TutorialHint | undefined;
   private tutorialTouches = 0;
   private worldTapped = false;
   private dayKey = { at: Number.NEGATIVE_INFINITY, key: '' };
@@ -235,6 +248,8 @@ export class IslandScene extends Phaser.Scene {
     this.tutorialPlace = undefined;
     this.tutorialPath = undefined;
     this.tutorialResident = undefined;
+    this.tutorialSearch = undefined;
+    this.tutorialHint = undefined;
     this.tutorialTouches = 0;
     this.worldTapped = false;
     this.dayKey = { at: Number.NEGATIVE_INFINITY, key: '' };
@@ -330,6 +345,8 @@ export class IslandScene extends Phaser.Scene {
         }
         this.buildTool.cancelCarry();
       },
+      // The evening covers the island: a press held from before must not start carrying (Korrekturrunde 1).
+      mayCarry: () => !this.covered,
       onPanStart: (point) => {
         this.explainNoGrab(point);
       },
@@ -572,17 +589,20 @@ export class IslandScene extends Phaser.Scene {
   private dayEvent(event: DayEvent): void {
     switch (event) {
       case 'warn':
-        // An explanation: it stays until the next tap, no countdown.
-        this.buildUI.showNotice('limit.warn');
+        // Said only once, no countdown: it waits until the hint bar has really shown it (not under the shop or a
+        // card), and then stays until the next tap (Korrekturrunde 1).
+        this.buildUI.holdNotice('limit.warn');
         return;
       case 'dusk': {
         // The evening: everything closes, everybody walks home.
         this.menu.close();
+        // A finger held on a resident (not moved yet) or carrying one: let go – the rest of that touch does nothing.
+        this.controller.letGo();
         const carried = this.buildTool.carried;
         if (carried) {
           this.residentView.letGo(carried.residentId, this.residentView.positionOf(carried.residentId) ?? carried.at);
-          this.buildTool.cancelCarry();
         }
+        this.buildTool.cancelCarry();
         if (this.buildTool.shopOpen) {
           this.buildTool.closeShop();
         }
@@ -596,7 +616,7 @@ export class IslandScene extends Phaser.Scene {
       }
       case 'night':
         // The night: the game stands still and is saved – nothing is made, nothing is lost. The evening's sentence has said its piece.
-        this.buildUI.clearNotice();
+        this.buildUI.clearAllNotices();
         this.simulation.send({ type: 'setPaused', paused: true });
         this.simulation.applyPending();
         void this.session.autosave?.flush();
@@ -637,7 +657,9 @@ export class IslandScene extends Phaser.Scene {
     const touches = this.buildUI.touchCount;
     // The praise ends with a tap only once it was really to be seen (a tool hint or a message goes before it).
     const praising = currentStep(this.tutorial)?.id === 'praise';
-    const tapped = (this.worldTapped || touches !== this.tutorialTouches) && (!praising || this.buildUI.showsTutorial);
+    // (Shown in the last frame: the praise itself, not a sentence that leads to it, like "Tippe auf ✕" on an open card.)
+    const praiseShown = this.tutorialHint?.sentence === 'praise' && this.buildUI.tutorialShownAt !== undefined;
+    const tapped = (this.worldTapped || touches !== this.tutorialTouches) && (!praising || praiseShown);
     this.worldTapped = false;
     this.tutorialTouches = touches;
     const next = advanceTutorial(this.tutorial, {
@@ -651,21 +673,28 @@ export class IslandScene extends Phaser.Scene {
       this.setTutorial(next);
     }
     const step = currentStep(this.tutorial);
-    this.buildUI.setTutorial(step ? t(TUTORIAL_TEXTS[step.id]) : undefined);
-    const hidden = this.covered || this.buildTool.carried !== undefined;
-    this.guide.update(step && !hidden ? this.tutorialPoint(step) : undefined, this.controller.viewSize, time);
+    const tool = this.buildTool;
+    const card = tool.inspectedResidentId !== undefined ? 'resident' : tool.inspectedId !== undefined ? 'info' : undefined;
+    const hint = tutorialHint(step, { tool: tool.tool, shopTab: tool.shopTab, item: tool.item, preview: tool.preview(), canConfirm: tool.canConfirm, card });
+    this.tutorialHint = hint;
+    this.buildUI.setTutorial(hint ? t(TUTORIAL_TEXTS[hint.sentence]) : undefined, hint?.firm ?? false);
+    // The hand waits while something else is said in the hint bar (news, an explanation): sentence and hand go together.
+    const hidden = this.covered || tool.carried !== undefined || this.buildUI.showsMessage;
+    this.guide.update(hint && !hidden ? this.tutorialPoint(hint) : undefined, this.controller.viewSize, time);
   }
 
   /** Where the hand of the guided start points now (CSS px), if anywhere. */
-  private tutorialPoint(step: NonNullable<ReturnType<typeof currentStep>>): { x: number; y: number; radius: number } | undefined {
-    const tool = this.buildTool;
-    const target = tutorialTarget(step, { tool: tool.tool, shopTab: tool.shopTab, item: tool.item, preview: tool.preview(), canConfirm: tool.canConfirm });
+  private tutorialPoint(hint: TutorialHint): { x: number; y: number; radius: number } | undefined {
+    const target = hint.target;
     const state = this.simulation.state;
     const view = this.controller.view;
     const size = this.controller.viewSize;
     const toScreen = (x: number, y: number): { x: number; y: number } => ({ x: (x - view.centerX) * view.zoom + size.width / 2, y: (y - view.centerY) * view.zoom + size.height / 2 });
     const tileTarget = (tile: Tile | undefined): { x: number; y: number; radius: number } | undefined =>
       tile ? { ...toScreen((tile.x + 0.5) * TILE_SIZE, (tile.y + 0.5) * TILE_SIZE), radius: Math.max(28, (TILE_SIZE * view.zoom) / 1.6) } : undefined;
+    if (target.kind !== 'resident') {
+      this.tutorialSearch = undefined;
+    }
     switch (target.kind) {
       case 'none':
         return undefined;
@@ -699,28 +728,43 @@ export class IslandScene extends Phaser.Scene {
     }
   }
 
-  /** The resident the hand points at: the one from before while they stay in the free part of the picture, else the one nearest its middle. */
+  /**
+   * The resident the hand points at (`pickTutorialResident`): one in the free band, else one on the screen that a tap
+   * reaches. When nobody can be tapped (a phone held sideways, everybody under the bars) the camera glides gently to
+   * the nearest one after a moment – only while just looking, with nothing open and no finger on the island; a touch
+   * stops it, and it is not tried again for a few seconds.
+   */
   private tutorialResidentPoint(toScreen: (x: number, y: number) => { x: number; y: number }): { x: number; y: number; radius: number } | undefined {
-    const band = this.buildUI.freeBand;
     const size = this.controller.viewSize;
-    const bottom = Math.min(band.bottom, size.height);
-    const middle = { x: size.width / 2, y: (band.top + bottom) / 2 };
-    let best: { id: number; x: number; y: number; distance: number } | undefined;
-    for (const spot of this.residentView.spots) {
-      const at = toScreen(spot.x, spot.y - RESIDENT_BODY_Y);
-      if (at.x < 24 || at.x > size.width - 24 || at.y < band.top + 24 || at.y > bottom - 24) {
-        continue;
-      }
-      if (spot.id === this.tutorialResident) {
-        return { x: at.x, y: at.y, radius: 30 };
-      }
-      const distance = Math.hypot(at.x - middle.x, at.y - middle.y);
-      if (!best || distance < best.distance) {
-        best = { id: spot.id, x: at.x, y: at.y, distance };
+    const residents = this.residentView.spots.map((spot) => ({ id: spot.id, ...toScreen(spot.x, spot.y - RESIDENT_BODY_Y), world: { x: spot.x, y: spot.y - RESIDENT_BODY_Y } }));
+    const band = this.buildUI.freeBand;
+    const covers = (x: number, y: number): boolean => this.buildUI.coversPoint(x, y) || this.buildUI.overMenuButton(x, y);
+    const choice = pickTutorialResident(residents, size, band, this.tutorialResident, covers);
+    this.tutorialResident = choice?.id;
+    if (choice?.onScreen === true) {
+      this.tutorialSearch = undefined;
+      return { x: choice.x, y: choice.y, radius: 30 };
+    }
+    const now = this.time.now;
+    this.tutorialSearch ??= { since: now, glidedAt: Number.NEGATIVE_INFINITY };
+    const search = this.tutorialSearch;
+    const world = residents.find((r) => r.id === choice?.id)?.world;
+    const gestureActive = this.controller.gestureActive;
+    const allowed =
+      world !== undefined &&
+      !this.controller.glidingTo &&
+      now - search.since >= TUTORIAL_GLIDE_AFTER_MS &&
+      now - search.glidedAt >= TUTORIAL_GLIDE_AGAIN_MS &&
+      glideAllowed({ tool: this.buildTool.tool, shopOpen: this.buildUI.shopOpen, menuOpen: this.covered, lostOpen: this.lost.isOpen, cardOpen: this.buildTool.cardOpen, gestureActive });
+    if (allowed) {
+      const target = rectGlide(this.controller.view, size, band, { x: world.x, y: world.y, width: 0, height: 0 });
+      if (target) {
+        this.controller.glideTo(target);
+        this.glideFor = 'boat';
+        search.glidedAt = now;
       }
     }
-    this.tutorialResident = best?.id;
-    return best ? { x: best.x, y: best.y, radius: 30 } : undefined;
+    return undefined;
   }
 
   /**
@@ -1211,6 +1255,9 @@ export class IslandScene extends Phaser.Scene {
       step: step?.id ?? '',
       index: this.tutorial.step,
       shown: this.buildUI.showsTutorial,
+      ...(this.tutorialHint && this.tutorial.status === 'active'
+        ? { target: describeTarget(this.tutorialHint), sentence: this.tutorialHint.sentence, at: this.buildUI.tutorialShownAt ?? '', said: this.buildUI.tutorialSaid }
+        : {}),
       ...(hand ? { hx: Math.round(hand.x), hy: Math.round(hand.y), below: hand.fromBelow } : {}),
     });
     const limit = this.parent.describe();
@@ -1376,5 +1423,21 @@ function describePreview(preview: Preview): string {
       return `invite:${preview.result}`;
     case 'home':
       return `home:${preview.result}:${String(preview.used)}/${String(preview.capacity)}${preview.carried ? ':carried' : ''}${preview.waiting ? ':wait' : ''}`;
+  }
+}
+
+/** The hand's target for the page marker: `spot:<name>`, `resident`, `place:<type>`, `pathStart`, `pathEnd` or `none`. */
+function describeTarget(hint: TutorialHint): string {
+  const target = hint.target;
+  switch (target.kind) {
+    case 'spot':
+      return `spot:${target.name}`;
+    case 'place':
+      return `place:${target.typeId}`;
+    case 'resident':
+    case 'pathStart':
+    case 'pathEnd':
+    case 'none':
+      return target.kind;
   }
 }

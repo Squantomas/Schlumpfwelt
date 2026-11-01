@@ -47,12 +47,15 @@ async function start(root: HTMLElement): Promise<void> {
   const params = parseStartParams(window.location.search);
   // The newest window saves (web app and browser tab, or an old forgotten tab): this one takes over – but only if the storage
   // really works – and reads the village, the last one the older window wrote; that window is told and stops (`tabLock.ts`).
-  const holder: { autosave: Autosave | undefined } = { autosave: undefined };
+  // `lost`: a newer window has taken over – also in a window that does not save the village (a newer save, an unreadable
+  // one): its settings must stop being written as well (M8, Korrekturrunde 1).
+  const holder: { autosave: Autosave | undefined; lost: boolean } = { autosave: undefined, lost: false };
   // The parents' settings (M8: PIN, daily limit, today's play time, the guided start) have a database of their own, apart
   // from the village – also with `nosave=1`: a test address must not get around the limit.
   const [opened, settingsStore] = await Promise.all([params.persist ? openSaveStore() : Promise.resolve(new MemoryStore()), openSettingsStore()]);
   const store = await takeOverSaving(opened, () =>
     acquireSaveLock(() => {
+      holder.lost = true;
       holder.autosave?.markLost();
     }),
   );
@@ -79,8 +82,9 @@ async function start(root: HTMLElement): Promise<void> {
   if (JSON.stringify(tutorial) !== JSON.stringify(parent.tutorial)) {
     parent.setTutorial(tutorial);
   }
-  // The newest window counts the time (M5): an older one writes nothing any more.
-  parent.stopWhen(() => holder.autosave?.isLost === true);
+  // The newest window counts the time (M5): an older one writes nothing any more – also one without autosave, once the
+  // lock tells it. (Without the lock – `nosave=1`, no IndexedDB, no Web Locks – it never learns: see ENTSCHEIDUNGEN.)
+  parent.stopWhen(() => holder.lost || holder.autosave?.isLost === true);
   whenLeaving(() => {
     void parent.flush();
   });

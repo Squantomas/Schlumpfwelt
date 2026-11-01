@@ -28,6 +28,9 @@ describe('Gute-Nacht-Ebene: Mond, Sterne, Satz und Eltern-Knopf (M8)', () => {
       expect(apart(layout.text, layout.button)).toBe(true);
       expect(apart(layout.button, layout.caption)).toBe(true);
       expect(layout.button.width).toBeGreaterThanOrEqual(NIGHT_BUTTON_LOW);
+      // Quietly in the lower left corner, not in the middle (Korrekturrunde 1).
+      expect(layout.button.x + layout.button.width / 2).toBeLessThan(width / 3);
+      expect(layout.button.y + layout.button.height).toBeGreaterThan(height * 0.7);
       expect(layout.text.height).toBeGreaterThanOrEqual(60);
       expect(layout.stars.length).toBeGreaterThanOrEqual(6);
       for (const star of layout.stars) {

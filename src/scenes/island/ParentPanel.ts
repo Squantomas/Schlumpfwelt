@@ -16,6 +16,18 @@ import type { MenuSpot } from './VillageMenu';
 /** Smallest size of the sentence (CSS px). */
 const MIN_TEXT_FONT = 12;
 
+/** A sentence of the panel, and maybe a second one after it. */
+interface Sentence {
+  readonly key: TextKey;
+  readonly params?: TextParams;
+  readonly then?: Sentence;
+}
+
+function sentenceText(sentence: Sentence): string {
+  const text = t(sentence.key, sentence.params);
+  return sentence.then ? `${text} ${sentenceText(sentence.then)}` : text;
+}
+
 export interface ParentPanelHooks {
   /** A control was touched (the world ignores taps for a moment). */
   readonly touched: (eventTime: number) => void;
@@ -54,7 +66,8 @@ export class ParentPanel {
   /** A sentence about the last action in the settings ("10 Minuten mehr"), until the next one. */
   private note: TextKey | undefined;
   /** "Nothing is stored in this browser" – said once per visit, the first time the menu opens. */
-  private memoryNote = false;
+  /** The note "nothing is kept" (once per visit, until the parents start typing): why. */
+  private memoryNote: 'noStore' | 'newer' | undefined;
 
   constructor(
     scene: Phaser.Scene,
@@ -65,6 +78,9 @@ export class ParentPanel {
     this.flow = new ParentFlow({
       get hasPin() {
         return session.hasPin;
+      },
+      get pinGuarded() {
+        return session.pinGuarded;
       },
       checkPin: (pin) => session.checkPin(pin),
       setPin: (pin) => {
@@ -119,7 +135,7 @@ export class ParentPanel {
     );
     this.extraButton = new TextButton(
       scene,
-      t('parent.extra'),
+      t('parent.extra', { minutes: PARENT_RULES.extraMinutes }),
       tap(() => {
         session.addExtra();
         this.note = 'parent.extraGiven';
@@ -137,8 +153,9 @@ export class ParentPanel {
       scene,
       t('parent.tutorial'),
       tap(() => {
+        // The guided start begins at once: the panel closes, so the child sees the hand (Spieltest, Korrekturrunde 1).
         hooks.onTutorialAgain();
-        this.note = 'parent.tutorialAgain';
+        this.close();
       }),
     );
     uiLayer.add([
@@ -162,6 +179,10 @@ export class ParentPanel {
 
   get isOpen(): boolean {
     return this.flow.isOpen;
+  }
+
+  private get extraShown(): boolean {
+    return this.session.clock.limitMinutes > 0;
   }
 
   /** For the page marker (`<html data-parent>`): `closed`, the step, and the sentence shown. */
@@ -216,7 +237,9 @@ export class ParentPanel {
           spots[`limit-${String(minutes)}`] = { ...center(rect), ...(this.session.clock.limitMinutes === minutes ? { active: true } : {}) };
         }
       });
-      spots['parent-extra'] = center(layout.extra);
+      if (this.extraShown) {
+        spots['parent-extra'] = center(layout.extra);
+      }
       spots['parent-pin'] = center(layout.pin);
       spots['parent-tutorial'] = center(layout.tutorial);
     }
@@ -228,38 +251,48 @@ export class ParentPanel {
     return this.flow.isOpen ? this.sentence.text : '';
   }
 
-  private sentenceKey(): { readonly key: TextKey; readonly params?: TextParams } | undefined {
+  /**
+   * The sentence of the panel: a main part (its key is published in `data-parent`) and sometimes a second one after it
+   * (Korrekturrunde 1): the note "nothing is kept" does not hide what to do ("Wählen Sie eine PIN …"), and after
+   * "+10 Minuten" the time of today stays to be seen.
+   */
+  private sentenceKey(): Sentence | undefined {
     if (this.flow.mode === 'closed') {
       return undefined;
     }
+    const main = this.mainSentence();
     if (this.memoryNote) {
-      return { key: 'parent.memoryOnly' };
+      // Both sentences must fit on a phone: the short request for a PIN after the note.
+      const then = main?.key === 'parent.firstPin' ? { key: 'parent.newPin' as const } : main;
+      return { key: this.memoryNote === 'newer' ? 'parent.newerSettings' : 'parent.memoryOnly', ...(then ? { then } : {}) };
     }
+    return main;
+  }
+
+  private mainSentence(): Sentence | undefined {
     const message = this.flow.message;
     if (this.flow.mode === 'settings') {
-      if (this.note ?? message) {
-        return { key: this.note ?? message ?? 'parent.pinSaved' };
-      }
       const account = this.session.clock.account;
       const used = Math.floor(account.usedMs / 60_000);
       const allowed = this.session.clock.allowedMs;
-      return allowed === undefined ? { key: 'parent.usedOff', params: { used } } : { key: 'parent.used', params: { used, allowed: Math.round(allowed / 60_000) } };
+      const today: Sentence = allowed === undefined ? { key: 'parent.usedOff', params: { used } } : { key: 'parent.used', params: { used, allowed: Math.round(allowed / 60_000) } };
+      const note = this.note ?? message;
+      if (note === 'parent.extraGiven') {
+        return { key: note, params: { minutes: PARENT_RULES.extraMinutes }, then: today };
+      }
+      return note ? { key: note } : today;
     }
-    if (message) {
-      return { key: message };
-    }
-    const prompt = this.flow.prompt;
-    if (prompt === 'parent.question') {
-      const [a, b] = this.flow.question;
-      return { key: prompt, params: { a, b } };
-    }
-    return prompt ? { key: prompt } : undefined;
+    // Every sentence of the question names its two numbers.
+    const [a, b] = this.flow.question;
+    const params = this.flow.mode === 'question' ? { a, b } : undefined;
+    const key = message ?? this.flow.prompt;
+    return key ? { key, ...(params ? { params } : {}) } : undefined;
   }
 
   private refresh(): void {
     // The note about the memory store stays until the parents start typing.
     if (this.memoryNote && this.flow.digits.length > 0) {
-      this.memoryNote = false;
+      this.memoryNote = undefined;
     }
     const mode = this.flow.mode;
     const open = mode !== 'closed';
@@ -278,6 +311,8 @@ export class ParentPanel {
     for (const button of [...this.choices, this.extraButton, this.pinButton, this.tutorialButton]) {
       button.setVisible(this.settings !== undefined);
     }
+    // "+10 Minuten" only with a limit (without one there is nothing to add).
+    this.extraButton.setVisible(this.settings !== undefined && this.extraShown);
     const layout = this.pad ?? this.settings;
     if (!layout) {
       return;
@@ -298,7 +333,7 @@ export class ParentPanel {
     const said = this.sentenceKey();
     const text = layout.text;
     let font = layout.textFont;
-    this.sentence.setWordWrapWidth(text.width).setText(said ? t(said.key, said.params) : '');
+    this.sentence.setWordWrapWidth(text.width).setText(said ? sentenceText(said) : '');
     setLabelSize(this.sentence, font, text.width);
     while (this.sentence.height > text.height && font > MIN_TEXT_FONT) {
       font -= 1;

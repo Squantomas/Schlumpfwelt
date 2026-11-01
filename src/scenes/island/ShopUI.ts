@@ -215,6 +215,8 @@ export class ShopUI {
   private layoutData: ShopLayout | undefined;
   /** The sentence of the locked card that was tapped last; it stays until something else is tapped. */
   private tip = '';
+  /** The sentence of the guided start (M8, Korrekturrunde 1): in the line while no locked card has something to say. */
+  private guide = '';
   private activeTab: ShopCategory = SHOP_CATEGORIES[0];
   /** What is on the page right now (cards with their rectangles). */
   private shown: { cards: { card: ShopCard; rect: Rect | undefined }[]; page: number; pages: number } = { cards: [], page: 0, pages: 1 };
@@ -439,6 +441,14 @@ export class ShopUI {
     this.handlers.onPick(typeId);
   }
 
+  /** The sentence of the guided start for the line (`undefined`: none). A sentence of a locked card goes first. */
+  setGuide(text: string | undefined): void {
+    if ((text ?? '') !== this.guide) {
+      this.guide = text ?? '';
+      this.drawLine();
+    }
+  }
+
   /** Empties the line at the bottom: something else was tapped. */
   clearTip(): void {
     if (this.tip !== '') {
@@ -461,7 +471,8 @@ export class ShopUI {
       return;
     }
     const { x, y, width, height } = layout.line;
-    const filled = this.tip !== '';
+    const said = this.tip !== '' ? this.tip : this.guide;
+    const filled = said !== '';
     const radius = Math.min(16, height / 2);
     this.tipPanel.fillStyle(filled ? COLORS.cardFace : COLORS.black, filled ? 0.98 : 0.12).fillRoundedRect(x, y, width, height, radius);
     if (filled) {
@@ -469,7 +480,7 @@ export class ShopUI {
     }
     const maxW = width - 20;
     let size = clamp(height * 0.42, MIN_LINE_FONT, 20);
-    this.tipLabel.setWordWrapWidth(maxW).setText(filled ? this.tip : t('shop.lineDefault')).setAlpha(filled ? 1 : 0.85);
+    this.tipLabel.setWordWrapWidth(maxW).setText(filled ? said : t('shop.lineDefault')).setAlpha(filled ? 1 : 0.85);
     setLabelSize(this.tipLabel, size, maxW);
     // The text as measured (after wrapping) must fit into the line: smaller letters until it does, never under 12 px.
     while (this.tipLabel.height > height - 4 && size > MIN_LINE_FONT) {
@@ -479,9 +490,19 @@ export class ShopUI {
     this.tipLabel.setPosition(x + width / 2, y + height / 2);
   }
 
-  /** The sentence that is shown in the line now (for tests). */
+  /** The sentence of a locked card that is shown in the line now (for tests). */
   get shownTip(): string {
     return this.tip;
+  }
+
+  /** Everything the line shows now (a locked card's sentence, the guided start's or the calm standing one), `''` while closed. */
+  get shownLine(): string {
+    return this.layoutData ? this.tipLabel.text : '';
+  }
+
+  /** Does the line show the sentence of the guided start now? */
+  get showsGuide(): boolean {
+    return this.layoutData !== undefined && this.tip === '' && this.guide !== '';
   }
 
   /** Where the controls are (CSS px), for the test marker. */

@@ -5,12 +5,15 @@ import type { TextKey } from '../data/texts';
  * The steps of the parents' menu (M8), pure and tested; `ParentPanel` draws them, the parents' session keeps the PIN.
  *
  * - `newPin` / `repeatPin`: the first time (and "PIN ändern", and after "PIN vergessen?") the parents choose a PIN of
- *   four digits and type it twice. Two different ones: friendly, once more from the start.
+ *   four digits and type it twice. Two different ones: friendly, once more from the start. Whoever opens the menu
+ *   first sets the PIN – the first sentence says so (`parent.firstPin`): parents should do it at the first start.
+ *   A PIN that was set but can not be read any more (`pinGuarded`, Korrekturrunde 1) is not "the first time": the
+ *   menu starts with the question, as after "PIN vergessen?" – a child must not simply choose a new one.
  * - `enterPin`: the PIN opens the settings. A wrong one only says so – no waiting, no lock: it keeps the children out,
  *   it must never keep the parents out.
  * - `question`: "PIN vergessen?" asks for the product of two numbers from 12 to 29 (e.g. 23 × 14 – easy for an adult,
  *   or with a calculator, hard for a child of 6 to 10). The right answer lets the parents choose a new PIN; a wrong one
- *   gives a new question.
+ *   gives a new question, said in the same sentence ("Leider falsch. Wie viel ist 17 × 23?").
  * - `settings`: the limit, "10 Minuten mehr", "PIN ändern", "Tutorial noch einmal" (the scene does these).
  *
  * Digits are entered on the big keypad; a full PIN (or a full answer – always three digits) is checked at once, so
@@ -20,6 +23,8 @@ export type ParentMode = 'closed' | 'newPin' | 'repeatPin' | 'enterPin' | 'quest
 
 export interface PinKeeper {
   readonly hasPin: boolean;
+  /** No PIN, but there should be one (a lost PIN, or a limit set): a new one needs the question first. */
+  readonly pinGuarded?: boolean;
   checkPin(pin: string): boolean;
   setPin(pin: string): void;
 }
@@ -30,6 +35,8 @@ export class ParentFlow {
   private first = '';
   private note: TextKey | undefined;
   private factors: readonly [number, number] = [12, 12];
+  /** The very first PIN (nobody has set one yet): the sentence says who sets it. */
+  private firstPin = false;
 
   constructor(
     private readonly pins: PinKeeper,
@@ -63,7 +70,7 @@ export class ParentFlow {
   get prompt(): TextKey | undefined {
     switch (this.current) {
       case 'newPin':
-        return 'parent.newPin';
+        return this.firstPin ? 'parent.firstPin' : 'parent.newPin';
       case 'repeatPin':
         return 'parent.repeat';
       case 'enterPin':
@@ -87,7 +94,16 @@ export class ParentFlow {
 
   /** Opens the menu: with a PIN it asks for it, the first time the parents choose one. */
   open(): void {
-    this.go(this.pins.hasPin ? 'enterPin' : 'newPin');
+    if (this.pins.hasPin) {
+      this.go('enterPin');
+    } else if (this.pins.pinGuarded === true) {
+      this.newQuestion();
+      this.go('question');
+      this.note = 'parent.pinLost';
+    } else {
+      this.go('newPin');
+      this.firstPin = true;
+    }
   }
 
   close(): void {
@@ -103,7 +119,10 @@ export class ParentFlow {
       return;
     }
     this.typed += String(digit);
-    this.note = this.typed.length === 1 ? undefined : this.note;
+    // A sentence about the last step goes with the next digit – unless it asks the question itself (it stays the question).
+    if (this.typed.length === 1 && this.current !== 'question') {
+      this.note = undefined;
+    }
     if (this.typed.length === this.length) {
       this.submit();
     }
@@ -177,6 +196,9 @@ export class ParentFlow {
   }
 
   private go(mode: ParentMode): void {
+    if (mode !== 'newPin' && mode !== 'repeatPin') {
+      this.firstPin = false;
+    }
     this.current = mode;
     this.typed = '';
     this.note = undefined;

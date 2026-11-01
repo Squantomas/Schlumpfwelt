@@ -109,8 +109,44 @@ describe('ParentSession: PIN, Limit und Konto, gespeichert neben dem Dorf (M8)',
     await session.flush();
     expect(writes).toBe(0);
     expect(session.storeKind).toBe('memory');
-    expect(session.takeMemoryNote()).toBe(true);
-    expect(session.takeMemoryNote()).toBe(false);
+    expect(session.takeMemoryNote()).toBe('noStore');
+    expect(session.takeMemoryNote()).toBeUndefined();
+  });
+
+  it('ein Eintrag einer neueren Version wird gelesen, aber nie überschrieben – einmal ein Satz (Korrekturrunde 1)', async () => {
+    let writes = 0;
+    const newer = { format: 'village-parent', version: 2, pin: null, limitMinutes: 45, day: DAY, usedMs: 60_000, extraMinutes: 0 };
+    const store: SettingsStore = {
+      kind: 'indexedDb',
+      load: () => Promise.resolve(structuredClone(newer)),
+      save: () => {
+        writes += 1;
+        return Promise.resolve();
+      },
+    };
+    const session = await ParentSession.open(store, DAY, OPTIONS);
+    expect(session.clock.limitMinutes).toBe(45);
+    session.setLimit(30);
+    frames(session, 6000);
+    await session.flush();
+    expect(writes).toBe(0);
+    expect(session.storeKind).toBe('memory');
+    expect(JSON.parse(session.describe())).toMatchObject({ store: 'memory', newer: true });
+    expect(session.takeMemoryNote()).toBe('newer');
+    expect(session.takeMemoryNote()).toBeUndefined();
+  });
+
+  it('eine verlorene PIN oder ein Limit ohne PIN: eine neue PIN braucht erst die Rechenfrage (Korrekturrunde 1)', async () => {
+    const lost = await ParentSession.open(new MemorySettingsStore({ format: 'village-parent', version: 1, pin: { salt: 'x!', hash: '?' }, limitMinutes: 0, day: DAY }), DAY, OPTIONS);
+    expect(lost.hasPin).toBe(false);
+    expect(lost.pinGuarded).toBe(true);
+    lost.setPin('2580');
+    expect(lost.pinGuarded).toBe(false);
+    const limited = await ParentSession.open(new MemorySettingsStore({ format: 'village-parent', version: 1, pin: null, limitMinutes: 30, day: DAY }), DAY, OPTIONS);
+    expect(limited.pinGuarded).toBe(true);
+    // The very first start: no PIN, no limit – whoever opens the menu first sets the PIN.
+    const fresh = await ParentSession.open(new MemorySettingsStore(), DAY, OPTIONS);
+    expect(fresh.pinGuarded).toBe(false);
   });
 
   it('ein Schreibfehler wirft nie und wird gezählt', async () => {

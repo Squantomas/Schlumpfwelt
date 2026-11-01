@@ -3,14 +3,16 @@ import type { Rect } from './cameraMath';
 /**
  * Where the parts of the good-night layer go (M8), pure maths in CSS px, tested on every screen size: the moon high up,
  * a few stars around it (never behind the sentence or the button), the sentence "Gute Nacht! Morgen geht es weiter." in
- * the middle, and the round button "Für Eltern" (with a lock, at least 64 px) at the bottom. The veil covers the whole
- * screen and swallows every tap.
+ * the middle, and the round button "Für Eltern" (with a lock, at least 64 px) quietly in the lower left corner (Spieltest,
+ * Korrekturrunde 1: in the middle it drew the child's eye). The veil covers the whole screen and swallows every tap.
  */
 
 export const NIGHT_MARGIN = 16;
 export const NIGHT_BUTTON = 72;
 export const NIGHT_BUTTON_LOW = 64;
 const CAPTION_H = 26;
+/** The word under the button is at most this wide (CSS px); the button stands in the middle above it. */
+const CAPTION_W = 140;
 
 export interface NightLayout {
   readonly veil: Rect;
@@ -40,8 +42,9 @@ export function nightLayout(width: number, height: number): NightLayout {
   const radius = Math.min(64, Math.max(26, short * 0.08));
   const moon = { x: width * 0.74, y: NIGHT_MARGIN + radius + (low ? 4 : short * 0.06), radius };
   const diameter = low ? NIGHT_BUTTON_LOW : NIGHT_BUTTON;
-  const button: Rect = { x: (width - diameter) / 2, y: height - NIGHT_MARGIN - CAPTION_H - 2 - diameter, width: diameter, height: diameter };
-  const caption: Rect = { x: NIGHT_MARGIN, y: button.y + diameter + 2, width: width - 2 * NIGHT_MARGIN, height: CAPTION_H };
+  const captionW = Math.max(diameter, Math.min(CAPTION_W, width - 2 * NIGHT_MARGIN));
+  const button: Rect = { x: NIGHT_MARGIN + (captionW - diameter) / 2, y: height - NIGHT_MARGIN - CAPTION_H - 2 - diameter, width: diameter, height: diameter };
+  const caption: Rect = { x: NIGHT_MARGIN, y: button.y + diameter + 2, width: captionW, height: CAPTION_H };
   const textFont = width < 420 || low ? 24 : 32;
   const textTop = moon.y + radius + 12;
   const textH = Math.min(140, button.y - 12 - textTop);

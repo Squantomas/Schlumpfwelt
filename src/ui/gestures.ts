@@ -48,6 +48,11 @@ export interface GestureHandlers {
   /** What was picked up is let go without a drop: released without moving (then `tap` follows), a second finger, or the system took the pointer. */
   cancelCarry?(): void;
   /**
+   * Optional (M8, Korrekturrunde 1): may what is held be carried now? Asked when the finger starts to move. False (the
+   * evening covers the island): it is let go (`cancelCarry`) and the rest of this touch does nothing.
+   */
+  mayCarry?(): boolean;
+  /**
    * Optional: one finger starts to drag the picture, from `at` (where it was pressed). The scene can say something
    * about what was under the finger (a resident that can not be carried at this zoom).
    */
@@ -81,8 +86,11 @@ interface Sample {
   readonly y: number;
 }
 
-/** `hold`: pressed on something that can be carried, not moved yet; `carry`: carrying it. */
-type Mode = 'idle' | 'pending' | 'pan' | 'pinch' | 'hold' | 'carry';
+/**
+ * `hold`: pressed on something that can be carried, not moved yet; `carry`: carrying it; `spent`: what was held was
+ * let go from outside (the evening) – the rest of the touch does nothing (no pan, no tap).
+ */
+type Mode = 'idle' | 'pending' | 'pan' | 'pinch' | 'hold' | 'carry' | 'spent';
 
 export class GestureTracker {
   private readonly pointers = new Map<number, Tracked>();
@@ -119,7 +127,7 @@ export class GestureTracker {
       this.lastX = x;
       this.lastY = y;
       this.samples = [{ t: timeMs, x, y }];
-    } else {
+    } else if (this.mode !== 'spent') {
       // A second finger: whatever was picked up is let go, and the two fingers pinch.
       if (this.mode === 'hold' || this.mode === 'carry') {
         this.handlers.cancelCarry?.();
@@ -149,8 +157,15 @@ export class GestureTracker {
 
     pointer.x = x;
     pointer.y = y;
+    if (this.mode === 'spent') {
+      return;
+    }
     if (this.mode === 'hold') {
       if (Math.hypot(x - pointer.startX, y - pointer.startY) <= this.options.tapMaxMovePx) {
+        return;
+      }
+      if (this.handlers.mayCarry?.() === false) {
+        this.letGo();
         return;
       }
       this.mode = 'carry';
@@ -214,9 +229,25 @@ export class GestureTracker {
       case 'pinch':
         this.continueWithRemaining();
         break;
+      case 'spent':
+        this.mode = this.pointers.size > 0 ? 'spent' : 'idle';
+        break;
       case 'idle':
         break;
     }
+  }
+
+  /**
+   * Lets go of what is held or carried, from outside (M8: the evening begins): `cancelCarry`, and the rest of this
+   * touch does nothing – it neither carries nor pans nor taps. Does nothing when nothing is held.
+   */
+  letGo(): void {
+    if (this.mode !== 'hold' && this.mode !== 'carry') {
+      return;
+    }
+    this.handlers.cancelCarry?.();
+    this.tapAllowed = false;
+    this.mode = 'spent';
   }
 
   /** The system took the pointer away (for example the touch was interrupted): neither tap nor fling. */
@@ -226,6 +257,8 @@ export class GestureTracker {
     }
     if (this.mode === 'pinch') {
       this.continueWithRemaining();
+    } else if (this.mode === 'spent') {
+      this.mode = this.pointers.size > 0 ? 'spent' : 'idle';
     } else {
       if (this.mode === 'hold' || this.mode === 'carry') {
         this.handlers.cancelCarry?.();

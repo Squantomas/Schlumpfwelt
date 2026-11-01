@@ -92,6 +92,7 @@ export class BuildUI {
   private readonly skipButton: RoundButton;
   /** The sentence of the guided start (M8), shown only when nothing else has something to say (`pickHint`). */
   private tutorialText: string | undefined;
+  private tutorialFirm = false;
   /** Where the hint bar's sentence comes from now. */
   private hintSource: HintSource | undefined;
   /** "Skip the tutorial" was tapped. */
@@ -338,19 +339,54 @@ export class BuildUI {
   }
 
   /**
-   * The sentence of the guided start (M8), `undefined` for none. It is shown only when nothing else has something to
-   * say (see `pickHint`), with a ✕ beside it to skip the guided start.
+   * The sentence of the guided start (M8), `undefined` for none. It goes where the child looks (Korrekturrunde 1): in
+   * the hint bar when nothing else has something to say there (`firm`: also before the hint of the open tool – the
+   * sentence leads away from it), in the fixed line of the open shop (unless a locked card's sentence stands there),
+   * or in the tip's row of an open resident card. The hint bar has a ✕ beside it to skip the guided start.
    */
-  setTutorial(text: string | undefined): void {
-    if (text !== this.tutorialText) {
+  setTutorial(text: string | undefined, firm = false): void {
+    if (text !== this.tutorialText || firm !== this.tutorialFirm) {
       this.tutorialText = text;
+      this.tutorialFirm = firm;
       this.seenVersion = -1;
     }
+    this.shop.setGuide(this.tool.shopOpen ? text : undefined);
+    this.residentCard.setGuide(text);
   }
 
   /** Does the hint bar show the sentence of the guided start now? */
   get showsTutorial(): boolean {
     return this.hintSource === 'tutorial';
+  }
+
+  /** Where the sentence of the guided start is to be seen now – the hint bar, the shop's line, a resident's card – if anywhere. */
+  get tutorialShownAt(): 'hint' | 'shop' | 'card' | undefined {
+    if (this.tool.shopOpen) {
+      return this.shop.showsGuide ? 'shop' : undefined;
+    }
+    if (this.residentCard.isOpen) {
+      return this.residentCard.showsGuide ? 'card' : undefined;
+    }
+    return this.hintSource === 'tutorial' ? 'hint' : undefined;
+  }
+
+  /** Does the hint bar show a message (news, an explanation) now? The hand of the guided start waits then. */
+  get showsMessage(): boolean {
+    return this.hintSource === 'message';
+  }
+
+  /** The sentence of the guided start where it is to be seen now (`''` if nowhere), for tests. */
+  get tutorialSaid(): string {
+    switch (this.tutorialShownAt) {
+      case 'hint':
+        return this.currentHint;
+      case 'shop':
+        return this.shop.shownLine;
+      case 'card':
+        return this.residentCard.tipShown;
+      case undefined:
+        return '';
+    }
   }
 
   /**
@@ -368,6 +404,21 @@ export class BuildUI {
    */
   showNotice(key: TextKey, params?: TextParams): void {
     this.board.explain(t(key, params));
+    this.seenVersion = -1;
+  }
+
+  /**
+   * A message that is said only once ("Bald wird es Abend …", M8): it waits until the hint bar has shown it (not while
+   * the shop or a card covers it, not behind a fresh explanation); only a tap after that takes it away.
+   */
+  holdNotice(key: TextKey, params?: TextParams): void {
+    this.board.hold(t(key, params));
+    this.seenVersion = -1;
+  }
+
+  /** The night: every message goes, also a held one. */
+  clearAllNotices(): void {
+    this.board.clearAll();
     this.seenVersion = -1;
   }
 
@@ -597,8 +648,13 @@ export class BuildUI {
       message: covered ? undefined : this.board.current(this.scene.time.now, this.newsAllowed()),
       toolHint: hint ? t(hint, this.tool.hintParams) : undefined,
       tutorial: this.tutorialText,
+      tutorialFirst: this.tutorialFirm,
     });
     this.hintSource = picked?.source;
+    // A held message ("Bald wird es Abend …") may go with a tap only once it was really to be seen.
+    if (picked?.source === 'message') {
+      this.board.shown(picked.text);
+    }
     return picked?.text;
   }
 

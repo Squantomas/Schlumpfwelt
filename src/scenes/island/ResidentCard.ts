@@ -47,6 +47,8 @@ export class ResidentCard {
   /** What the card shows now, and the sentence in place of the tip after a tap on the dimmed "Umziehen" (for whom). */
   private info: ResidentInfo | undefined;
   private note: { readonly residentId: number; readonly text: string } | undefined;
+  /** The sentence of the guided start (M8, Korrekturrunde 1): in place of the tip, after the note of the boat. */
+  private guide: string | undefined;
 
   constructor(
     scene: Phaser.Scene,
@@ -121,6 +123,27 @@ export class ResidentCard {
     return this.open && this.note !== undefined;
   }
 
+  /** The sentence of the guided start for the tip's row (`undefined`: the card's own tip). */
+  setGuide(text: string | undefined): void {
+    if (text === this.guide) {
+      return;
+    }
+    this.guide = text;
+    if (this.open && this.info) {
+      this.update(this.info);
+    }
+  }
+
+  /** Does the card show the sentence of the guided start now? */
+  get showsGuide(): boolean {
+    return this.open && this.note === undefined && this.guide !== undefined;
+  }
+
+  /** The sentence in the tip's row now (for tests): the note of the boat, the guided start's, or the card's own tip. */
+  get tipShown(): string {
+    return this.open && this.info ? (this.note?.text ?? this.guide ?? this.info.tip) : '';
+  }
+
   /** How many rows the card shows now (six, or four on a compact card), for the smoke test. */
   get rowCount(): number {
     return this.layoutData?.parts.rows ?? 0;
@@ -174,7 +197,7 @@ export class ResidentCard {
     if (this.note && (this.note.residentId !== info.id || info.canMove)) {
       this.note = undefined;
     }
-    const rows = cardRows(info, parts.compact, this.note?.text);
+    const rows = cardRows(info, parts.compact, this.note?.text ?? this.guide);
     const key = `${String(info.id)}|${String(info.hat)}|${info.name}|${info.mood}|${String(info.canMove)}|${rows.join('|')}`;
     for (const object of [this.panel, this.name, this.picture, this.moodIcon, this.closeButton, this.moveButton]) {
       object.setVisible(true);

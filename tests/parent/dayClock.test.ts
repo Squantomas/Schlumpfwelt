@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { DayClock, localDayKey, type DayClockOptions, type DayEvent, type DayInput } from '../../src/parent/dayClock';
+import { DayClock, laterDay, localDayKey, type DayClockOptions, type DayEvent, type DayInput } from '../../src/parent/dayClock';
 
 const OPTIONS: DayClockOptions = { warnMs: 5 * 60_000, duskMinMs: 6000, duskMaxMs: 18_000, dawnMs: 3000, maxFrameMs: 250 };
 const DAY = '2026-11-01';
@@ -123,6 +123,19 @@ describe('Tageskonto: nur sichtbare Spielzeit zählt (M8)', () => {
     expect(play(playing, 100, { dayKey: NEXT })).toEqual(['newDay']);
     expect(playing.phase).toBe('day');
     expect(playing.remainingMs).toBe(30 * 60_000 - 100);
+  });
+
+  it('ein Datum zurück beginnt kein neues Konto: die Zeit von heute gilt weiter (Korrekturrunde 1)', () => {
+    const clock = new DayClock({ day: NEXT, usedMs: 15 * 60_000 - 100, extraMinutes: 0 }, 15, OPTIONS);
+    expect(play(clock, 100, { dayKey: DAY })).toEqual(['dusk']);
+    expect(clock.account.day).toBe(NEXT);
+    expect(clock.expired).toBe(true);
+    // Back to the later day, and then the day after it: only that starts a fresh account.
+    expect(play(clock, 100, { dayKey: NEXT })).toEqual([]);
+    expect(laterDay('2026-11-03', NEXT)).toBe(true);
+    expect(laterDay(DAY, NEXT)).toBe(false);
+    expect(laterDay(NEXT, NEXT)).toBe(false);
+    expect(laterDay('2027-01-01', '2026-12-31')).toBe(true);
   });
 
   it('das lokale Datum als Schlüssel', () => {

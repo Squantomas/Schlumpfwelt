@@ -27,7 +27,8 @@ describe('Eltern-Menü: PIN festlegen, prüfen, ändern, vergessen (M8)', () => 
     expect(flow.mode).toBe('closed');
     flow.open();
     expect(flow.mode).toBe('newPin');
-    expect(flow.prompt).toBe('parent.newPin');
+    // The very first time the sentence says who sets the PIN.
+    expect(flow.prompt).toBe('parent.firstPin');
     type(flow, '25');
     expect(flow.digits).toBe('25');
     flow.back();
@@ -99,14 +100,45 @@ describe('Eltern-Menü: PIN festlegen, prüfen, ändern, vergessen (M8)', () => 
     expect(flow.length).toBe(3);
     type(flow, '111');
     expect(flow.mode).toBe('question');
+    // The new question is in the same sentence ("Leider falsch. Wie viel ist 21 × 16?") – also while typing.
     expect(flow.message).toBe('parent.questionWrong');
     expect(flow.question).toEqual([21, 16]);
-    type(flow, '336');
+    type(flow, '3');
+    expect(flow.message).toBe('parent.questionWrong');
+    type(flow, '36');
     expect(flow.mode).toBe('newPin');
     expect(flow.message).toBe('parent.questionRight');
     type(flow, '9999');
     type(flow, '9999');
     expect(pins.pin).toBe('9999');
+  });
+
+  it('eine verlorene PIN (oder ein Limit ohne PIN): erst die Rechenfrage, dann eine neue PIN (Korrekturrunde 1)', () => {
+    let set: string | undefined;
+    const keeper: PinKeeper = { hasPin: false, pinGuarded: true, checkPin: () => false, setPin: (pin) => (set = pin) };
+    const flow = new ParentFlow(keeper, () => 0);
+    flow.open();
+    expect(flow.mode).toBe('question');
+    expect(flow.message).toBe('parent.pinLost');
+    expect(flow.question).toEqual([12, 12]);
+    type(flow, '999');
+    expect(set).toBeUndefined();
+    expect(flow.mode).toBe('question');
+    type(flow, '144');
+    expect(flow.mode).toBe('newPin');
+    expect(flow.prompt).toBe('parent.newPin');
+    type(flow, '24682468');
+    expect(set).toBe('2468');
+  });
+
+  it('nach „PIN ändern“ heißt es nicht mehr „zuerst“', () => {
+    const pins = new Pins();
+    pins.pin = '2580';
+    const flow = new ParentFlow(pins);
+    flow.open();
+    type(flow, '2580');
+    flow.changePin();
+    expect(flow.prompt).toBe('parent.newPin');
   });
 
   it('jede Aufgabe hat drei Ziffern und Zahlen zwischen 12 und 29', () => {

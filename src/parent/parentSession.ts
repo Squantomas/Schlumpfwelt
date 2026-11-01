@@ -1,7 +1,7 @@
 import { PARENT_RULES } from '../data/parent';
 import { DayClock, DAY_CLOCK_OPTIONS, type DayClockOptions, type DayEvent, type DayInput } from './dayClock';
 import { isPin, makePin, newSalt, pinMatches } from './pin';
-import { readSettings, toStored, type ParentSettings } from './settings';
+import { newerSettings, readSettings, toStored, type ParentSettings } from './settings';
 import { MemorySettingsStore, type SettingsStore } from './settingsStore';
 
 /**
@@ -14,11 +14,14 @@ import { MemorySettingsStore, type SettingsStore } from './settingsStore';
  *   day) and when the page is left (`flush`) – a reload never gives time back (at most a few seconds);
  * - writes run one after the other, in order; a failed write is not retried on its own (the next one carries
  *   everything), and never throws;
- * - a window that another window has taken over (M5: the newest window saves) writes nothing any more (`stopWhen`).
+ * - a window that another window has taken over (M5: the newest window saves) writes nothing any more (`stopWhen`);
+ * - an entry of a newer version of the game is read, but never written over: everything stays in memory for this
+ *   visit (Korrekturrunde 1), and the parents' menu says so once.
  */
 export class ParentSession {
   readonly clock: DayClock;
   private pin: ParentSettings['pin'];
+  private pinLost: boolean;
   private tutorialRecord: unknown;
   private sinceSaveMs = 0;
   private writing: Promise<void> = Promise.resolve();
@@ -35,8 +38,10 @@ export class ParentSession {
     private readonly store: SettingsStore,
     settings: ParentSettings,
     options: DayClockOptions,
+    private readonly newer = false,
   ) {
     this.pin = settings.pin;
+    this.pinLost = settings.pinLost;
     this.tutorialRecord = settings.tutorial;
     this.clock = new DayClock({ day: settings.day, usedMs: settings.usedMs, extraMinutes: settings.extraMinutes }, settings.limitMinutes, options);
   }
@@ -52,7 +57,9 @@ export class ParentSession {
       raw = undefined;
       used = new MemorySettingsStore();
     }
-    return new ParentSession(used, readSettings(raw, today), options);
+    // A newer version wrote this: read what it can, never write over it.
+    const newer = newerSettings(raw);
+    return new ParentSession(newer ? new MemorySettingsStore() : used, readSettings(raw, today), options, newer);
   }
 
   /** Where the settings are kept: `memory` means only for this visit. */
@@ -89,6 +96,14 @@ export class ParentSession {
     return this.pin !== null;
   }
 
+  /**
+   * No PIN, but there should be one (Korrekturrunde 1): the stored PIN can not be read, or a limit is set (only the
+   * parents set it, behind a PIN). Then a new PIN needs the question of "PIN vergessen?" first.
+   */
+  get pinGuarded(): boolean {
+    return this.pin === null && (this.pinLost || this.clock.limitMinutes > 0);
+  }
+
   checkPin(pin: string): boolean {
     return pinMatches(this.pin, pin);
   }
@@ -99,6 +114,7 @@ export class ParentSession {
       return;
     }
     this.pin = makePin(pin, newSalt(random));
+    this.pinLost = false;
     void this.save();
   }
 
@@ -123,13 +139,16 @@ export class ParentSession {
     }
   }
 
-  /** Is this the first time the parents' menu may say that nothing is kept? (Once per visit.) */
-  takeMemoryNote(): boolean {
+  /**
+   * Is this the first time the parents' menu may say that nothing is kept? (Once per visit.) `newer`: the entry is
+   * from a newer version of the game; `noStore`: this browser keeps nothing.
+   */
+  takeMemoryNote(): 'noStore' | 'newer' | undefined {
     if (this.store.kind !== 'memory' || this.toldMemory) {
-      return false;
+      return undefined;
     }
     this.toldMemory = true;
-    return true;
+    return this.newer ? 'newer' : 'noStore';
   }
 
   /** Writes now (the page is left). Resolves when written (or failed). */
@@ -140,7 +159,15 @@ export class ParentSession {
   /** What is stored. */
   snapshot(): ParentSettings {
     const account = this.clock.account;
-    return { pin: this.pin, limitMinutes: this.clock.limitMinutes, day: account.day, usedMs: Math.round(account.usedMs), extraMinutes: account.extraMinutes, tutorial: this.tutorialRecord };
+    return {
+      pin: this.pin,
+      limitMinutes: this.clock.limitMinutes,
+      day: account.day,
+      usedMs: Math.round(account.usedMs),
+      extraMinutes: account.extraMinutes,
+      pinLost: this.pinLost,
+      tutorial: this.tutorialRecord,
+    };
   }
 
   private save(): Promise<void> {
@@ -175,6 +202,7 @@ export class ParentSession {
       warned: this.clock.warned,
       day: account.day,
       store: this.store.kind,
+      ...(this.newer ? { newer: true } : {}),
       pin: this.pin !== null,
       saves: this.saves,
       failures: this.failures,

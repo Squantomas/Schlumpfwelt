@@ -322,6 +322,8 @@ describe('Tragen (M7): ein Druck auf einen Bewohner trägt ihn statt der Kamera'
   let carrier: GestureTracker;
   /** Was `begin` zurückgibt: true = „die Berührung hat nur das Nachgleiten angehalten“. */
   let stopsGlide = false;
+  /** Was `mayCarry` sagt (false = der Abend bedeckt die Insel). */
+  let carryAllowed = true;
 
   beforeEach(() => {
     carry = { grabs: [], carries: [], drops: [], cancels: 0, pans: [], pinches: 0, taps: [], flings: 0, panStarts: [] };
@@ -347,9 +349,61 @@ describe('Tragen (M7): ein Druck auf einen Bewohner trägt ihn statt der Kamera'
           carry.cancels += 1;
         },
         panStart: (at) => carry.panStarts.push(at),
+        mayCarry: () => carryAllowed,
       },
       { tapMaxMovePx: 10 },
     );
+    carryAllowed = true;
+  });
+
+  it('der Abend beginnt, während ein Finger auf einem Bewohner liegt: loslassen, der Rest der Berührung tut nichts (Korrekturrunde 1)', () => {
+    carrier.down(1, 20, 20, 0);
+    carrier.letGo();
+    expect(carry.cancels).toBe(1);
+    carrier.move(1, 80, 80, 20);
+    carrier.down(2, 200, 200, 25);
+    carrier.move(2, 260, 260, 30);
+    carrier.up(1, 90, 90, 40);
+    carrier.up(2, 270, 270, 50);
+    expect(carry.carries).toEqual([]);
+    expect(carry.drops).toEqual([]);
+    expect(carry.pans).toEqual([]);
+    expect(carry.pinches).toBe(0);
+    expect(carry.taps).toEqual([]);
+    expect(carrier.active).toBe(false);
+    // The next touch is an ordinary one again.
+    carrier.down(3, 100, 100, 100);
+    carrier.up(3, 100, 100, 120);
+    expect(carry.taps).toEqual([{ x: 100, y: 100 }]);
+  });
+
+  it('beim Tragen loslassen von außen: kein Absetzen; ohne Halten tut letGo nichts', () => {
+    carrier.down(1, 20, 20, 0);
+    carrier.move(1, 60, 40, 20);
+    expect(carrier.carrying).toBe(true);
+    carrier.letGo();
+    carrier.move(1, 90, 80, 30);
+    carrier.up(1, 95, 85, 40);
+    expect(carry.carries).toEqual([{ x: 60, y: 40 }]);
+    expect(carry.drops).toEqual([]);
+    expect(carry.cancels).toBe(1);
+    carrier.down(2, 100, 100, 50);
+    carrier.letGo();
+    carrier.move(2, 140, 100, 60);
+    expect(carry.pans.length).toBeGreaterThan(0);
+    expect(carry.cancels).toBe(1);
+  });
+
+  it('ist die Insel bedeckt, wird aus Halten kein Tragen (mayCarry)', () => {
+    carrier.down(1, 20, 20, 0);
+    carryAllowed = false;
+    carrier.move(1, 60, 40, 20);
+    carrier.up(1, 70, 50, 40);
+    expect(carry.carries).toEqual([]);
+    expect(carry.drops).toEqual([]);
+    expect(carry.cancels).toBe(1);
+    expect(carry.taps).toEqual([]);
+    expect(carry.pans).toEqual([]);
   });
 
   it('Druck auf einen Bewohner und Ziehen: tragen, loslassen = absetzen; die Kamera bewegt sich nicht', () => {

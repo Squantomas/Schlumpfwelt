@@ -65,6 +65,11 @@ export function localDayKey(date: Date): string {
   return `${String(date.getFullYear())}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
 }
 
+/** Is `day` a later calendar day than `than` (both `YYYY-MM-DD`; such keys sort like the days)? */
+export function laterDay(day: string, than: string): boolean {
+  return day > than;
+}
+
 export class DayClock {
   private accountNow: { day: string; usedMs: number; extraMinutes: number };
   private limit: number;
@@ -170,8 +175,9 @@ export class DayClock {
     const events = this.pending;
     this.pending = [];
     const dt = Number.isFinite(input.frameMs) && input.frameMs > 0 ? Math.min(input.frameMs, this.options.maxFrameMs) : 0;
-    if (input.dayKey !== this.accountNow.day) {
-      // A new calendar day (also midnight while playing): a fresh account; a night is over.
+    if (laterDay(input.dayKey, this.accountNow.day)) {
+      // A new calendar day (also midnight while playing): a fresh account; a night is over. Only a later day: a date
+      // set back (Korrekturrunde 1) goes on with the account it had – it gives no time back.
       this.accountNow = { day: input.dayKey, usedMs: 0, extraMinutes: 0 };
       this.warnedNow = false;
       events.push('newDay');
