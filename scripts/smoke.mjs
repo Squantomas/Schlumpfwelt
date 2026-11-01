@@ -4522,7 +4522,7 @@ async function testKidFriendly({ browser, profile, check, problems, name }) {
   const waitForScene = (scene) => page.waitForSelector(`html[data-scene="${scene}"]`, { state: 'attached', timeout: 20_000 });
   const size = { ...profile.context.viewport };
   const input = profile.context.hasTouch ? { tap: (p) => page.touchscreen.tap(p.x, p.y) } : { tap: (p) => page.mouse.click(p.x, p.y) };
-  const { step, tapUi, openShop } = buildHelpers({ page, check, size, input, name });
+  const { step, tapUi, openShop, exitTool } = buildHelpers({ page, check, size, input, name });
   const near = (a, b, tolerance) => a !== undefined && b !== undefined && Math.hypot(a.x - b.x, a.y - b.y) <= tolerance;
   /** Tippt nacheinander auf die Ziffern (zwischen zwei Tipps ein paar Bilder Zeit). */
   const typeDigits = async (digits) => {
@@ -4549,6 +4549,133 @@ async function testKidFriendly({ browser, profile, check, problems, name }) {
     return waitForParent(page, (p) => p.parent.startsWith('settings'), 'die Einstellungen nach der richtigen PIN');
   };
   const tickNow = async () => (await readVillage(page)).tick;
+
+  /**
+   * Folgt der Hand des geführten Starts bis zum Ende: jeder erledigte Schritt führt zum nächsten; Satz und Hand passen
+   * zusammen, ein Platz in der Welt liegt im freien Band. `reloadAt`: ab diesem Schritt einmal neu laden.
+   */
+  const walkTutorial = async ({ label, view, reloadAt, first }) => {
+    let p;
+    let v;
+    const seenSteps = [first];
+    const wrongSentence = new Set();
+    const sentencesSeen = new Set();
+    const wrongHand = new Set();
+    let reloaded = reloadAt === undefined;
+    const handInBar = new Set();
+    let last = { key: '', at: 0 };
+    const placesSeen = new Set();
+    const taps = new Map();
+    const deadline = Date.now() + 240_000;
+    while (Date.now() < deadline) {
+      p = await readParent(page);
+      v = await readVillage(page);
+      if (p.tutorial.status !== 'active') break;
+      const stepId = p.tutorial.step;
+      if (seenSteps.at(-1) !== stepId) {
+        seenSteps.push(stepId);
+        step(`M8${label}: Schritt „${stepId}“ – „${v.hint}“`);
+      }
+      const hand = p.tutorial.hx === undefined ? undefined : { x: p.tutorial.hx, y: p.tutorial.hy };
+      // Satz und Hand passen zusammen (bei jedem Schritt, mit jedem Werkzeug).
+      const mismatch = tutorialMismatch(p.tutorial, v, p.residentCard);
+      const sentenceKey = `${stepId}:${v.tool}:${p.tutorial.target}`;
+      if (mismatch && !wrongSentence.has(sentenceKey)) {
+        await sleep(300);
+        const again = await readParent(page);
+        const vAgain = await readVillage(page);
+        const still = again.tutorial.step === stepId && vAgain.tool === v.tool ? tutorialMismatch(again.tutorial, vAgain, again.residentCard) : undefined;
+        if (still) {
+          wrongSentence.add(sentenceKey);
+          check(false, `Tutorial${label}, Schritt ${stepId} (Werkzeug ${v.tool}): ${still}`);
+        }
+        continue;
+      }
+      if (p.tutorial.sentence) sentencesSeen.add(`${p.tutorial.sentence}@${p.tutorial.at || 'tool'}`);
+      // Wohin die Hand zeigen muss (nur die eindeutigen Fälle).
+      let expected;
+      if (stepId === 'coins') {
+        expected = 'stock';
+      } else if (p.residentCard !== '' && stepId !== 'resident') {
+        expected = 'card-close';
+      } else if (v.tool === 'view') {
+        expected = { shop: 'tool-shop', deco: 'tool-shop', house: 'tool-shop', path: 'tool-path' }[stepId];
+      } else if (v.tool === 'shop' && (stepId === 'deco' || stepId === 'house')) {
+        const item = stepId === 'deco' ? 'item-flower' : 'item-house-red';
+        expected = item in v.ui ? item : v.shop.startsWith(stepId === 'deco' ? 'deco:' : 'houses:') ? undefined : `tab-${stepId === 'deco' ? 'deco' : 'houses'}`;
+      } else if ((v.tool === 'place' || v.tool === 'path') && v.ui.confirm?.enabled === true) {
+        expected = 'confirm';
+      }
+      if (expected && !near(hand, v.ui[expected], 32) && !wrongHand.has(`${stepId}:${expected}`)) {
+        // Ein Bild später noch einmal (Hand und Knöpfe werden im selben Bild gesetzt, gelesen wird zwischendurch).
+        await sleep(300);
+        const again = await readParent(page);
+        const vAgain = await readVillage(page);
+        if (again.tutorial.step === stepId && vAgain.tool === v.tool && !near({ x: again.tutorial.hx, y: again.tutorial.hy }, vAgain.ui[expected], 32)) {
+          wrongHand.add(`${stepId}:${expected}`);
+          check(false, `Tutorial${label}, Schritt ${stepId} (Werkzeug ${v.tool}): die Hand ${JSON.stringify(hand)} zeigt nicht auf „${expected}“ ${JSON.stringify(vAgain.ui[expected])}`);
+        }
+        continue;
+      }
+      // Ein Platz in der Welt (Blume, Haus, Anfang und Ende des Wegs) liegt immer im freien Band zwischen den Leisten,
+      // ein Bewohner nie unter der Lagerleiste – sonst verdeckt die Hand den Satz, und ein Tipp erreicht die Insel nicht
+      // (Korrekturrunde 2).
+      const band = v.ui.band;
+      const inRect = (point, spot) => spot !== undefined && Math.abs(point.x - spot.x) * 2 <= spot.w && Math.abs(point.y - spot.y) * 2 <= spot.h;
+      const worldPlace = /^(place:|pathStart$|pathEnd$)/.test(p.tutorial.target ?? '');
+      if (hand && ((worldPlace && !inRect(hand, band)) || (p.tutorial.target === 'resident' && inRect(hand, v.ui.stock))) && !handInBar.has(`${stepId}:${p.tutorial.target}`)) {
+        await sleep(300);
+        const again = await readParent(page);
+        const vAgain = await readVillage(page);
+        const handAgain = again.tutorial.hx === undefined ? undefined : { x: again.tutorial.hx, y: again.tutorial.hy };
+        if (handAgain && again.tutorial.target === p.tutorial.target && (worldPlace ? !inRect(handAgain, vAgain.ui.band) : inRect(handAgain, vAgain.ui.stock))) {
+          handInBar.add(`${stepId}:${p.tutorial.target}`);
+          check(false, `Tutorial${label}, Schritt ${stepId}: die Hand ${JSON.stringify(handAgain)} auf ${again.tutorial.target} liegt in einer Leiste (freies Band ${JSON.stringify(vAgain.ui.band)}, Lager ${JSON.stringify(vAgain.ui.stock)})`);
+        }
+        continue;
+      }
+      if (worldPlace && hand && !placesSeen.has(p.tutorial.target)) {
+        placesSeen.add(p.tutorial.target);
+        if (label !== '') await shot(`${name}-tutorial${label.replace(/\W+/g, '-')}-${p.tutorial.target.replace(/\W+/g, '-')}`);
+      }
+      if (reloadAt !== undefined && p.tutorial.index >= reloadAt && !reloaded) {
+        // Der Fortschritt übersteht das Neuladen (er steht in den Einstellungen, nicht im Dorf).
+        reloaded = true;
+        await sleep(1500);
+        await enterIsland(page, profile, waitForScene, SAVE_URL);
+        const after = await waitForParent(page, (x) => x.tutorial.status !== undefined, 'den geführten Start nach dem Neuladen');
+        check(after.tutorial.status === 'active' && after.tutorial.index >= p.tutorial.index, `Tutorial nach dem Neuladen: ${JSON.stringify(after.tutorial)} (erwartet: weiter ab Schritt ${p.tutorial.index} „${stepId}“)`);
+        console.log(`  [${name}] Neuladen bei Schritt „${stepId}“: weiter mit „${after.tutorial.step}“`);
+        continue;
+      }
+      if (stepId === 'praise' && !hand) {
+        // Das Lob endet mit dem nächsten Tipp (irgendwo), sobald es in der Hinweisleiste steht.
+        // Mit dem Weg-Werkzeug kann so ein Tipp einen neuen (roten) Weg beginnen – dessen Grund geht vor das Lob
+        // (Korrekturrunde 2). Dann wie ein Kind erst das Werkzeug beenden.
+        if (v.tool !== 'view' && v.hint !== gameText('tutorial.praise') && 'exit' in v.ui) await tapUi('exit');
+        else await input.tap({ x: view.width / 2, y: view.height * 0.42 });
+        await sleep(600);
+        continue;
+      }
+      if (!hand || stepId === 'coins') {
+        // „Taler“: die Hand zeigt auf die Lagerleiste, erledigt wird es ohne Tipp, sobald der Markt verkauft.
+        await sleep(400);
+        continue;
+      }
+      const key = `${stepId}|${v.tool}|${v.preview}|${Math.round(hand.x / 8)}|${Math.round(hand.y / 8)}`;
+      if (key === last.key && Date.now() - last.at < 3000) {
+        await sleep(300);
+        continue;
+      }
+      await input.tap(hand);
+      taps.set(key, (taps.get(key) ?? 0) + 1);
+      if (taps.get(key) === 4) console.log(`  [${name}]${label} vierter Tipp auf dasselbe Ziel ${p.tutorial.target} bei ${JSON.stringify(hand)}: Vorschau „${v.preview}“, Hinweis „${v.hint}“, Band ${JSON.stringify(v.ui.band)}, Kamera ${JSON.stringify(await readCamera(page))}`);
+      last = { key, at: Date.now() };
+      await sleep(700);
+    }
+    return { seenSteps, sentencesSeen, reloaded, placesSeen };
+  };
+
 
   try {
     // --- Geführter Start: nur ein neues Dorf ---
@@ -4606,93 +4733,8 @@ async function testKidFriendly({ browser, profile, check, problems, name }) {
     }
 
     // Der Hand folgen: jeder erledigte Schritt führt zum nächsten. Unterwegs einmal neu laden.
-    const seenSteps = ['resident'];
-    const wrongSentence = new Set();
-    const sentencesSeen = new Set();
-    const wrongHand = new Set();
-    let reloaded = false;
-    let last = { key: '', at: 0 };
-    const deadline = Date.now() + 240_000;
-    while (Date.now() < deadline) {
-      p = await readParent(page);
-      v = await readVillage(page);
-      if (p.tutorial.status !== 'active') break;
-      const stepId = p.tutorial.step;
-      if (seenSteps.at(-1) !== stepId) {
-        seenSteps.push(stepId);
-        step(`M8: Schritt „${stepId}“ – „${v.hint}“`);
-      }
-      const hand = p.tutorial.hx === undefined ? undefined : { x: p.tutorial.hx, y: p.tutorial.hy };
-      // Satz und Hand passen zusammen (bei jedem Schritt, mit jedem Werkzeug).
-      const mismatch = tutorialMismatch(p.tutorial, v, p.residentCard);
-      const sentenceKey = `${stepId}:${v.tool}:${p.tutorial.target}`;
-      if (mismatch && !wrongSentence.has(sentenceKey)) {
-        await sleep(300);
-        const again = await readParent(page);
-        const vAgain = await readVillage(page);
-        const still = again.tutorial.step === stepId && vAgain.tool === v.tool ? tutorialMismatch(again.tutorial, vAgain, again.residentCard) : undefined;
-        if (still) {
-          wrongSentence.add(sentenceKey);
-          check(false, `Tutorial, Schritt ${stepId} (Werkzeug ${v.tool}): ${still}`);
-        }
-        continue;
-      }
-      if (p.tutorial.sentence) sentencesSeen.add(`${p.tutorial.sentence}@${p.tutorial.at || 'tool'}`);
-      // Wohin die Hand zeigen muss (nur die eindeutigen Fälle).
-      let expected;
-      if (stepId === 'coins') {
-        expected = 'stock';
-      } else if (p.residentCard !== '' && stepId !== 'resident') {
-        expected = 'card-close';
-      } else if (v.tool === 'view') {
-        expected = { shop: 'tool-shop', deco: 'tool-shop', house: 'tool-shop', path: 'tool-path' }[stepId];
-      } else if (v.tool === 'shop' && (stepId === 'deco' || stepId === 'house')) {
-        const item = stepId === 'deco' ? 'item-flower' : 'item-house-red';
-        expected = item in v.ui ? item : v.shop.startsWith(stepId === 'deco' ? 'deco:' : 'houses:') ? undefined : `tab-${stepId === 'deco' ? 'deco' : 'houses'}`;
-      } else if ((v.tool === 'place' || v.tool === 'path') && v.ui.confirm?.enabled === true) {
-        expected = 'confirm';
-      }
-      if (expected && !near(hand, v.ui[expected], 32) && !wrongHand.has(`${stepId}:${expected}`)) {
-        // Ein Bild später noch einmal (Hand und Knöpfe werden im selben Bild gesetzt, gelesen wird zwischendurch).
-        await sleep(300);
-        const again = await readParent(page);
-        const vAgain = await readVillage(page);
-        if (again.tutorial.step === stepId && vAgain.tool === v.tool && !near({ x: again.tutorial.hx, y: again.tutorial.hy }, vAgain.ui[expected], 32)) {
-          wrongHand.add(`${stepId}:${expected}`);
-          check(false, `Tutorial, Schritt ${stepId} (Werkzeug ${v.tool}): die Hand ${JSON.stringify(hand)} zeigt nicht auf „${expected}“ ${JSON.stringify(vAgain.ui[expected])}`);
-        }
-        continue;
-      }
-      if (p.tutorial.index >= 3 && !reloaded) {
-        // Der Fortschritt übersteht das Neuladen (er steht in den Einstellungen, nicht im Dorf).
-        reloaded = true;
-        await sleep(1500);
-        await enterIsland(page, profile, waitForScene, SAVE_URL);
-        const after = await waitForParent(page, (x) => x.tutorial.status !== undefined, 'den geführten Start nach dem Neuladen');
-        check(after.tutorial.status === 'active' && after.tutorial.index >= p.tutorial.index, `Tutorial nach dem Neuladen: ${JSON.stringify(after.tutorial)} (erwartet: weiter ab Schritt ${p.tutorial.index} „${stepId}“)`);
-        console.log(`  [${name}] Neuladen bei Schritt „${stepId}“: weiter mit „${after.tutorial.step}“`);
-        continue;
-      }
-      if (stepId === 'praise' && !hand) {
-        // Das Lob endet mit dem nächsten Tipp (irgendwo), sobald es in der Hinweisleiste steht.
-        await input.tap({ x: size.width / 2, y: size.height * 0.42 });
-        await sleep(600);
-        continue;
-      }
-      if (!hand || stepId === 'coins') {
-        // „Taler“: die Hand zeigt auf die Lagerleiste, erledigt wird es ohne Tipp, sobald der Markt verkauft.
-        await sleep(400);
-        continue;
-      }
-      const key = `${stepId}|${v.tool}|${v.preview}|${Math.round(hand.x / 8)}|${Math.round(hand.y / 8)}`;
-      if (key === last.key && Date.now() - last.at < 3000) {
-        await sleep(300);
-        continue;
-      }
-      await input.tap(hand);
-      last = { key, at: Date.now() };
-      await sleep(700);
-    }
+    const walk = await walkTutorial({ label: '', view: size, reloadAt: 3, first: 'resident' });
+    const { seenSteps, sentencesSeen, reloaded } = walk;
     p = await readParent(page);
     check(p.tutorial.status === 'done', `Tutorial: am Ende ${JSON.stringify(p.tutorial)} (erwartet: fertig)`);
     // „Taler“ kann schon nach einem Bild erledigt sein (der Markt verkauft gerade) – dann sieht der Test ihn nicht.
@@ -4749,8 +4791,44 @@ async function testKidFriendly({ browser, profile, check, problems, name }) {
     await tapUi('parent-tutorial');
     // Das Eltern-Feld geht dabei zu: das Kind sieht gleich die Hand.
     p = await waitForParent(page, (x) => x.tutorial.status === 'active' && x.parent === 'closed', 'den neuen geführten Start mit geschlossenem Eltern-Feld');
-    v = await waitForVillage(page, (x) => 'tutorial-skip' in x.ui, 'den Knopf zum Überspringen');
-    await tapUi('tutorial-skip');
+
+    // Den ganzen Start einmal auf dem Handy quer (568×320) bis zum Lob: Blume, Haus und Weg liegen im freien Band
+    // zwischen den Leisten, nie hinter Lager- oder Hinweisleiste (Korrekturrunde 2). In einem neuen Dorf (das erste Haus
+    // hat Holz gekostet, für ein zweites reicht es nicht); der begonnene Start steht in den Einstellungen und läuft weiter.
+    step('M8: der ganze geführte Start auf 568×320');
+    {
+      const low = { width: 568, height: 320 };
+      await sleep(800);
+      await clearRecords(page);
+      await enterIsland(page, profile, waitForScene, SAVE_URL);
+      p = await waitForParent(page, (x) => x.tutorial.status === 'active' && x.tutorial.step === 'resident', 'den geführten Start im neuen Dorf');
+      await page.setViewportSize(low);
+      await sleep(1200);
+      const lowWalk = await walkTutorial({ label: ' 568×320', view: low, first: 'resident' });
+      p = await readParent(page);
+      const mustSee = TUTORIAL_STEPS.filter((id) => id !== 'coins');
+      check(p.tutorial.status === 'done' && mustSee.every((id) => lowWalk.seenSteps.includes(id)), `568×320: geführter Start ${lowWalk.seenSteps.join(' → ')}, am Ende ${JSON.stringify(p.tutorial)} (erwartet: alle Schritte bis zum Lob)`);
+      check(['place:flower', 'place:house-red'].every((target) => lowWalk.placesSeen.has(target)), `568×320: die Hand zeigte auf ${[...lowWalk.placesSeen].join(', ')} (erwartet: Platz für Blume und Haus im freien Band)`);
+      console.log(`  [${name}] 568×320: ${lowWalk.seenSteps.join(' → ')}, Plätze im Band: ${[...lowWalk.placesSeen].join(', ')}`);
+      await page.setViewportSize(size);
+      await sleep(1200);
+      // Der Weg zum Haus lässt das Werkzeug an (das Lob kam darüber): zurück zum Anschauen, dort ist das Zahnrad.
+      if ((await readVillage(page)).tool !== 'view') await exitTool();
+    }
+    await openParents();
+    await unlock();
+    await tapUi('parent-tutorial');
+    p = await waitForParent(page, (x) => x.tutorial.status === 'active' && x.parent === 'closed', 'den geführten Start noch einmal');
+    // Erst wenn der Satz des Starts dasteht (eine Meldung wie „Neu im Shop“ hat ein eigenes ✕ an derselben Stelle).
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      v = await waitForVillage(page, (x) => 'tutorial-skip' in x.ui && x.hint === gameText('tutorial.resident'), 'den Knopf zum Überspringen neben dem Satz des Starts', 15_000);
+      await tapUi('tutorial-skip');
+      const skipped = await waitForParent(page, (x) => x.tutorial.status === 'skipped', 'den übersprungenen Start', 3000).then(
+        () => true,
+        () => false,
+      );
+      if (skipped) break;
+    }
     p = await waitForParent(page, (x) => x.tutorial.status === 'skipped', 'den übersprungenen Start');
     v = await waitForVillage(page, (x) => x.hint.startsWith('Alles klar'), 'den Satz nach dem Überspringen');
     await sleep(500);
@@ -4907,6 +4985,14 @@ async function testKidFriendly({ browser, profile, check, problems, name }) {
         throw new Error(`${error.message}; Knopf ${JSON.stringify((await readVillage(page)).ui['night-parent'])}`);
       });
       check(spotFits(v.ui['night-parent'], smallSize, 64) && v.ui['night-parent'].x < small.width / 3, `${small.width}×${small.height}: Eltern-Knopf der Nacht ${JSON.stringify(v.ui['night-parent'])} (erwartet: unten links)`);
+      if (small.height > small.width) {
+        // Hochkant liegt er über der (gedimmten) Werkzeugleiste, nicht auf „Weg“ und „Shop“ (Korrekturrunde 2).
+        const button = v.ui['night-parent'];
+        const tools = Object.entries(v.ui).filter(([key]) => key.startsWith('tool-')).map(([, spot]) => spot);
+        const clear = tools.every((tool) => button.y + button.h / 2 <= tool.y - 24);
+        if (tools.length === 0) console.log(`  [${name}] ${small.width}×${small.height}: in der Nacht keine Werkzeug-Knöpfe in data-ui`);
+        check(clear, `${small.width}×${small.height}: Eltern-Knopf der Nacht ${JSON.stringify(button)} liegt auf der Werkzeugleiste ${JSON.stringify(tools)}`);
+      }
       if (small.at === 'night') await shot(small.shotName);
       await tapUi('night-parent');
       await waitForParent(page, (x) => x.parent.startsWith('enterPin'), `das Ziffernfeld bei ${small.width}×${small.height}`);
@@ -4994,6 +5080,9 @@ async function testKidFriendly({ browser, profile, check, problems, name }) {
 
     // --- Ohne IndexedDB: beim ersten Öffnen stehen „speichert nichts“ und „PIN wählen“ zusammen da (Korrekturrunde 1) ---
     step('M8: ohne IndexedDB – beide Sätze im Eltern-Menü');
+    // Das Dorf von oben wird nicht mehr gebraucht: zumachen, damit es dem neuen Kontext keine Rechenzeit nimmt (im
+    // Headless-Modus zeichnen beide sonst gleichzeitig und die erste Insel des frischen Kontexts kommt zu spät).
+    await page.close();
     const plain = await browser.newContext(profile.context);
     try {
       await plain.addInitScript(() => {
