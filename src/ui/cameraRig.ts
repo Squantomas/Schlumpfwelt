@@ -42,6 +42,8 @@ const GLIDE_MIN_MS = 600;
 const GLIDE_MAX_MS = 1600;
 /** … and this many ms per CSS px of the way. */
 const GLIDE_MS_PER_PX = 0.8;
+/** One frame moves a glide on by this much real time at most (ms; a frame after a pause does not jump to the end). */
+export const GLIDE_MAX_STEP_MS = 250;
 
 interface Glide {
   readonly from: Point;
@@ -154,6 +156,11 @@ export class CameraRig {
     return this.glide !== undefined;
   }
 
+  /** Ends a glide to a place where the camera is now (inertia and smooth zoom go on). */
+  stopGlide(): void {
+    this.glide = undefined;
+  }
+
   /** Lets the picture glide on after a drag, with this speed (screen px per ms). */
   fling(vx: number, vy: number): void {
     this.velocity = { x: vx, y: vy };
@@ -175,8 +182,12 @@ export class CameraRig {
     return this.velocity.x !== 0 || this.velocity.y !== 0 || this.zoomPending || this.glide !== undefined;
   }
 
-  /** Advances inertia and smooth zoom. Returns true if the view changed. */
-  update(deltaMs: number): boolean {
+  /**
+   * Advances inertia, smooth zoom and a glide to a place. Returns true if the view changed. `glideMs` is the real
+   * time since the last frame for the glide (the raw frame time: Phaser's smoothed `delta` lags far behind at a low
+   * frame rate, a glide of 1.6 s took 40 s at 2.5 fps); it is capped at {@link GLIDE_MAX_STEP_MS}.
+   */
+  update(deltaMs: number, glideMs = deltaMs): boolean {
     const before = this.current;
 
     if (this.zoomPending) {
@@ -215,7 +226,7 @@ export class CameraRig {
 
     const glide = this.glide;
     if (glide) {
-      glide.elapsed += Math.max(0, deltaMs);
+      glide.elapsed += Number.isFinite(glideMs) ? Math.min(GLIDE_MAX_STEP_MS, Math.max(0, glideMs)) : 0;
       const t = Math.min(1, glide.elapsed / glide.duration);
       const eased = t * t * (3 - 2 * t);
       const x = glide.from.x + (glide.to.x - glide.from.x) * eased;

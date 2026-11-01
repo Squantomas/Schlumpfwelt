@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { LANDING_MARGIN, landingGlide } from '../../src/ui/boatCamera';
+import { LANDING_MARGIN, glideAllowed, landingGlide } from '../../src/ui/boatCamera';
 
 const TABLET = { width: 1024, height: 768 };
 const PHONE = { width: 320, height: 568 };
@@ -73,5 +73,23 @@ describe('landingGlide', () => {
   it('kommt mit einem kaputten Zoom oder Schirm zurecht', () => {
     expect(landingGlide({ centerX: 0, centerY: 0, zoom: 0 }, TABLET, BAND, { x: 5000, y: 0 }, { x: 5000, y: 0 })).toBeUndefined();
     expect(landingGlide({ centerX: 0, centerY: 0, zoom: 1 }, { width: 0, height: 0 }, BAND, { x: 5000, y: 0 }, { x: 5000, y: 0 })).toBeUndefined();
+  });
+});
+
+describe('glideAllowed (Korrekturrunde 2)', () => {
+  const looking = { tool: 'view', shopOpen: false, menuOpen: false, lostOpen: false, cardOpen: false };
+
+  it('fährt nur beim Anschauen ohne offenes Feld', () => {
+    expect(glideAllowed(looking)).toBe(true);
+  });
+
+  it('nicht beim Bauen, Verschieben, Abreißen, im Shop, im Menü, mit der Ebene „Hier weiterspielen“ oder einer offenen Karte', () => {
+    for (const tool of ['place', 'path', 'move', 'demolish', 'shop']) {
+      expect(glideAllowed({ ...looking, tool }), tool).toBe(false);
+    }
+    expect(glideAllowed({ ...looking, shopOpen: true })).toBe(false);
+    expect(glideAllowed({ ...looking, menuOpen: true })).toBe(false);
+    expect(glideAllowed({ ...looking, lostOpen: true })).toBe(false);
+    expect(glideAllowed({ ...looking, cardOpen: true })).toBe(false);
   });
 });

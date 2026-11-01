@@ -13,7 +13,7 @@ import { growRect, tileAtWorld, visibleRect, type CameraBounds, type Point, type
 import { landRegions } from '../ui/cameraRegions';
 import { FrameStats } from '../ui/frameStats';
 import { simulationDelta } from '../ui/frameTime';
-import { landingGlide } from '../ui/boatCamera';
+import { glideAllowed, landingGlide } from '../ui/boatCamera';
 import { RESIDENT_BODY_Y, residentAt } from '../ui/residentHit';
 import { RoundButton } from '../ui/RoundButton';
 import { COLORS, TILE_SIZE, rgb } from '../ui/style';
@@ -379,7 +379,8 @@ export class IslandScene extends Phaser.Scene {
     this.session.autosave?.update(time);
     this.lost.setOpen(this.session.autosave?.isLost === true);
     this.followNewBoats();
-    this.controller.update(delta);
+    // The glide to a boat counts real time (like the simulation); inertia and smooth zoom keep Phaser's delta.
+    this.controller.update(delta, simulationDelta(this.game.loop.rawDelta, delta));
     this.publishCamera();
     this.residentView.update(alpha, seconds, this.controller.view.zoom, this.buildTool.inspectedResidentId);
     this.updateVillage(seconds, delta);
@@ -393,9 +394,20 @@ export class IslandScene extends Phaser.Scene {
   /**
    * A boat that sets off with a new resident (an invitation, a worker for a new building): while the child is just
    * looking, the camera glides gently to where it lands, unless that is already in the picture. It never jumps, and
-   * the next touch stops it (see `CameraRig.glideTo`). While building, moving or demolishing, the camera stays.
+   * the next touch stops it (see `CameraRig.glideTo`). While building, moving or demolishing, with the shop, the
+   * menu or a card open, the camera stays – and a glide that is running stops (`glideAllowed`).
    */
   private followNewBoats(): void {
+    const allowed = glideAllowed({
+      tool: this.buildTool.tool,
+      shopOpen: this.buildUI.shopOpen,
+      menuOpen: this.menu.isOpen,
+      lostOpen: this.lost.isOpen,
+      cardOpen: this.buildTool.cardOpen,
+    });
+    if (!allowed && this.controller.glidingTo) {
+      this.controller.stopGlide();
+    }
     const boats = this.simulation.state.boats;
     if (boats.length === 0 && this.seenBoats.size === 0) {
       return;
@@ -406,7 +418,7 @@ export class IslandScene extends Phaser.Scene {
       if (this.seenBoats.has(boat.id) || boat.passenger === null) {
         continue;
       }
-      if (this.buildTool.tool !== 'view' || this.buildUI.shopOpen || this.menu.isOpen || this.lost.isOpen) {
+      if (!allowed) {
         continue;
       }
       const width = this.simulation.state.world.width;

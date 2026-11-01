@@ -48,3 +48,24 @@ export function landingGlide(view: CameraView, size: Size, band: FreeBand, shore
   const bandMiddle = (top + bottom) / 2;
   return { x: middle.x, y: middle.y - (bandMiddle - size.height / 2) / view.zoom };
 }
+
+/** What is open on the screen while a boat comes (see {@link glideAllowed}). */
+export interface GlideContext {
+  /** The tool of the build controls (`view` = just looking). */
+  readonly tool: string;
+  readonly shopOpen: boolean;
+  readonly menuOpen: boolean;
+  /** The layer "a newer window took over". */
+  readonly lostOpen: boolean;
+  /** The card of a building or of a resident. */
+  readonly cardOpen: boolean;
+}
+
+/**
+ * The camera glides to a boat only while the child is just looking – not while building, moving or demolishing, and
+ * not while the shop, the menu, the "lost" layer or a card is open. A glide that is running stops on the spot as
+ * soon as this turns false.
+ */
+export function glideAllowed(context: GlideContext): boolean {
+  return context.tool === 'view' && !context.shopOpen && !context.menuOpen && !context.lostOpen && !context.cardOpen;
+}

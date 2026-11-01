@@ -118,9 +118,19 @@ export class WorldCameraController {
     this.rig.glideTo(center);
   }
 
-  /** Advances inertia and smooth zoom; call once per frame. */
-  update(deltaMs: number): void {
-    this.rig.update(deltaMs);
+  /** True while the camera glides to a place. */
+  get glidingTo(): boolean {
+    return this.rig.glidingTo;
+  }
+
+  /** Ends a glide to a place where the camera is now. */
+  stopGlide(): void {
+    this.rig.stopGlide();
+  }
+
+  /** Advances inertia, smooth zoom and a glide (that one by `glideMs`, the raw frame time); call once per frame. */
+  update(deltaMs: number, glideMs = deltaMs): void {
+    this.rig.update(deltaMs, glideMs);
     this.apply();
   }
 

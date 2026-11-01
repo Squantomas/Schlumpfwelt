@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { screenToWorld, visibleRect, type Rect, type Size } from '../../src/ui/cameraMath';
-import { CameraRig } from '../../src/ui/cameraRig';
+import { CameraRig, GLIDE_MAX_STEP_MS } from '../../src/ui/cameraRig';
 
 const TILE = 64;
 const MAP: Rect = { x: 0, y: 0, width: 3072, height: 3072 };
@@ -326,6 +326,47 @@ describe('Sanft an einen Ort fahren (glideTo: die Anlegestelle eines Boots)', ()
   it('ignoriert ein ungültiges Ziel', () => {
     rig.glideTo({ x: Number.NaN, y: 0 });
     expect(rig.animating).toBe(false);
+  });
+
+  it('zählt die echte Bildzeit (Korrekturrunde 2): bei 2,5 Bildern pro Sekunde ist sie nach höchstens 1,6 s da, nicht nach 40 s', () => {
+    const target = { x: rig.view.centerX + 900, y: rig.view.centerY };
+    rig.glideTo(target);
+    // Phaser's smoothed delta stays near 16 ms, while really 400 ms pass per frame.
+    let frames = 0;
+    while (rig.glidingTo && frames < 100) {
+      rig.update(16, 400);
+      frames += 1;
+    }
+    expect(rig.view.centerX).toBeCloseTo(target.x, 6);
+    // A frame counts at most GLIDE_MAX_STEP_MS: 1600 ms at most → at most 7 frames, never a jump to the end.
+    expect(frames).toBeLessThanOrEqual(Math.ceil(1600 / GLIDE_MAX_STEP_MS));
+    expect(frames).toBeGreaterThanOrEqual(3);
+  });
+
+  it('eine lange Pause springt nicht ans Ziel, eine ungültige Bildzeit hält sie nicht an', () => {
+    const start = rig.view.centerX;
+    const target = { x: start + 900, y: rig.view.centerY };
+    rig.glideTo(target);
+    rig.update(16, 60_000);
+    expect(rig.glidingTo).toBe(true);
+    expect(rig.view.centerX).toBeLessThan(target.x);
+    rig.update(16, Number.NaN);
+    rig.update(16, -50);
+    expect(rig.glidingTo).toBe(true);
+    runFor(2000);
+    expect(rig.view.centerX).toBeCloseTo(target.x, 6);
+  });
+
+  it('stopGlide hält nur die Fahrt an, dort wo die Kamera gerade ist', () => {
+    const target = { x: rig.view.centerX + 900, y: rig.view.centerY };
+    rig.glideTo(target);
+    runFor(400);
+    rig.stopGlide();
+    expect(rig.glidingTo).toBe(false);
+    const stopped = rig.view.centerX;
+    expect(stopped).toBeLessThan(target.x);
+    runFor(1000);
+    expect(rig.view.centerX).toBe(stopped);
   });
 });
 
