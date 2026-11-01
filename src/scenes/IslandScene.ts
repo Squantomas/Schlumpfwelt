@@ -11,6 +11,7 @@ import { hash2 } from '../sim/random';
 import type { GameSession } from '../save/session';
 import type { AudioEngine } from '../audio/engine';
 import type { SoundKind } from '../audio/recipes';
+import type { SoundSettings } from '../parent/settings';
 import type { Simulation } from '../sim/simulation';
 import { isLand, landBounds, terrainAt, type Terrain } from '../sim/world';
 import { BuildTool, TOOLS, type Preview } from '../ui/buildTool';
@@ -456,6 +457,10 @@ export class IslandScene extends Phaser.Scene {
       onParent: () => {
         this.parentPanel.open();
       },
+      soundOn: () => this.parent.sound.on,
+      onSound: (on) => {
+        this.setSound({ on });
+      },
     });
     // Evening and night over everything (M8), below the parents' menu (the way out of the night) and the "other window" layer.
     this.night = new NightLayer(this, this.uiLayer, (time) => {
@@ -465,6 +470,9 @@ export class IslandScene extends Phaser.Scene {
     this.parentPanel = new ParentPanel(this, this.uiLayer, this.parent, {
       touched: (time) => {
         this.buildUI.touched(time);
+      },
+      onSound: (change) => {
+        this.setSound(change);
       },
       onTutorialAgain: () => {
         this.setTutorial(startTutorial({ ...this.countsForTutorial(), earned: this.simulation.state.earnedCoins }));
@@ -1218,6 +1226,13 @@ export class IslandScene extends Phaser.Scene {
         this.glints.push({ sprite, phase: hash2(seed + 4245, x, y) * Math.PI * 2 });
       }
     }
+  }
+
+  /** Sound on/off, music, noises (M9): kept in the parents' settings, heard at once. */
+  private setSound(change: Partial<SoundSettings>): void {
+    this.parent.setSound(change);
+    this.audio.setSwitches(this.parent.sound);
+    markAudio(this.audio.describe());
   }
 
   /** A noise of the game (M9); the engine leaves it out when it came too soon after the same one, or the sound is off. */

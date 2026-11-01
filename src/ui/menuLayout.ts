@@ -6,8 +6,9 @@ import { CANCEL_DIAMETER, CONFIRM_DIAMETER } from './confirmLayout';
  * panel in the middle of the screen over a dark veil, with the title and a
  * big ✕ on top, a sentence, and then either the two big buttons ("Als Datei
  * sichern", "Aus Datei laden" – side by side on a low screen, else one under
- * the other) or, after a file was chosen, ✓ and ✕. M8: a third button, "Für Eltern" (the parents' menu with the PIN),
- * under the two (beside them on a low screen). Tested on every screen size:
+ * the other) or, after a file was chosen, ✓ and ✕. M8: a third button, "Für Eltern" (the parents' menu with the PIN).
+ * M9: a fourth, "Ton an/aus". On a tall screen the four stand under each other (save, load, sound, parents), on a low
+ * one in two rows of two (save | load, sound | parents). Tested on every screen size:
  * nothing overlaps, nothing leaves the screen, every target is at least 48 px.
  */
 
@@ -19,6 +20,8 @@ const HEADER_H = 64;
 export const MENU_CLOSE = 64;
 export const MENU_BUTTON_H = 68;
 const MAX_PANEL_W = 560;
+/** The buttons in two rows on a low screen (M9): a little lower, so the panel fits a phone held sideways. */
+export const MENU_BUTTON_LOW_H = 56;
 
 export type MenuLayoutMode = 'menu' | 'confirm';
 
@@ -37,6 +40,8 @@ export interface MenuLayout {
   readonly load: Rect | undefined;
   /** Menu mode: "Für Eltern" (M8). */
   readonly parent: Rect | undefined;
+  /** Menu mode: "Ton an/aus" (M9). */
+  readonly sound: Rect | undefined;
   /** Confirm mode: ✓ and ✕ (left of ✓). */
   readonly confirm: Rect | undefined;
   readonly cancel: Rect | undefined;
@@ -45,9 +50,9 @@ export interface MenuLayout {
   readonly textFont: number;
 }
 
-/** Is the screen so low (a phone held sideways) that the buttons go side by side? (Three under each other need about 450 px.) */
+/** Is the screen so low (a phone held sideways) that the buttons go two by two? (Four under each other need about 520 px.) */
 export function menuIsLow(height: number): boolean {
-  return height < 450;
+  return height < 530;
 }
 
 export function menuLayout(width: number, height: number, mode: MenuLayoutMode): MenuLayout {
@@ -58,7 +63,7 @@ export function menuLayout(width: number, height: number, mode: MenuLayoutMode):
   const titleFont = low ? 24 : 30;
 
   const bodyH =
-    mode === 'confirm' ? CONFIRM_DIAMETER : low ? MENU_BUTTON_H : 3 * MENU_BUTTON_H + 2 * GAP;
+    mode === 'confirm' ? CONFIRM_DIAMETER : low ? 2 * MENU_BUTTON_LOW_H + GAP : 4 * MENU_BUTTON_H + 3 * GAP;
   const panelH = PAD + HEADER_H + GAP + textH + GAP + bodyH + PAD;
   const panel: Rect = { x: (width - panelW) / 2, y: Math.max(MENU_MARGIN, (height - panelH) / 2), width: panelW, height: panelH };
 
@@ -73,6 +78,7 @@ export function menuLayout(width: number, height: number, mode: MenuLayoutMode):
   let save: Rect | undefined;
   let load: Rect | undefined;
   let parent: Rect | undefined;
+  let sound: Rect | undefined;
   let confirm: Rect | undefined;
   let cancel: Rect | undefined;
   if (mode === 'confirm') {
@@ -81,16 +87,20 @@ export function menuLayout(width: number, height: number, mode: MenuLayoutMode):
     cancel = { x: left, y: bodyY + (CONFIRM_DIAMETER - CANCEL_DIAMETER) / 2, width: CANCEL_DIAMETER, height: CANCEL_DIAMETER };
     confirm = { x: left + CANCEL_DIAMETER + GAP * 2, y: bodyY, width: CONFIRM_DIAMETER, height: CONFIRM_DIAMETER };
   } else if (low) {
-    const each = (innerW - 2 * GAP) / 3;
-    save = { x: innerX, y: bodyY, width: each, height: MENU_BUTTON_H };
-    load = { x: innerX + each + GAP, y: bodyY, width: each, height: MENU_BUTTON_H };
-    parent = { x: innerX + 2 * (each + GAP), y: bodyY, width: each, height: MENU_BUTTON_H };
+    const each = (innerW - GAP) / 2;
+    const h = MENU_BUTTON_LOW_H;
+    save = { x: innerX, y: bodyY, width: each, height: h };
+    load = { x: innerX + each + GAP, y: bodyY, width: each, height: h };
+    sound = { x: innerX, y: bodyY + h + GAP, width: each, height: h };
+    parent = { x: innerX + each + GAP, y: bodyY + h + GAP, width: each, height: h };
   } else {
-    save = { x: innerX, y: bodyY, width: innerW, height: MENU_BUTTON_H };
-    load = { x: innerX, y: bodyY + MENU_BUTTON_H + GAP, width: innerW, height: MENU_BUTTON_H };
-    parent = { x: innerX, y: bodyY + 2 * (MENU_BUTTON_H + GAP), width: innerW, height: MENU_BUTTON_H };
+    const row = (n: number): Rect => ({ x: innerX, y: bodyY + n * (MENU_BUTTON_H + GAP), width: innerW, height: MENU_BUTTON_H });
+    save = row(0);
+    load = row(1);
+    sound = row(2);
+    parent = row(3);
   }
-  return { veil: { x: 0, y: 0, width, height }, panel, title, close, text, save, load, parent, confirm, cancel, titleFont, textFont };
+  return { veil: { x: 0, y: 0, width, height }, panel, title, close, text, save, load, parent, sound, confirm, cancel, titleFont, textFont };
 }
 
 /**

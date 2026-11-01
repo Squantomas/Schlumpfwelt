@@ -35,6 +35,8 @@ export interface ParentPanelHooks {
   readonly onTutorialAgain: () => void;
   /** The panel was closed (the scene looks again whether it is night). */
   readonly onClose: () => void;
+  /** M9: music or noises switched (the session keeps them; the scene tells the sound). */
+  readonly onSound: (change: { readonly music?: boolean; readonly sfx?: boolean }) => void;
 }
 
 /**
@@ -60,6 +62,8 @@ export class ParentPanel {
   private readonly extraButton: TextButton;
   private readonly pinButton: TextButton;
   private readonly tutorialButton: TextButton;
+  private readonly musicButton: TextButton;
+  private readonly sfxButton: TextButton;
   private size: ViewSize = { width: 1, height: 1 };
   private pad: PinPadLayout | undefined;
   private settings: ParentSettingsLayout | undefined;
@@ -158,6 +162,22 @@ export class ParentPanel {
         this.close();
       }),
     );
+    this.musicButton = new TextButton(
+      scene,
+      t('parent.musicOn'),
+      tap(() => {
+        this.note = undefined;
+        hooks.onSound({ music: !session.sound.music });
+      }),
+    );
+    this.sfxButton = new TextButton(
+      scene,
+      t('parent.sfxOn'),
+      tap(() => {
+        this.note = undefined;
+        hooks.onSound({ sfx: !session.sound.sfx });
+      }),
+    );
     uiLayer.add([
       this.veil,
       this.dim,
@@ -173,6 +193,8 @@ export class ParentPanel {
       this.extraButton,
       this.pinButton,
       this.tutorialButton,
+      this.musicButton,
+      this.sfxButton,
     ]);
     this.refresh();
   }
@@ -242,6 +264,8 @@ export class ParentPanel {
       }
       spots['parent-pin'] = center(layout.pin);
       spots['parent-tutorial'] = center(layout.tutorial);
+      spots['parent-music'] = { ...center(layout.music), ...(this.session.sound.music ? { active: true } : {}) };
+      spots['parent-sfx'] = { ...center(layout.sfx), ...(this.session.sound.sfx ? { active: true } : {}) };
     }
     return spots;
   }
@@ -308,7 +332,7 @@ export class ParentPanel {
     }
     this.forgotButton.setVisible(this.pad !== undefined && mode === 'enterPin');
     this.label.setVisible(this.settings !== undefined);
-    for (const button of [...this.choices, this.extraButton, this.pinButton, this.tutorialButton]) {
+    for (const button of [...this.choices, this.extraButton, this.pinButton, this.tutorialButton, this.musicButton, this.sfxButton]) {
       button.setVisible(this.settings !== undefined);
     }
     // "+10 Minuten" only with a limit (without one there is nothing to add).
@@ -363,6 +387,11 @@ export class ParentPanel {
       this.extraButton.place(settings.extra, settings.buttonFont);
       this.pinButton.place(settings.pin, settings.buttonFont);
       this.tutorialButton.place(settings.tutorial, settings.buttonFont);
+      // Music and noises (M9): lit while on, the word says which.
+      const { music, sfx } = this.session.sound;
+      const half = settings.buttonFont - 2;
+      this.musicButton.setCaption(t(music ? 'parent.musicOn' : 'parent.musicOff')).place(settings.music, half).setHighlighted(music);
+      this.sfxButton.setCaption(t(sfx ? 'parent.sfxOn' : 'parent.sfxOff')).place(settings.sfx, half).setHighlighted(sfx);
     }
   }
 

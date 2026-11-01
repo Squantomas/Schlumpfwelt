@@ -67,6 +67,14 @@ export class TextButton extends Phaser.GameObjects.Container {
     return this;
   }
 
+  /** A new word (M9: the sound switches say what is now); takes effect with the next {@link place}. */
+  setCaption(text: string): this {
+    if (this.caption.text !== text) {
+      this.caption.setText(text);
+    }
+    return this;
+  }
+
   setHighlighted(highlighted: boolean): this {
     if (highlighted !== this.highlighted) {
       this.highlighted = highlighted;
