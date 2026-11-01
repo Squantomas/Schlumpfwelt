@@ -23,5 +23,20 @@
     "waitTicks": 40,
     "cutOffTicks": 600,
     "tripsBeforeRest": 3
+  },
+  "mood": {
+    "decoRadius": 2,
+    "farTiles": 12,
+    "pace": {
+      "happy": 120,
+      "normal": 100,
+      "sad": 80
+    }
+  },
+  "food": {
+    "goods": ["cake", "berries"],
+    "mealTicks": 1800,
+    "mealGapTicks": 100,
+    "retryTicks": 50
   }
 }

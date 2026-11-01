@@ -1,6 +1,7 @@
 import { FixedStepClock } from './clock';
 import { applyCommand, type Command } from './commands';
 import type { DeepReadonly } from './readonly';
+import { workPaces } from './mood';
 import { refreshStatuses, tickProduction } from './production';
 import { tickResidents } from './residents';
 import { createInitialState, type SimState } from './state';
@@ -104,7 +105,8 @@ export class Simulation {
       return;
     }
     this.current.tick += 1;
-    tickProduction(this.current);
+    // How fast each building works follows the mood of its worker (M7).
+    tickProduction(this.current, workPaces(this.current));
     // The residents only walk and show what they carry: the store is already settled by the production.
     tickResidents(this.current);
     checkUnlocks(this.current);

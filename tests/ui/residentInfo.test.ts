@@ -22,6 +22,8 @@ const resident = (changes: Partial<Resident> = {}): Resident => ({
   carrying: null,
   seen: 0,
   trips: 0,
+  meal: 1800,
+  hungry: false,
   ...changes,
 });
 

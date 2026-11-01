@@ -48,6 +48,45 @@ describe('Tick-Kosten der Bewohner', () => {
 });
 
 /**
+ * Mit Stimmung und Essen (M7): Jeder Tick fragt für jedes Produktionsgebäude die Stimmung seines Arbeiters ab (Deko am
+ * Haus und Türen werden nur einmal pro Änderung des Dorfs berechnet), und jeder Bewohner zählt bis zur nächsten
+ * Mahlzeit. 500 Bewohner (die Obergrenze): 200 aus dem Testdorf und 300 Gäste ohne Haus, die durchs Dorf schlendern.
+ * Gemessen mit M7 (Testrechner): etwa 0,03 ms (30), 0,04 ms (100), 0,08 ms (200) und 0,14 ms (500 Bewohner) im Mittel,
+ * 95 % der Ticks unter 0,3 ms.
+ */
+describe('Tick-Kosten mit Stimmung und Essen (M7)', () => {
+  it(`${String(MAX_RESIDENTS)} Bewohner: im Mittel unter 4 ms, 95 % der Ticks unter 12 ms`, () => {
+    const sim = crowdedVillage(200);
+    for (let i = 0; i < 300; i += 1) {
+      sim.update(sim.tickMs);
+    }
+    const data = JSON.parse(saveToText(sim.state)) as Record<string, unknown>;
+    const saved = data['residents'] as Record<string, unknown>[];
+    const template = saved[0] ?? {};
+    let nextId = Number(data['nextResidentId']);
+    while (saved.length < MAX_RESIDENTS) {
+      saved.push({ ...template, id: nextId, name: `Gast ${String(nextId)}`, home: null, job: null, doing: 'wait', timer: 1 + (nextId % 40), route: [] });
+      nextId += 1;
+    }
+    data['nextResidentId'] = nextId;
+    const result = fromSaveData(data);
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    const loaded = new Simulation(result.state);
+    expect(loaded.state.residents).toHaveLength(MAX_RESIDENTS);
+    for (let i = 0; i < 100; i += 1) {
+      loaded.update(loaded.tickMs);
+    }
+    const { mean, p95 } = timeTicks(loaded, 600);
+    expect(mean).toBeLessThan(4);
+    expect(p95).toBeLessThan(12);
+    expect(loaded.state.residents.filter((r) => r.doing === 'walk').length).toBeGreaterThan(100);
+  });
+});
+
+/**
  * Durch Wasser abgeschnitten (nur aus einer Datei möglich, das Spiel baut nie eine zweite Insel): Früher suchte jeder
  * abgeschnittene Bewohner alle 4 s per A* die ganze Landmasse ab (ein Tick mit 500 Bewohnern über 6 ms). Jetzt kennt
  * jede Kachel ihre Landmasse, der Weg wird ohne Suche abgelehnt, und wer abgeschnitten ist, wartet eine Minute.

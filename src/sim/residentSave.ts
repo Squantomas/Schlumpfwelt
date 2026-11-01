@@ -1,5 +1,5 @@
 /**
- * Reading the residents and boats of a save (M6, save version 3). Loading
+ * Reading the residents and boats of a save (M6, save version 3; their food since M7, version 4). Loading
  * never trusts the data: every field is checked and brought into range, and
  * whatever does not fit is repaired so that nobody hangs – a resident on
  * water or without a valid way stands at the door of their work (or home)
@@ -13,6 +13,7 @@ import { HAT_IDS, LONGEST_TIMER, MAX_NAME_LENGTH, RESIDENT_NAMES } from '../data
 import { isItem, COINS } from '../data/goods';
 import { MAX_BOATS, MAX_ID, MAX_RESIDENTS, MAX_ROUTE } from './limits';
 import { normalizeSeed } from './random';
+import { LONGEST_MEAL, firstMeal } from './mood';
 import { DOINGS, GOALS, STEPS_PER_TILE, residentSeed, settleResidents, type Boat, type Doing, type Goal, type Resident } from './residents';
 import type { SimState } from './state';
 import { doorOf, isWalkable } from './walk';
@@ -129,6 +130,8 @@ export function readResidents(data: Readonly<Record<string, unknown>>, state: Si
       carrying: typeof carryingRaw === 'string' && carryingRaw !== COINS && isItem(carryingRaw) ? carryingRaw : null,
       seen: whole(entry['seen'], 0),
       trips: whole(entry['trips'], 0, 1000),
+      meal: whole(entry['meal'], firstMeal(residents.length, rawResidents.length), LONGEST_MEAL),
+      hungry: entry['hungry'] === true,
     });
   }
   residents.sort((a, b) => a.id - b.id);

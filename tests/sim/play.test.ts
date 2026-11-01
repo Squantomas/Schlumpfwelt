@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { BUILDING_TYPES, LOCKED_TYPE_IDS, buildingType, typesOf } from '../../src/data/buildings';
+import { BUILDING_TYPES, LOCKED_TYPE_IDS, buildingType, capacityOf, typesOf } from '../../src/data/buildings';
 import { MAX_AMOUNT } from '../../src/data/goods';
 import { PRODUCER_STATUSES, canAfford, costOf, productionOf } from '../../src/sim/economy';
+import { LONGEST_MEAL } from '../../src/sim/mood';
+import { longestRound } from '../../src/sim/production';
 import { Rng } from '../../src/sim/random';
 import type { DeepReadonly } from '../../src/sim/readonly';
 import { Simulation } from '../../src/sim/simulation';
@@ -255,6 +257,20 @@ describe('Invarianten bei beliebigen Befehlen', () => {
     }
     const producing = state.buildings.filter((b) => productionOf(b.type)).map((b) => b.id);
     expect(state.production.map((p) => p.buildingId), label).toEqual(producing);
+    // Bewohner (M7: auch nach Umzügen): kein Haus über seinem Platz, ein Zuhause ist ein Haus, Essen im Rahmen.
+    const homes = new Map<number, number>();
+    for (const resident of state.residents) {
+      if (resident.home !== null) {
+        homes.set(resident.home, (homes.get(resident.home) ?? 0) + 1);
+      }
+      expect(Number.isInteger(resident.meal) && resident.meal >= 0 && resident.meal <= LONGEST_MEAL, label).toBe(true);
+      expect(typeof resident.hungry, label).toBe('boolean');
+    }
+    for (const [home, count] of homes) {
+      const house = state.buildings.find((b) => b.id === home);
+      expect(house && buildingType(house.type)?.category, label).toBe('house');
+      expect(count, label).toBeLessThanOrEqual(house ? capacityOf(house.type) : 0);
+    }
     // Gepflanzte Kacheln: aufsteigend, ohne Doppelte, und noch Wald oder Fels.
     expect([...state.planted].sort((a, b) => a.index - b.index), label).toEqual(state.planted);
     expect(new Set(state.planted.map((planted) => planted.index)).size, label).toBe(state.planted.length);
@@ -273,7 +289,8 @@ describe('Invarianten bei beliebigen Befehlen', () => {
       const rules = building ? productionOf(building.type) : undefined;
       expect(PRODUCER_STATUSES, label).toContain(producer.status);
       expect(producer.progress, label).toBeGreaterThanOrEqual(0);
-      expect(producer.progress, label).toBeLessThan(rules?.intervalTicks ?? 1);
+      // Seit M7 dauert die Runde eines traurigen Arbeiters etwas länger (nie unendlich).
+      expect(producer.progress, label).toBeLessThan(longestRound(rules?.intervalTicks ?? 1));
     }
   }
 
@@ -354,8 +371,17 @@ describe('Invarianten bei beliebigen Befehlen', () => {
             case 9:
               sim.send({ type: 'makeMeadow', typeId: 'meadow', x: beach.x, y: beach.y });
               break;
-            default:
+            default: {
               sim.send({ type: 'placeBuilding', buildingType: 'house-red', x: Number.NaN, y });
+              // M7: someone moves house (without a draw from the generator, so the other commands stay the same).
+              const residents = sim.state.residents;
+              const buildings = sim.state.buildings;
+              const mover = residents[step % Math.max(1, residents.length)];
+              const house = buildings[(step * 7) % Math.max(1, buildings.length)];
+              if (mover && house) {
+                sim.send({ type: 'assignHome', residentId: mover.id, houseId: house.id });
+              }
+            }
           }
           for (let i = rng.int(25); i >= 0; i -= 1) {
             sim.update(sim.tickMs);
