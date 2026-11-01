@@ -1470,8 +1470,12 @@ async function testEconomy({ page, check, shot, size, input, name }) {
   }
   check(village.ui['item-house-red']?.state === 'dear' && village.ui['item-house-red']?.dim === true, 'Haus ist nicht ausgegraut, obwohl etwas fehlt');
   await tapUi('tab-deco');
-  village = await waitForVillage(page, (v) => v.shop.startsWith('deco:') && 'item-flower' in v.ui, 'der Deko-Reiter');
-  check(village.ui['item-flower'].dim === false, 'Blume ist ausgegraut, obwohl sie bezahlbar ist');
+  // Das letzte Haus oben kann die Taler unter den Preis einer Blume (3 Taler) gedrückt haben; der Markt verdient weiter,
+  // nach ein paar Sekunden reicht es wieder (für ein Haus noch lange nicht).
+  village = await waitForVillage(page, (v) => v.shop.startsWith('deco:') && 'item-flower' in v.ui && v.stock.coins >= 3, 'der Deko-Reiter und 3 Taler für eine Blume', 30_000);
+  await sleep(300);
+  village = await readVillage(page);
+  check(village.ui['item-flower'].dim === false, `Blume ist ausgegraut, obwohl sie bezahlbar ist (${village.stock.coins} Taler)`);
   await tapUi('tab-houses');
   await waitForVillage(page, (v) => v.shop.startsWith('houses:') && 'item-house-red' in v.ui, 'der Häuser-Reiter');
   await tapUi('item-house-red');
