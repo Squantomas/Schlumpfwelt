@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { RESIDENT_RULES } from '../../src/data/residents';
 import { tileIndex } from '../../src/sim/buildings';
-import { doorOf, findWalk, isPathIndex, landingFor, seaWays, walkSpeed, wayOut, buildingIdAt, type WalkStats } from '../../src/sim/walk';
+import { canReach, doorOf, findWalk, isPathIndex, landOf, landingFor, seaWays, walkSpeed, wayOut, buildingIdAt, type WalkStats } from '../../src/sim/walk';
 import { fillTerrain, grassState, run, setTerrainAt } from './helpers';
 
 const at = (x: number, y: number, width = 16): number => tileIndex({ width }, x, y);
@@ -74,6 +74,32 @@ describe('Wegsuche der Bewohner (A*)', () => {
     expect(findWalk(state, at(2, 2), at(9, 2))).toBeUndefined();
   });
 
+  it('kennt die Landmasse jeder Kachel und lehnt einen Weg zu einer anderen sofort ab, ohne zu suchen', () => {
+    const state = grassState();
+    fillTerrain(state, 5, 0, 1, 16, 'water');
+    const left = landOf(state, at(2, 2));
+    const right = landOf(state, at(9, 2));
+    expect(left).toBeGreaterThan(0);
+    expect(right).toBeGreaterThan(0);
+    expect(right).not.toBe(left);
+    expect(landOf(state, at(2, 14))).toBe(left);
+    expect(landOf(state, at(5, 3))).toBe(0);
+    const stats: WalkStats = { expanded: -1 };
+    expect(findWalk(state, at(2, 2), at(9, 2), stats)).toBeUndefined();
+    expect(stats.expanded).toBe(0);
+    expect(canReach(state, at(2, 2), at(9, 2))).toBe(false);
+    expect(canReach(state, at(2, 2), at(3, 12))).toBe(true);
+    // From water (only after loading) a resident gets onto the land beside it, either side.
+    expect(canReach(state, at(5, 3), at(9, 2))).toBe(true);
+    expect(canReach(state, at(5, 3), at(2, 2))).toBe(true);
+    // A new piece of land joins the two: the next change of the village (revision) knows it.
+    setTerrainAt(state, 5, 8, 'sand');
+    state.revision += 1;
+    expect(landOf(state, at(9, 2))).toBe(landOf(state, at(2, 2)));
+    const joined = findWalk(state, at(2, 2), at(9, 2)) ?? [];
+    expect(joined).toContain(at(5, 8));
+  });
+
   it('nimmt lieber einen Umweg über den Weg als den geraden Weg über die Wiese', () => {
     const state = grassState();
     // A path in a U: down, along and up again, from (2, 2) to (12, 2).
@@ -105,6 +131,18 @@ describe('Wegsuche der Bewohner (A*)', () => {
     const through = findWalk(walled, at(2, 3), at(7, 3)) ?? [];
     expect(through).toHaveLength(5);
     expect(through).toContain(at(4, 3));
+  });
+
+  it('läuft nie über ein Dach, um einen Umweg zu sparen – auch nicht einen von zehn Kacheln', () => {
+    const state = grassState();
+    // A wall of houses from the top down to row 7; the way around it goes below.
+    for (const y of [0, 2, 4, 6]) {
+      run(state, { type: 'placeBuilding', buildingType: 'house-red', x: 4, y });
+    }
+    expect(buildingIdAt(state, at(4, 3))).not.toBe(0);
+    const route = findWalk(state, at(3, 3), at(6, 3)) ?? [];
+    expect(route.some((tile) => buildingIdAt(state, tile) !== 0)).toBe(false);
+    expect(route.length).toBeGreaterThanOrEqual(13);
   });
 
   it('läuft aus einem Gebäude heraus, auf dem der Bewohner gerade steht, und kann ein Gebäude als Ziel haben', () => {
@@ -279,6 +317,29 @@ describe('Boote: vom Rand der Karte an die Küste', () => {
     expect(xy(landing.start)).toEqual([15, 6]);
     expectSteps(landing.start, landing.route);
     expect(landing.route.every((tile) => state.world.tiles[tile] === 'water')).toBe(true);
+  });
+
+  it('kommt erst kurz vor der Küste ins Bild: höchstens approachTiles Kacheln Fahrt, auf dem Weg vom Rand', () => {
+    const state = grassState(40);
+    fillTerrain(state, 0, 0, 40, 40, 'water');
+    fillTerrain(state, 15, 15, 10, 10, 'grass');
+    const target = tileIndex({ width: 40 }, 22, 20);
+    const landing = landingFor(state, target);
+    expect(landing).toBeDefined();
+    if (!landing) {
+      return;
+    }
+    const approach = RESIDENT_RULES.boat.approachTiles;
+    expect(approach).toBeGreaterThanOrEqual(6);
+    expect(landing.route).toHaveLength(approach);
+    expect(state.world.tiles[landing.start]).toBe('water');
+    expectSteps(landing.start, landing.route, 40);
+    expect(landing.route.every((tile) => state.world.tiles[tile] === 'water')).toBe(true);
+    // The same last tiles as the whole way in from the edge.
+    const ways = seaWays(state.world);
+    const out = wayOut(ways, landing.route.at(-1) ?? -1) ?? [];
+    expect(out.slice(0, approach - 1).reverse()).toEqual(landing.route.slice(0, -1));
+    expect(xy(landing.shore, 40)).toEqual([24, 20]);
   });
 
   it('findet keine Landestelle ohne Meer', () => {

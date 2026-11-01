@@ -53,7 +53,11 @@ export function crowdedVillage(residents: number): Simulation {
   run(state, ...commands);
   setStore(state, full);
   const sim = new Simulation(state);
-  while (sim.state.residents.length < residents) {
+  // Each try invites one; more tries than that mean the houses are too few (the map is too small for the number).
+  for (let tries = 0; sim.state.residents.length < residents; tries += 1) {
+    if (tries > residents * 2) {
+      throw new Error(`crowdedVillage: only ${String(sim.state.residents.length)} of ${String(residents)} residents fit`);
+    }
     sim.send({ type: 'inviteResident', typeId: 'invite' });
     sim.update(sim.tickMs);
   }

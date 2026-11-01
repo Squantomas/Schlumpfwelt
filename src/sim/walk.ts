@@ -2,13 +2,17 @@
  * How residents find their way (M6): A* on the tile grid, pure and
  * deterministic. Paths are cheap, meadow and beach cost more, forest and rock
  * more still, and the footprint of a building is only crossed when there is no
- * other way (`walk.cost` in `residents.json`). Water can not be walked.
+ * other way (`walk.cost` in `residents.json`: so dear that nobody walks over
+ * a roof to save a detour). Water can not be walked.
  *
  * So residents use the paths whenever they can, but are never stuck: a house
  * without a path is reached over the meadow (more slowly), and a resident who
  * finds a building put down on top of them simply walks out of it. The island
  * is one piece of land (the generator keeps one landmass, new land is only
- * added at the coast), so between any two tiles of land there is a way.
+ * added at the coast), so between any two tiles of land there is a way. Only
+ * a loaded file can bring land cut off by water: every tile knows its
+ * landmass (`landOf`), and a way between two landmasses is refused at once,
+ * without a search.
  *
  * Also here: where a resident stands to use a building (its "door"), and how a
  * boat finds its way from the open sea to the coast next to the village.
@@ -45,6 +49,8 @@ interface Grid {
   readonly occupied: Int32Array;
   /** 1 where there is a path. */
   readonly path: Uint8Array;
+  /** The landmass of every tile: tiles of land joined by land (four sides) share a number from 1; water is 0. */
+  readonly land: Int32Array;
 }
 
 /**
@@ -100,9 +106,81 @@ function gridOf(view: WalkView): Grid {
     pathCount: view.paths.length,
     occupied,
     path,
+    land: landmasses(view.world),
   };
   grids.set(view.world, grid);
   return grid;
+}
+
+/** Numbers the landmasses: one breadth-first fill per piece of land (the land changes only with `revision`). */
+function landmasses(world: DeepReadonly<World>): Int32Array {
+  const { width, height } = world;
+  const size = width * height;
+  const land = new Int32Array(size);
+  const queue = new Int32Array(size);
+  let count = 0;
+  for (let start = 0; start < size; start += 1) {
+    if (land[start] !== 0 || !isWalkable(world, start)) {
+      continue;
+    }
+    count += 1;
+    land[start] = count;
+    queue[0] = start;
+    let head = 0;
+    let tail = 1;
+    while (head < tail) {
+      const index = queue[head] ?? 0;
+      head += 1;
+      const x = index % width;
+      const y = (index - x) / width;
+      for (let d = 0; d < 4; d += 1) {
+        const nx = x + (DX[d] ?? 0);
+        const ny = y + (DY[d] ?? 0);
+        if (nx < 0 || ny < 0 || nx >= width || ny >= height) {
+          continue;
+        }
+        const next = ny * width + nx;
+        if (land[next] === 0 && isWalkable(world, next)) {
+          land[next] = count;
+          queue[tail] = next;
+          tail += 1;
+        }
+      }
+    }
+  }
+  return land;
+}
+
+/** The landmass of a tile (from 1), 0 for water and tiles outside the map. */
+export function landOf(view: WalkView, index: number): number {
+  return gridOf(view).land[index] ?? 0;
+}
+
+/**
+ * Can a resident on tile `from` walk to tile `to` at all? Both on the same landmass; a resident on water (only after
+ * loading) can leave it towards any landmass next to it.
+ */
+export function canReach(view: WalkView, from: number, to: number): boolean {
+  const { land } = gridOf(view);
+  const goal = land[to] ?? 0;
+  if (goal === 0) {
+    return false;
+  }
+  const start = land[from] ?? 0;
+  if (start !== 0) {
+    return start === goal;
+  }
+  const { width, height } = view.world;
+  const x = from % width;
+  const y = (from - x) / width;
+  for (let d = 0; d < 4; d += 1) {
+    const nx = x + (DX[d] ?? 0);
+    const ny = y + (DY[d] ?? 0);
+    if (nx >= 0 && ny >= 0 && nx < width && ny < height && land[ny * width + nx] === goal) {
+      return true;
+    }
+  }
+  return false;
 }
 
 /** The id of the building that covers the tile (0: none). */
@@ -277,7 +355,8 @@ class Heap {
 /**
  * The cheapest way from tile `from` to tile `to` (tile indices): the tiles to
  * walk, without `from`, ending with `to` (empty when both are the same).
- * `undefined` when there is no way (the goal is water or cut off by water).
+ * `undefined` when there is no way (the goal is water or cut off by water –
+ * that is known without a search, see {@link canReach}).
  * The start tile is always left, even when it is water or a building.
  */
 export function findWalk(view: WalkView, from: number, to: number, stats?: WalkStats): number[] | undefined {
@@ -291,6 +370,12 @@ export function findWalk(view: WalkView, from: number, to: number, stats?: WalkS
     return [];
   }
   if (!isWalkable(world, to)) {
+    return undefined;
+  }
+  if (!canReach(view, from, to)) {
+    if (stats) {
+      stats.expanded = 0;
+    }
     return undefined;
   }
   const grid = gridOf(view);
@@ -483,7 +568,7 @@ export function wayOut(ways: Int32Array, from: number): number[] | undefined {
 }
 
 export interface Landing {
-  /** Where the boat comes from: a tile of water at the edge of the map. */
+  /** Where the boat comes into sight: on its way from the edge of the map, at most `boat.approachTiles` tiles before the shore. */
   readonly start: number;
   /** The tiles the boat sails after `start`, ending at the tile of water by the shore. */
   readonly route: number[];
@@ -495,8 +580,10 @@ export interface Landing {
  * Where a boat lands for someone who wants to go to `target` (a tile index):
  * at the tile of land by the sea that is nearest to it (straight-line steps;
  * a free tile beats one under a building, then the lower index), and how it
- * gets there from the edge of the map on the shortest way. `undefined` when no
- * shore can be reached from the sea.
+ * gets there on the shortest way from the edge of the map – of which it sails
+ * only the last `boat.approachTiles` tiles (it comes into sight out at sea, so
+ * the arrival is short enough to watch and long enough to see). `undefined`
+ * when no shore can be reached from the sea.
  */
 export function landingFor(view: WalkView, target: number): Landing | undefined {
   const world = view.world;
@@ -533,7 +620,12 @@ export function landingFor(view: WalkView, target: number): Landing | undefined 
   }
   const out = wayOut(ways, best.water) ?? [];
   const start = out.length > 0 ? (out[out.length - 1] ?? best.water) : best.water;
-  // The way in is the way out backwards, without the edge tile the boat starts on.
-  const route = [...out.slice(0, -1).reverse(), best.water];
-  return { start, route: start === best.water ? [] : route, shore: best.shore };
+  // The way in is the way out backwards, without the edge tile the boat starts on …
+  const full = start === best.water ? [] : [...out.slice(0, -1).reverse(), best.water];
+  // … of which it sails only the last tiles.
+  const approach = Math.max(1, Math.floor(RESIDENT_RULES.boat.approachTiles));
+  if (full.length <= approach) {
+    return { start, route: full, shore: best.shore };
+  }
+  return { start: full[full.length - approach - 1] ?? start, route: full.slice(-approach), shore: best.shore };
 }

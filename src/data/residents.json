@@ -8,17 +8,20 @@
       "path": 1,
       "ground": 3,
       "rough": 5,
-      "building": 14
+      "building": 200
     }
   },
   "boat": {
-    "speed": 24
+    "speed": 5,
+    "leaveSpeed": 12,
+    "approachTiles": 7
   },
   "routine": {
     "workTicks": 450,
     "restTicks": 120,
     "visitTicks": 90,
     "waitTicks": 40,
+    "cutOffTicks": 600,
     "tripsBeforeRest": 3
   }
 }

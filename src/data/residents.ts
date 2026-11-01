@@ -14,12 +14,18 @@ import residentsJson from './residents.json';
  *   beside it. 10 ticks are one second.
  * - `walk.cost`: what entering a tile costs the search: a path, meadow or
  *   beach (`ground`), forest or rock (`rough`), a building's footprint
- *   (`building`, only taken when there is no other way). Water can not be walked.
- * - `boat.speed`: steps per tick of the boat (same steps per tile).
+ *   (`building`, so dear that it is only taken when there is no other way:
+ *   nobody walks over a roof to save a detour). Water can not be walked.
+ * - `boat.speed`: steps per tick of the boat coming in (same steps per tile),
+ *   `boat.leaveSpeed` when it sails away; `boat.approachTiles`: it comes into
+ *   sight this many tiles before the shore (not from the edge of the map), so
+ *   the arrival takes a few seconds that a child can watch.
  * - `routine`: ticks at work before going home (`workTicks`), at home
  *   (`restTicks`), at a place they visit (`visitTicks`), before trying again
- *   when there was no way (`waitTicks`); `tripsBeforeRest` deliveries to the
- *   market before a worker goes home for a rest.
+ *   when there was no way (`waitTicks`) or when the goal is cut off by water
+ *   (`cutOffTicks`; a change of the village that joins the land ends the wait
+ *   at once); `tripsBeforeRest` deliveries to the market before a worker goes
+ *   home for a rest.
  */
 
 export interface WalkCosts {
@@ -32,17 +38,27 @@ export interface WalkCosts {
 export interface ResidentRules {
   readonly hats: readonly string[];
   readonly walk: { readonly stepsPerTile: number; readonly pathSpeed: number; readonly groundSpeed: number; readonly cost: WalkCosts };
-  readonly boat: { readonly speed: number };
+  readonly boat: { readonly speed: number; readonly leaveSpeed: number; readonly approachTiles: number };
   readonly routine: {
     readonly workTicks: number;
     readonly restTicks: number;
     readonly visitTicks: number;
     readonly waitTicks: number;
+    readonly cutOffTicks: number;
     readonly tripsBeforeRest: number;
   };
 }
 
 export const RESIDENT_RULES: ResidentRules = residentsJson;
+
+/** The longest a resident stays or waits anywhere (ticks): a file may not ask for more. */
+export const LONGEST_TIMER = Math.max(
+  RESIDENT_RULES.routine.workTicks,
+  RESIDENT_RULES.routine.restTicks,
+  RESIDENT_RULES.routine.visitTicks,
+  RESIDENT_RULES.routine.waitTicks,
+  RESIDENT_RULES.routine.cutOffTicks,
+);
 
 /** The first names, in the order of the file (each is used once before any name comes twice). */
 export const RESIDENT_NAMES: readonly string[] = namesJson.names;

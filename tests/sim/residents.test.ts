@@ -14,9 +14,11 @@ import {
   settleResidents,
   type Resident,
 } from '../../src/sim/residents';
+import { canPlace } from '../../src/sim/buildings';
+import { fromSaveData, saveToText } from '../../src/sim/saveData';
 import { Simulation } from '../../src/sim/simulation';
 import { createInitialState, type SimState } from '../../src/sim/state';
-import { doorOf, isWalkable } from '../../src/sim/walk';
+import { canReach, doorOf, isWalkable } from '../../src/sim/walk';
 import { fillTerrain, grassState, run, setStore, tickN } from './helpers';
 
 /** A 24×24 island: meadow inside a sea border of 3 tiles (so boats can come). */
@@ -120,7 +122,7 @@ describe('Bewohner im Startdorf', () => {
 
   it('das Haus des Startdorfs ist voll: zum Einladen braucht es erst ein neues Haus', () => {
     const state = createInitialState(1);
-    expect(housing(state)).toEqual({ residents: 2, capacity: 2 });
+    expect(housing(state)).toEqual({ residents: 2, housed: 2, capacity: 2 });
     expect(checkInvite(state, 'invite').result).toBe('noHouse');
   });
 });
@@ -333,6 +335,34 @@ describe('Einladen im Shop', () => {
     expect(sim.state.boats).toEqual([]);
   });
 
+  it('die Ankunft dauert auf den Inseln des Spiels mindestens 6 Sekunden: Das Boot kommt kurz vor der Küste ins Bild', () => {
+    for (const seed of [1, 2, 3, 42]) {
+      const state = createInitialState(seed);
+      setStore(state, { coins: 500, wood: 50, stone: 50 });
+      let placed = false;
+      for (let y = 0; y < state.world.height && !placed; y += 1) {
+        for (let x = 0; x < state.world.width && !placed; x += 1) {
+          if (canPlace(state, 'house-red', x, y) === 'ok') {
+            run(state, { type: 'placeBuilding', buildingType: 'house-red', x, y });
+            placed = true;
+          }
+        }
+      }
+      expect(placed).toBe(true);
+      run(state, { type: 'inviteResident', typeId: 'invite' });
+      const guest = state.residents.at(-1) as Resident;
+      expect(guest.doing).toBe('boat');
+      const sim = new Simulation(state);
+      let ticks = 0;
+      while (sim.state.residents.find((r) => r.id === guest.id)?.doing === 'boat' && ticks < 2000) {
+        tick(sim);
+        ticks += 1;
+      }
+      expect(ticks, `Seed ${String(seed)}`).toBeGreaterThanOrEqual(60);
+      expect(ticks, `Seed ${String(seed)}`).toBeLessThanOrEqual(90);
+    }
+  });
+
   it('ignoriert eine Einladung mit einem falschen Artikel', () => {
     const state = village();
     run(state, { type: 'placeBuilding', buildingType: 'house-red', x: 6, y: 10 });
@@ -489,6 +519,55 @@ describe('Nichts hängt', () => {
     expect(second.boats.some((b) => b.id === guest?.id)).toBe(false);
     expect(second.residents.at(-1)?.at).toBe(at);
     expect(second.residents.at(-1)?.doing).not.toBe('boat');
+  });
+
+  it('durch Wasser abgeschnitten (nur aus einer Datei): wartet lange statt dauernd zu suchen und geht los, sobald neues Land die Inseln verbindet', () => {
+    const state = village();
+    setStore(state, { coins: 500, wood: 50, stone: 50 });
+    run(state, { type: 'placeBuilding', buildingType: 'house-red', x: 14, y: 10 }, { type: 'placeBuilding', buildingType: 'berry-garden', x: 17, y: 10 });
+    const sim = new Simulation(state);
+    tick(sim, 300);
+    const played = structuredClone(sim.state) as SimState;
+    // A channel of water from top to bottom at x 10; everybody stands on the left, every building is on the right.
+    fillTerrain(played, 10, 3, 1, 18, 'water');
+    const width = played.world.width;
+    played.residents.forEach((resident, i) => {
+      resident.at = (5 + i) * width + 6;
+      resident.route = [];
+      resident.step = 0;
+      resident.doing = 'stay';
+      resident.timer = 1;
+    });
+    played.earnedCoins = 1000;
+    const result = fromSaveData(JSON.parse(saveToText(played)));
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    const loaded = new Simulation(result.state);
+    expect(loaded.state.residents.length).toBeGreaterThanOrEqual(2);
+    for (const resident of loaded.state.residents) {
+      expect(resident.doing).toBe('wait');
+      expect(resident.timer).toBe(RESIDENT_RULES.routine.cutOffTicks);
+    }
+    const before = loaded.state.residents.map((r) => r.at);
+    tick(loaded, 200);
+    expect(loaded.state.residents.map((r) => r.at)).toEqual(before);
+    expect(loaded.state.residents.every((r) => r.doing === 'wait')).toBe(true);
+    // A strip of beach across the water: off they go at once, without waiting for the rest of the minute.
+    const market = loaded.state.buildings.find((b) => b.type === 'market');
+    if (!market) {
+      throw new Error('Markt fehlt');
+    }
+    const door = doorOf(loaded.state, market);
+    expect(canReach(loaded.state, before[0] ?? 0, door)).toBe(false);
+    loaded.send({ type: 'fillLand', typeId: 'beach', x: 10, y: 8 });
+    tick(loaded);
+    expect(loaded.state.world.tiles[8 * width + 10]).toBe('sand');
+    expect(canReach(loaded.state, before[0] ?? 0, door)).toBe(true);
+    expect(loaded.state.residents.filter((r) => r.doing === 'wait')).toEqual([]);
+    tick(loaded, 600);
+    expectSound(loaded.state);
   });
 
   it('übersteht wildes Bauen, Verschieben und Abreißen ohne Fehler und ohne hängende Bewohner', () => {

@@ -9,7 +9,7 @@
  * `limits.ts`. Afterwards `settleResidents` gives every production building
  * its worker (on land: nothing is caught up, nobody arrives late by boat).
  */
-import { HAT_IDS, MAX_NAME_LENGTH, RESIDENT_NAMES } from '../data/residents';
+import { HAT_IDS, LONGEST_TIMER, MAX_NAME_LENGTH, RESIDENT_NAMES } from '../data/residents';
 import { isItem, COINS } from '../data/goods';
 import { MAX_BOATS, MAX_ID, MAX_RESIDENTS, MAX_ROUTE } from './limits';
 import { normalizeSeed } from './random';
@@ -17,8 +17,8 @@ import { DOINGS, GOALS, STEPS_PER_TILE, residentSeed, settleResidents, type Boat
 import type { SimState } from './state';
 import { doorOf, isWalkable } from './walk';
 
-/** Longest stay a file may ask for (ticks); the routine never comes near it. */
-const MAX_TIMER = 100000;
+/** Longest stay or wait a file may ask for (ticks): the longest of the routine. */
+const MAX_TIMER = LONGEST_TIMER;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -125,7 +125,7 @@ export function readResidents(data: Readonly<Record<string, unknown>>, state: Si
       doing,
       goal,
       place: idOrNull(entry['place']),
-      timer: Math.max(1, timer),
+      timer,
       carrying: typeof carryingRaw === 'string' && carryingRaw !== COINS && isItem(carryingRaw) ? carryingRaw : null,
       seen: whole(entry['seen'], 0),
       trips: whole(entry['trips'], 0, 1000),

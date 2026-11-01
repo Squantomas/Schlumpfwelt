@@ -21,7 +21,9 @@
  *   residents look for a new one. Nobody is ever sent away.
  * - **Inviting** (the shop item in the tab "Häuser") costs coins and needs room
  *   in a house; the new resident comes by boat to the coast next to the
- *   village, steps out and walks home.
+ *   village, steps out and walks home. The boat comes into sight a few tiles
+ *   out at sea (`boat.approachTiles`) and sails in slowly, so the arrival takes
+ *   some seconds that a child can watch; it sails away a bit faster.
  * - **The day:** a worker walks to work, waits for the next round of their
  *   building, carries what it made to the nearest market and walks back;
  *   after a few deliveries (or a while at the market) they walk home for a
@@ -34,7 +36,11 @@
  *   Whenever the village changes, every resident checks their goal: if it is
  *   gone they pick a new one, if its door moved they plan again – from the
  *   tile they are walking to, so nobody jumps. Nobody waits for ever: if there
- *   is no way, they try again a little later.
+ *   is no way, they try again a little later. On one island there always is a
+ *   way; only a loaded file can cut a resident off by water – then the search
+ *   is refused at once (every tile knows its landmass), they wait a minute at a
+ *   time (`cutOffTicks`), and the change of the village that joins the land
+ *   sends them off at once.
  */
 import { buildingType, capacityOf } from '../data/buildings';
 import { HAT_IDS, RESIDENT_NAMES, RESIDENT_RULES } from '../data/residents';
@@ -44,7 +50,7 @@ import { MAX_BOATS, MAX_RESIDENTS } from './limits';
 import { Rng, hash2, normalizeSeed } from './random';
 import type { DeepReadonly } from './readonly';
 import type { SimState } from './state';
-import { doorOf, findWalk, isWalkable, landingFor, seaWays, walkSpeed, wayOut, type WalkView } from './walk';
+import { canReach, doorOf, findWalk, isWalkable, landingFor, seaWays, walkSpeed, wayOut, type WalkView } from './walk';
 
 /**
  * - `boat`: on the boat that brings them (not on the map yet).
@@ -192,11 +198,16 @@ function occupancy(residents: readonly DeepReadonly<Resident>[]): Map<number, nu
 
 export type InviteView = DeepReadonly<Pick<SimState, 'world' | 'buildings' | 'production' | 'revision' | 'residents' | 'boats' | 'inventory'>>;
 
-/** Room in all houses together, and residents (homeless ones too). */
-export function housing(view: Pick<InviteView, 'world' | 'buildings' | 'production' | 'revision' | 'residents'>): { readonly residents: number; readonly capacity: number } {
+/** Room in all houses together, the residents (homeless ones too) and how many of them live in a house (never more than the room). */
+export function housing(view: Pick<InviteView, 'world' | 'buildings' | 'production' | 'revision' | 'residents'>): {
+  readonly residents: number;
+  readonly housed: number;
+  readonly capacity: number;
+} {
   const index = villageIndex(view);
   const capacity = index.houses.reduce((sum, house) => sum + capacityOf(house.type), 0);
-  return { residents: view.residents.length, capacity };
+  const housed = view.residents.reduce((sum, resident) => sum + (resident.home !== null && index.byId.has(resident.home) ? 1 : 0), 0);
+  return { residents: view.residents.length, housed: Math.min(housed, capacity), capacity };
 }
 
 /** The house a new resident would move into: the first one (in the order they were built) with room. */
@@ -489,6 +500,9 @@ function keepPlan(state: SimState, index: VillageIndex, rng: Rng, resident: Resi
     }
   } else if (resident.doing === 'stay' && resident.at !== door) {
     go(state, index, resident, resident.goal, resident.place);
+  } else if (resident.doing === 'wait' && canReach(state, resident.at, door)) {
+    // The goal can be reached now (new land joins the landmasses): off at once instead of waiting.
+    go(state, index, resident, resident.goal, resident.place);
   }
 }
 
@@ -531,7 +545,9 @@ function go(state: SimState, index: VillageIndex, resident: Resident, goal: Goal
     resident.doing = 'wait';
     resident.route = [];
     resident.step = 0;
-    resident.timer = RESIDENT_RULES.routine.waitTicks;
+    // Cut off by water (only in a loaded file): a long wait – the search costs nothing then, and a change of the
+    // village that joins the land ends the wait at once (`keepPlan`).
+    resident.timer = canReach(state, from, door) ? RESIDENT_RULES.routine.waitTicks : RESIDENT_RULES.routine.cutOffTicks;
     return;
   }
   resident.doing = 'walk';
@@ -669,11 +685,11 @@ function tickBoats(state: SimState, index: VillageIndex): void {
   if (state.boats.length === 0) {
     return;
   }
-  const speed = RESIDENT_RULES.boat.speed;
   const kept: Boat[] = [];
   for (const boat of state.boats) {
     if (boat.route.length > 0) {
-      boat.step += speed;
+      // Slowly in (the child watches the arrival), a bit faster out again.
+      boat.step += boat.passenger !== null ? RESIDENT_RULES.boat.speed : RESIDENT_RULES.boat.leaveSpeed;
       if (boat.step >= STEPS_PER_TILE) {
         boat.step -= STEPS_PER_TILE;
         boat.at = boat.route.shift() ?? boat.at;

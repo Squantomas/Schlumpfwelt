@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { HAT_IDS, MAX_NAME_LENGTH, RESIDENT_NAMES } from '../../src/data/residents';
+import { HAT_IDS, LONGEST_TIMER, MAX_NAME_LENGTH, RESIDENT_NAMES, RESIDENT_RULES } from '../../src/data/residents';
 import { MAX_ID, MAX_RESIDENTS, MAX_ROUTE } from '../../src/sim/limits';
 import { residentSeed } from '../../src/sim/residents';
 import { SAVE_VERSION, fromSaveData, loadFromText, migrateV2ToV3, saveToText, toSaveData } from '../../src/sim/saveData';
@@ -63,6 +63,33 @@ describe('Spielstand der Bewohner (Version 3)', () => {
     const state = walking;
     expect(toSaveData(state).version).toBe(SAVE_VERSION);
     expect(SAVE_VERSION).toBe(3);
+  });
+
+  it('ein laufender Bewohner mit Uhr 0 kommt unverändert zurück (die Uhr wird nicht auf 1 gesetzt)', () => {
+    const state = residentVillage(40);
+    const walker = state.residents.find((r) => r.doing === 'walk' && r.route.length > 0);
+    expect(walker).toBeDefined();
+    if (!walker) {
+      return;
+    }
+    walker.timer = 0;
+    const loaded = load(JSON.parse(saveToText(state)));
+    expect(loaded.residents).toEqual(state.residents);
+    expect(loaded.residents.find((r) => r.id === walker.id)?.timer).toBe(0);
+  });
+
+  it('eine Uhr aus der Datei ist nie länger als der längste Abschnitt des Tagesablaufs', () => {
+    const routine = RESIDENT_RULES.routine;
+    expect(LONGEST_TIMER).toBe(Math.max(routine.workTicks, routine.restTicks, routine.visitTicks, routine.waitTicks, routine.cutOffTicks));
+    const state = residentVillage(40);
+    const data = saveWith(state, (record) => {
+      for (const resident of residentsOf(record)) {
+        resident['timer'] = 1e9;
+      }
+    });
+    for (const resident of load(data).residents) {
+      expect(resident.timer).toBeLessThanOrEqual(LONGEST_TIMER);
+    }
   });
 
   it('weiterspielen nach dem Laden ist dasselbe wie ohne Speichern – auch mitten im Gehen und auf dem Boot', () => {
