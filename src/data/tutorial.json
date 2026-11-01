@@ -1,0 +1,13 @@
+{
+  "steps": [
+    { "id": "resident" },
+    { "id": "shop" },
+    { "id": "deco", "item": "flower" },
+    { "id": "coins" },
+    { "id": "house", "item": "house-red" },
+    { "id": "path" },
+    { "id": "praise" }
+  ],
+  "searchRadius": 9,
+  "pulseMs": 1400
+}

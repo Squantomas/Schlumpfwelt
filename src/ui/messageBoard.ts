@@ -56,3 +56,40 @@ export function newsVisible(situation: {
 }): boolean {
   return !situation.hasPreview && !situation.shopOpen && situation.inspectedId === undefined && situation.menuOpen !== true;
 }
+
+/** Where the sentence of the hint bar comes from (`tutorial`: the guided start, M8 – then the bar has its own ✕ to skip it). */
+export type HintSource = 'card' | 'message' | 'tool' | 'tutorial';
+
+/**
+ * What the hint bar shows (M8: the rule of precedence, tested). From the top:
+ * 1. the open shop: nothing (it explains itself);
+ * 2. an open card: nothing beside it – only its own sentence when it does not fit (`cardFallback`);
+ * 3. a message of the board: news ("Neu im Shop", while it runs) or an explanation (errors, letting go of a carried
+ *    resident, the boat, "Bald wird es Abend …" – each stays until the next tap);
+ * 4. the hint of the tool (what to tap next, carrying a resident);
+ * 5. the sentence of the tutorial, only when nothing else has something to say.
+ * So the tutorial never hides anything – and nothing hides it for good: every message above it goes away with a tap
+ * or by itself (news), and a tool hint with the end of the tool; then its sentence is there again.
+ */
+export function pickHint(sources: {
+  readonly shopOpen: boolean;
+  readonly cardOpen: boolean;
+  readonly cardFallback?: string | undefined;
+  readonly message?: string | undefined;
+  readonly toolHint?: string | undefined;
+  readonly tutorial?: string | undefined;
+}): { readonly text: string; readonly source: HintSource } | undefined {
+  if (sources.shopOpen) {
+    return undefined;
+  }
+  if (sources.cardOpen) {
+    return sources.cardFallback === undefined ? undefined : { text: sources.cardFallback, source: 'card' };
+  }
+  if (sources.message !== undefined) {
+    return { text: sources.message, source: 'message' };
+  }
+  if (sources.toolHint !== undefined) {
+    return { text: sources.toolHint, source: 'tool' };
+  }
+  return sources.tutorial === undefined ? undefined : { text: sources.tutorial, source: 'tutorial' };
+}
