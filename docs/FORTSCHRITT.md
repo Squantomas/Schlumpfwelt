@@ -3,9 +3,9 @@
 Gedächtnis des Orchestrators. Bei Neustart: „Setze laut `docs/FORTSCHRITT.md` fort“.
 
 ## Aktueller Stand
-- **Aktueller Meilenstein:** M8 – Kinderfreundlich (Issue #9, Branch `m8-kinderfreundlich`, Builder `opus`/`high`)
-- **Status:** M7 gemergt (PR #22, 1 Korrekturrunde); Reste in #23 (`nacharbeit`)
-- **Nächster Schritt:** Branch `m8-kinderfreundlich` von `main` anlegen, Builder M8 starten
+- **Aktueller Meilenstein:** M9 – Look & Sound (Issue #10, Branch `m9-look-sound`, Builder `opus`/`high`)
+- **Status:** M8 gemergt (PR #24, 2 Korrekturrunden); Reste in #25 (`nacharbeit`)
+- **Nächster Schritt:** Branch `m9-look-sound` von `main` anlegen, Builder M9 starten; danach `docs/ABSCHLUSSBERICHT_M9.md`
 
 ## Meilensteine
 | # | Issue | Branch | PR | Status |
@@ -18,7 +18,7 @@ Gedächtnis des Orchestrators. Bei Neustart: „Setze laut `docs/FORTSCHRITT.md`
 | M5 | #6 | m5-speichern | #18 | fertig |
 | M6 | #7 | m6-schluempfe | #20 | fertig |
 | M7 | #8 | m7-wohnen | #22 | fertig |
-| M8 | #9 | m8-kinderfreundlich | – | offen |
+| M8 | #9 | m8-kinderfreundlich | #24 | fertig |
 | M9 | #10 | m9-look-sound | – | offen |
 
 ## Modelle
@@ -44,3 +44,7 @@ Gedächtnis des Orchestrators. Bei Neustart: „Setze laut `docs/FORTSCHRITT.md`
 - M7 erledigt (PR #22): Stimmung (fröhlich/normal/traurig) wird berechnet, nicht gespeichert: +1 Deko bis 2 Kacheln ums Haus, −1 weiter Weg (> 12 Schritte), −1 Hunger. Essen alle 3 min (Kuchen, sonst Beeren), Hunger wirkt nur auf die Stimmung. Arbeitstempo 120/100/80 % über die Rundenlänge, nie Stillstand. Umziehen per Ziehen (ab Zoom 0,5, Haus erst nach 250 ms Verweilen grün – gegen versehentliches Umziehen) und über „Umziehen“ auf der Karte (Haus antippen, ✓). Spielstand Version 4. Bildzeit 40 Bewohner Tablet Mittel 8–12 ms, p95 12–23 ms (Grenze 16/25).
 - M7-Einschränkungen (#23): Kamera läuft beim Ziehen am Rand nicht mit; „weiter Weg“ quer über Kacheln gezählt; Gelb beim Warten und schnelles Wischen nur im Headless belegt; p95 unter Last knapp an 25 ms; Karte/Hinweisbox verdecken auf kleinen Schirmen Teile des Dorfs.
 - Für M8: Tutorial für die ersten 5 Minuten soll Ziehen und Umziehen nicht zwingend verlangen (der Knopf „Umziehen“ ist der einfache Weg); Elternmenü mit PIN und Tageslimit, Gute-Nacht-Sequenz. Hinweisleiste wird stark genutzt – Tutorial-Sätze dürfen „Neu im Shop“ und Hinweise des Tragens nicht verschlucken.
+- M8 erledigt (PR #24): Geführter Start (7 Schritte mit Hand, nur neues Dorf, überspringbar, Fortschritt in den Eltern-Einstellungen; Fehler, Meldungen und Trage-Hinweise gehen immer vor). Eltern-Menü hinter dem Zahnrad mit 4-stelliger PIN (gesalzener Hash, „PIN vergessen?“ = Malaufgabe 12–29), Limit Aus/15/30/45/60/90, +10 Minuten, PIN ändern, Tutorial noch einmal; eigene IndexedDB `village-settings<Basispfad>`, nie in der Dorf-Datei. Tageskonto zählt nur sichtbares Spiel aus der rohen Bildzeit, je Kalendertag (nur ein späterer Tag beginnt neu). Abend → alle gehen heim → Nacht (pausiert, gespeichert, Tipps verschluckt), nur PIN oder neuer Tag beenden sie. Schicht `src/parent/` ohne Phaser; `state.bedtime` in der Simulation, nicht gespeichert (keine neue `SAVE_VERSION`).
+- M8-Einschränkungen (#25): Bildzeit im geführten Start beim Kameraziehen weit weg vom Dorf; Hand fehlt, wenn das Kind die Kamera selbst weit weg gezogen hat; kurze Lücken ohne Hand auf 568×320; Limit umgehbar durch Browserdaten löschen oder Datum vorstellen; wer zuerst „Für Eltern“ öffnet, setzt die PIN.
+- Für M9: Platzhaltergrafik ersetzen (Stil-Leitfaden, SVG, Rasterdatei bevorzugt), Animationen, Ton (prozedurales Web Audio oder CC0 mit `docs/CREDITS.md`), Ton-Schalter (sinnvoll im Eltern-Menü oder Zahnrad), Bild-Prompt-Vorlagen in `docs/assets/`. Das „z“ über schlafenden Häusern ist klein; Felsboden/Sand ähnlich hell. Bildzeit-Grenze 16/25 ms (40 Bewohner, 4× Drosselung) einhalten.
+- `npm run smoke` dauert headless voll etwa 75 min; `--m8-only` etwa 13 min je Gerät.
