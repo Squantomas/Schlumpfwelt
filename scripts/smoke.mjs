@@ -4724,7 +4724,10 @@ async function testKidFriendly({ browser, profile, check, problems, name }) {
     await sleep(2000);
     check((await readParent(page)).limit.used === usedBefore, 'Eltern-Menü offen: die Spielzeit läuft weiter');
     await closeParents();
-    v = await waitForVillage(page, (x) => x.hint.startsWith('Bald wird es Abend'), 'den sanften Satz vor dem Ende', 6000);
+    // „Neu im Shop“ geht vor (höchstens 7 s), danach steht der sanfte Satz da.
+    v = await waitForVillage(page, (x) => x.hint.startsWith('Bald wird es Abend'), 'den sanften Satz vor dem Ende', 15_000).catch(async (error) => {
+      throw new Error(`${error.message}; Hinweis „${(await readVillage(page)).hint}“, Konto ${JSON.stringify((await readParent(page)).limit)}`);
+    });
     p = await readParent(page);
     check(p.limit.warned === true && p.limit.phase === 'day', `Sanfter Satz: ${JSON.stringify(p.limit)}`);
     check(!/\d/.test(v.hint), `Sanfter Satz ohne Countdown: „${v.hint}“`);
