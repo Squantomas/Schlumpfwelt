@@ -60,9 +60,13 @@ Ein Feld über der Insel mit vier Reitern: **Häuser** (Pilzhaus-Varianten: klei
 - **Insel gestalten:** Baum und Fels (Wiese → Wald/Fels, zählen für Holzfäller und Steinbruch; nur selbst Gepflanztes lässt sich mit Erstattung wieder abreißen), Strand aufschütten (Wasser am Land, endgültig) und Wiese anlegen (Strand → Wiese, endgültig); die Insel bleibt von Wasser umgeben.
 
 ### Tageslimit
-- Eltern-Menü mit PIN: Minuten pro Tag
-- Bei Ablauf: Abenddämmerung, Schlümpfe gehen ins Bett, Spiel speichert und pausiert
+- Eltern-Menü mit PIN: Minuten pro Tag. Seit M8: „Für Eltern“ hinter dem Zahnrad, 4-stellige PIN über ein großes Ziffernfeld (beim ersten Öffnen zweimal setzen, gespeichert nur als Hash; falsche PIN = freundlicher Satz, keine Sperre; „PIN vergessen?“ = eine Malaufgabe mit zwei Zahlen von 12 bis 29, für Kinder schwer, für Eltern mit dem Handy leicht – danach neue PIN). Einstellungen: Spielzeit pro Tag (Aus/15/30/45/60/90, Standard Aus), „Heute noch 10 Minuten mehr“, „PIN ändern“, „Tutorial noch einmal“. PIN und Einstellungen stehen nie in der Dorf-Datei, sondern in einem eigenen Eintrag im Browser; ohne IndexedDB gelten sie nur für diesen Besuch (das Menü sagt es)
+- Gezählt wird nur sichtbares, laufendes Spiel (die rohe Bildzeit, gekappt; nicht im Hintergrund, nicht im Eltern-Menü), je lokalem Kalendertag; Mitternacht im laufenden Spiel beginnt einen neuen Tag; das neueste Fenster zählt. Etwa 5 Minuten vor dem Ende ein sanfter Satz ohne Countdown (Entscheidungen M8)
+- Bei Ablauf: Abenddämmerung (wärmer, dann dunkler, Tipps tun nichts mehr), Schlümpfe gehen ins Bett (ohne Zuhause legen sie sich hin, wer im Boot sitzt, kommt erst an), Spiel speichert und pausiert; „Gute Nacht! Morgen geht es weiter.“ mit Mond und Sternen, der einzige Weg hinaus ist die PIN (+10 Minuten oder ein neues Limit). Neuladen in der Nacht zeigt sofort die Nacht, der nächste Tag beginnt normal
 - Kein Ertrag im Hintergrund (kein Grund für Suchtschleifen)
+
+### Geführter Start (seit M8)
+- Nur ein neues Dorf beginnt ihn: kurze Schritte mit einer zeigenden Hand und sanftem Leuchten (Schlumpf antippen, Shop, Blume, Taler, Haus, Weg, Lob), Schritte als JSON. Nie blockierend – jeder Schritt gilt, sobald das Dorf ihn zeigt, egal auf welchem Weg; der Satz steht in der Hinweisleiste und lässt allen anderen Sätzen den Vortritt. Überspringen mit ✕ (danach nie wieder), der Fortschritt übersteht das Neuladen; ein geladenes Dorf hat keinen
 
 ## 4. Technik
 
@@ -80,6 +84,7 @@ src/
 ├── main.ts
 ├── sim/          # Welt, Gebäude, Wirtschaft, Schlümpfe, Wege, Uhr – kein Phaser
 ├── scenes/       # Phaser-Szenen: Boot, Insel, UI, Shop, Eltern
+├── parent/       # Eltern: PIN, Einstellungen, Tageskonto (ohne Phaser, ab M8)
 ├── ui/           # Buttons, Karten, Dialoge
 ├── data/         # buildings.json, goods.json, residents.json, names.json, texts.de.json
 └── save/         # IndexedDB, Export/Import
