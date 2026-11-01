@@ -195,7 +195,7 @@ export function checkPlacement(
   free = ignoreId !== undefined,
 ): PlacementProblem {
   const type = buildingType(typeId);
-  if (!type) {
+  if (!type || type.category === 'resident') {
     return { result: 'blocked' };
   }
   if (ignoreId === undefined && !isUnlocked(state, typeId)) {
@@ -338,9 +338,10 @@ export function lineTiles(from: Tile, to: Tile, horizontalFirst = true): Tile[] 
  * (only for the start village, which is part of the initial state).
  */
 export function addBuilding(state: SimState, typeId: string, x: number, y: number, pay = true): number | undefined {
-  // Paths are not buildings: they go through `addPaths`; island items change the terrain (`island.ts`).
+  // Paths are not buildings: they go through `addPaths`; island items change the terrain (`island.ts`); the invitation
+  // of a resident is not placed at all (`residents.ts`).
   const category = buildingType(typeId)?.category;
-  if (category === 'path' || category === 'island') {
+  if (category === 'path' || category === 'island' || category === 'resident') {
     return undefined;
   }
   if (canPlace(state, typeId, x, y, undefined, !pay) !== 'ok') {

@@ -7,6 +7,7 @@ import {
   isConnected,
   isPath,
   wouldBeConnected,
+  type PlacedBuilding,
   type PlacementProblem,
   type PlacementView,
   type Tile,
@@ -18,6 +19,7 @@ import type { SimState } from '../sim/state';
 import { ITEM_IDS } from '../data/goods';
 import { canAfford, missingFor, refundFor } from '../sim/economy';
 import { findRoute, type RouteFailure } from '../sim/route';
+import { checkInvite, type InviteResult } from '../sim/residents';
 import { isUnlocked } from '../sim/unlocks';
 import { terrainAt, type Terrain } from '../sim/world';
 import type { Point } from './cameraMath';
@@ -36,8 +38,8 @@ import { TILE_SIZE } from './style';
  * (through `send`); the scene draws whatever `preview()` says.
  */
 
-/** What the tools read: the placement rules' view plus the working state (for refunds) and the tick (for the cards). */
-export type BuildToolState = PlacementView & DeepReadonly<Pick<SimState, 'production' | 'tick' | 'earnedCoins'>>;
+/** What the tools read: the placement rules' view plus the working state (for refunds), the tick (for the cards) and the residents (M6). */
+export type BuildToolState = PlacementView & DeepReadonly<Pick<SimState, 'production' | 'tick' | 'earnedCoins' | 'residents' | 'boats' | 'nextResidentId'>>;
 
 export type ToolId = 'view' | 'path' | 'shop' | 'place' | 'move' | 'demolish';
 
@@ -70,7 +72,15 @@ export type Preview =
       readonly target?: { readonly x: number; readonly y: number; readonly connected: boolean } & PlacementProblem;
     }
   /** A building or path tile marked for demolition; `tiles` is everything that disappears, `refund` what the player gets back. */
-  | { readonly kind: 'demolish'; readonly tiles: readonly Tile[]; readonly refund: Readonly<Record<string, number>> };
+  | { readonly kind: 'demolish'; readonly tiles: readonly Tile[]; readonly refund: Readonly<Record<string, number>> }
+  /** Inviting a resident (M6): no place to tap, ✓ sends the boat. `home` is the house they would move into, `missing` what coins are missing. */
+  | {
+      readonly kind: 'invite';
+      readonly typeId: string;
+      readonly result: InviteResult;
+      readonly home?: number;
+      readonly missing?: Readonly<Record<string, number>>;
+    };
 
 type Pending =
   | { readonly kind: 'none' }
@@ -78,7 +88,8 @@ type Pending =
   | { readonly kind: 'place'; readonly tile: Tile; readonly typeId: string }
   | { readonly kind: 'path'; readonly anchor: Tile; readonly target?: Tile }
   | { readonly kind: 'move'; readonly id: number; readonly target?: Tile }
-  | { readonly kind: 'demolish'; readonly x: number; readonly y: number };
+  | { readonly kind: 'demolish'; readonly x: number; readonly y: number }
+  | { readonly kind: 'invite'; readonly typeId: string };
 
 /**
  * The top left tile of a thing of the given type if the child tapped `tile`:
@@ -192,6 +203,8 @@ export class BuildTool {
   private changes = 0;
   private cache: { readonly key: string; readonly preview: Preview } | undefined;
   private inspected: number | undefined;
+  /** The resident whose card is open (M6; only while looking; never together with a building's card). */
+  private inspectedResident: number | undefined;
   /** Has the child chosen a card since the tool was switched on (or the last ✓)? Only then a card it can not pay says what is missing. */
   private variantChosen = false;
   private lastStoreKey = 0;
@@ -268,6 +281,7 @@ export class BuildTool {
     this.chosen = undefined;
     this.pending = { kind: 'none' };
     this.inspected = undefined;
+    this.inspectedResident = undefined;
     this.variantChosen = false;
     this.changes += 1;
   }
@@ -313,6 +327,7 @@ export class BuildTool {
       this.pending = { kind: 'none' };
     }
     this.inspected = undefined;
+    this.inspectedResident = undefined;
     this.fresh = new Set(this.getState().unlocked.filter((id) => !this.seenInShop.has(id)));
     this.markShopSeen();
     this.changes += 1;
@@ -374,12 +389,22 @@ export class BuildTool {
     if (!isUnlocked(this.getState(), typeId)) {
       return 'hint.locked';
     }
+    const invite = buildingType(typeId)?.category === 'resident';
+    if (invite) {
+      // Inviting needs room in a house (the card says so and can not be chosen; this is the same rule).
+      const room = checkInvite(this.getState(), typeId).result;
+      if (room === 'noHouse' || room === 'full') {
+        return room === 'noHouse' ? 'hint.noHouse' : 'hint.residentsFull';
+      }
+    }
     // A place that was tapped before stays; the new item is shown on it.
     const keep = this.pending.kind === 'place' ? this.pending.tile : undefined;
     this.chosen = typeId;
     this.current = 'place';
-    this.pending = keep ? { kind: 'place', tile: keep, typeId } : { kind: 'none' };
+    // An invitation needs no place: the preview (the house they will live in) is there at once.
+    this.pending = invite ? { kind: 'invite', typeId } : keep ? { kind: 'place', tile: keep, typeId } : { kind: 'none' };
     this.inspected = undefined;
+    this.inspectedResident = undefined;
     this.tab = shopCategoryOf(typeId) ?? this.tab;
     this.fresh = new Set();
     this.variantChosen = true;
@@ -397,14 +422,36 @@ export class BuildTool {
     const building = this.getState().buildings.find((b) => b.id === buildingId);
     if (this.current === 'view' && building && buildingType(building.type)?.category === 'production') {
       this.inspected = buildingId;
+      this.inspectedResident = undefined;
       this.changes += 1;
     }
   }
 
-  /** Closes the info card. */
+  /** The resident whose card is open (only while looking), if any. */
+  get inspectedResidentId(): number | undefined {
+    return this.current === 'view' ? this.inspectedResident : undefined;
+  }
+
+  /** Opens the card of a resident (a tap on them while looking); a building's card closes. */
+  inspectResident(residentId: number): void {
+    if (this.current !== 'view' || !this.getState().residents.some((r) => r.id === residentId) || this.inspectedResident === residentId) {
+      return;
+    }
+    this.inspectedResident = residentId;
+    this.inspected = undefined;
+    this.changes += 1;
+  }
+
+  /** Is a card open (a production building's or a resident's)? */
+  get cardOpen(): boolean {
+    return this.inspectedId !== undefined || this.inspectedResidentId !== undefined;
+  }
+
+  /** Closes the card (of a building or a resident). */
   closeInfo(): void {
-    if (this.inspected !== undefined) {
+    if (this.inspected !== undefined || this.inspectedResident !== undefined) {
       this.inspected = undefined;
+      this.inspectedResident = undefined;
       this.changes += 1;
     }
   }
@@ -427,6 +474,9 @@ export class BuildTool {
     const preview = this.preview();
     if (preview.kind === 'demolish' && totalUnits(preview.refund) > 0) {
       return 'hint.refund';
+    }
+    if (preview.kind === 'invite') {
+      return 'hint.invite';
     }
     // A place that works, but where the building will have no path yet: say what to do next.
     const noPath = this.noPathHint(preview);
@@ -477,6 +527,8 @@ export class BuildTool {
         const item = this.item;
         return item && this.variantChosen && !this.itemAffordable ? missingParams(missingFor(this.getState(), item)) : undefined;
       }
+      case 'invite':
+        return preview.result === 'cost' ? missingParams(preview.missing ?? {}) : undefined;
       case 'path':
         return undefined;
     }
@@ -498,10 +550,39 @@ export class BuildTool {
         const blocked = preview.tiles.find((tile) => tile.problem !== undefined);
         return blocked?.problem ? problemHint(blocked.problem, true) : undefined;
       }
+      case 'invite':
+        return inviteProblem(preview);
       case 'none':
       case 'demolish':
         return undefined;
     }
+  }
+
+  /**
+   * What is under the finger: first the tile (a building's footprint, then a path), and only if the tile is empty
+   * the picture of a house reaching over it (its roof).
+   */
+  private under(tile: Tile, world?: Point): { readonly footprint: DeepReadonly<PlacedBuilding> | undefined; readonly building: DeepReadonly<PlacedBuilding> | undefined } {
+    const state = this.getState();
+    const footprint = buildingAt(state, tile.x, tile.y);
+    const onPath = isPath(state, tile.x, tile.y);
+    // A tree or rock the player planted counts like a path: the tile wins over the roof of a house behind it.
+    const onPlanted = plantedTypeAt(state, tile.x, tile.y) !== undefined;
+    const roof = world && !footprint && !onPath && !onPlanted ? buildingAtPoint(state, world.x, world.y, TILE_SIZE) : undefined;
+    return { footprint, building: footprint ?? roof };
+  }
+
+  /**
+   * Would a tap here, while looking, do something with a building – open the card of a production building, or say
+   * that a house needs a path? There a resident nearby only keeps the taps close to the body (see `residentHit.ts`).
+   */
+  buildingAnswersTap(tile: Tile, world?: Point): boolean {
+    const { building } = this.under(tile, world);
+    const type = building ? buildingType(building.type) : undefined;
+    if (!building || !type) {
+      return false;
+    }
+    return type.category === 'production' || (type.needsPath && !isConnected(this.getState(), building.id));
   }
 
   /**
@@ -512,16 +593,17 @@ export class BuildTool {
    */
   tap(tile: Tile, world?: Point): TextKey | undefined {
     const state = this.getState();
-    // What is under the finger: first the tile (a building's footprint, then a path), and only if the tile is
-    // empty the picture of a house reaching over it (its roof).
-    const footprint = buildingAt(state, tile.x, tile.y);
-    const onPath = isPath(state, tile.x, tile.y);
-    // A tree or rock the player planted counts like a path: the tile wins over the roof of a house behind it.
-    const onPlanted = plantedTypeAt(state, tile.x, tile.y) !== undefined;
-    const roof = world && !footprint && !onPath && !onPlanted ? buildingAtPoint(state, world.x, world.y, TILE_SIZE) : undefined;
-    const building = footprint ?? roof;
+    const { footprint, building } = this.under(tile, world);
     switch (this.current) {
       case 'place':
+        if (this.pending.kind === 'invite' || buildingType(this.chosen ?? '')?.category === 'resident') {
+          // An invitation has no place: a tap on the island only brings its preview back.
+          if (this.pending.kind !== 'invite') {
+            this.pending = { kind: 'invite', typeId: this.chosen ?? '' };
+            this.changes += 1;
+          }
+          return undefined;
+        }
         this.pending = { kind: 'place', tile, typeId: this.chosen ?? '' };
         this.changes += 1;
         return undefined;
@@ -532,13 +614,11 @@ export class BuildTool {
         if (building && type?.category === 'production') {
           // A production building opens its info card (it says by itself if a path is missing).
           this.inspected = building.id;
+          this.inspectedResident = undefined;
           this.changes += 1;
           return undefined;
         }
-        if (this.inspected !== undefined) {
-          this.inspected = undefined;
-          this.changes += 1;
-        }
+        this.closeInfo();
         return building && type?.needsPath && !isConnected(state, building.id) ? 'hint.needsPath' : undefined;
       }
       case 'path':
@@ -684,6 +764,16 @@ export class BuildTool {
           ? { kind: 'demolish', tiles: [{ x: pending.x, y: pending.y }], refund: plantedRefund(state, pending.x, pending.y) }
           : { kind: 'none' };
       }
+      case 'invite': {
+        const check = checkInvite(state, pending.typeId);
+        return {
+          kind: 'invite',
+          typeId: pending.typeId,
+          result: check.result,
+          ...(check.home !== undefined ? { home: check.home } : {}),
+          ...(check.missing ? { missing: check.missing } : {}),
+        };
+      }
     }
   }
 
@@ -701,6 +791,8 @@ export class BuildTool {
         return preview.target !== undefined && preview.target.result === 'ok' && (preview.target.x !== preview.from.x || preview.target.y !== preview.from.y);
       case 'demolish':
         return true;
+      case 'invite':
+        return preview.result === 'ok';
     }
   }
 
@@ -744,14 +836,23 @@ export class BuildTool {
         }
         break;
       }
+      case 'invite':
+        // The boat comes: back to looking, so the child sees it arrive (and does not invite twice by accident).
+        this.send({ type: 'inviteResident', typeId: preview.typeId });
+        this.exitTool();
+        return undefined;
     }
     this.pending = { kind: 'none' };
     this.changes += 1;
     return undefined;
   }
 
-  /** ✕: drops the preview; the tool stays on. */
+  /** ✕: drops the preview; the tool stays on. An invitation has nothing else to show: ✕ ends it. */
   cancel(): void {
+    if (this.pending.kind === 'invite') {
+      this.exitTool();
+      return;
+    }
     this.pending = { kind: 'none' };
     this.changes += 1;
   }
@@ -768,6 +869,30 @@ export class BuildTool {
     if (inspected !== undefined && !this.getState().buildings.some((b) => b.id === inspected)) {
       this.inspected = undefined;
     }
+    this.dropMissingResident();
     this.changes += 1;
+  }
+
+  /** A resident whose card is open is always there (residents are never removed in the game, but a loaded village may differ). */
+  dropMissingResident(): void {
+    const resident = this.inspectedResident;
+    if (resident !== undefined && !this.getState().residents.some((r) => r.id === resident)) {
+      this.inspectedResident = undefined;
+      this.changes += 1;
+    }
+  }
+}
+
+/** Why ✓ can not invite: every house is full, the village is full, or coins are missing. */
+function inviteProblem(preview: Extract<Preview, { kind: 'invite' }>): TextKey | undefined {
+  switch (preview.result) {
+    case 'ok':
+      return undefined;
+    case 'noHouse':
+      return 'hint.noHouse';
+    case 'full':
+      return 'hint.residentsFull';
+    case 'cost':
+      return totalUnits(preview.missing ?? {}) === 1 ? 'hint.missingOne' : 'hint.missing';
   }
 }

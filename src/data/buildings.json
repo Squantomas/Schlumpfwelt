@@ -11,12 +11,24 @@
       "look": { "shape": "path", "rise": 0 }
     },
     {
+      "id": "invite",
+      "category": "resident",
+      "nameKey": "build.invite",
+      "footprint": { "w": 1, "h": 1 },
+      "terrains": [],
+      "needsPath": false,
+      "cost": { "coins": 30 },
+      "shop": { "category": "houses" },
+      "look": { "shape": "invite", "rise": 0 }
+    },
+    {
       "id": "house-red",
       "category": "house",
       "nameKey": "build.houseRed",
       "footprint": { "w": 2, "h": 2 },
       "terrains": ["grass"],
       "needsPath": true,
+      "capacity": 2,
       "cost": { "coins": 40, "wood": 8 },
       "shop": { "category": "houses" },
       "look": { "shape": "mushroomHouse", "palette": "red", "rise": 84 }
@@ -28,6 +40,7 @@
       "footprint": { "w": 2, "h": 2 },
       "terrains": ["grass"],
       "needsPath": true,
+      "capacity": 2,
       "cost": { "coins": 40, "wood": 8 },
       "shop": { "category": "houses" },
       "look": { "shape": "mushroomHouse", "palette": "blue", "rise": 84 }
@@ -39,6 +52,7 @@
       "footprint": { "w": 2, "h": 2 },
       "terrains": ["grass"],
       "needsPath": true,
+      "capacity": 2,
       "cost": { "coins": 40, "wood": 8 },
       "shop": { "category": "houses" },
       "look": { "shape": "mushroomHouse", "palette": "yellow", "rise": 84 }
@@ -50,6 +64,7 @@
       "footprint": { "w": 3, "h": 3 },
       "terrains": ["grass"],
       "needsPath": true,
+      "capacity": 4,
       "cost": { "coins": 90, "wood": 16 },
       "shop": { "category": "houses" },
       "unlock": { "kind": "houses", "count": 2 },
@@ -62,6 +77,7 @@
       "footprint": { "w": 3, "h": 2 },
       "terrains": ["grass"],
       "needsPath": true,
+      "capacity": 3,
       "cost": { "coins": 70, "wood": 10 },
       "shop": { "category": "houses" },
       "unlock": { "kind": "earned", "coins": 200 },
@@ -169,6 +185,7 @@
       "needsPath": true,
       "cost": { "coins": 15 },
       "shop": { "category": "production" },
+      "jobKey": "job.lumberjack",
       "production": { "intervalTicks": 50, "outputs": { "wood": 1 }, "needsNearby": { "terrain": "forest", "radius": 4 } },
       "look": { "shape": "lumberjackHut", "rise": 64 }
     },
@@ -181,6 +198,7 @@
       "needsPath": true,
       "cost": { "coins": 10, "wood": 2 },
       "shop": { "category": "production" },
+      "jobKey": "job.gardener",
       "production": { "intervalTicks": 35, "outputs": { "berries": 1 } },
       "look": { "shape": "berryGarden", "rise": 38 }
     },
@@ -193,6 +211,7 @@
       "needsPath": true,
       "cost": { "coins": 20, "wood": 6 },
       "shop": { "category": "production" },
+      "jobKey": "job.mason",
       "unlock": { "kind": "count", "building": "lumberjack", "count": 1 },
       "production": { "intervalTicks": 80, "outputs": { "stone": 1 }, "needsNearby": { "terrain": "rock", "radius": 5 } },
       "look": { "shape": "quarry", "rise": 44 }
@@ -206,6 +225,7 @@
       "needsPath": true,
       "cost": { "coins": 30, "wood": 8, "stone": 2 },
       "shop": { "category": "production" },
+      "jobKey": "job.carpenter",
       "unlock": { "kind": "count", "building": "lumberjack", "count": 1 },
       "production": { "intervalTicks": 200, "inputs": { "wood": 2 }, "outputs": { "furniture": 1 } },
       "look": { "shape": "carpenterShop", "rise": 70 }
@@ -219,6 +239,7 @@
       "needsPath": true,
       "cost": { "coins": 25, "wood": 6 },
       "shop": { "category": "production" },
+      "jobKey": "job.baker",
       "unlock": { "kind": "count", "building": "berry-garden", "count": 1 },
       "production": { "intervalTicks": 120, "inputs": { "berries": 2 }, "outputs": { "cake": 1 } },
       "look": { "shape": "bakery", "rise": 78 }
@@ -232,6 +253,7 @@
       "needsPath": true,
       "cost": { "coins": 20, "wood": 8 },
       "shop": { "category": "production" },
+      "jobKey": "job.trader",
       "production": { "intervalTicks": 30, "sell": { "perCycle": 1 } },
       "look": { "shape": "market", "rise": 84 }
     },

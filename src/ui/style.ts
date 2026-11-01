@@ -138,7 +138,38 @@ export const COLORS = {
   textFill: 0xffffff,
   textOutline: 0x2a6f97,
   textShadow: 0x1b4a66,
+  // Residents (M6): a little gnome with warm skin, a tunic and a pointed hat (the hat colours are HAT_COLORS).
+  skin: 0xffd2a8,
+  skinShade: 0xf0b48a,
+  cheek: 0xff9e9e,
+  eye: 0x3b2a20,
+  tunic: 0x8fbf5a,
+  tunicShade: 0x6f9c40,
+  trousers: 0x9a6a3e,
+  shoe: 0x5a3a22,
+  pompom: 0xfff7e0,
+  residentShadow: 0x2f4a26,
+  residentRing: 0xffe066,
+  boatHull: 0xb07a46,
+  boatHullShade: 0x86582e,
+  boatRim: 0xe0b07a,
+  sail: 0xfffbf0,
+  sailShade: 0xe8dcc0,
+  mast: 0x7a5232,
+  wake: 0xffffff,
 } as const;
+
+/** The colours of the residents' pointed hats, by the ids of `residents.json` (`hats`). */
+export const HAT_COLORS: Readonly<Record<string, { readonly hat: number; readonly shade: number }>> = {
+  red: { hat: 0xe2483f, shade: 0xb8322b },
+  blue: { hat: 0x3f7ee0, shade: 0x2c5cad },
+  yellow: { hat: 0xf5c638, shade: 0xcf9d16 },
+  green: { hat: 0x45a85a, shade: 0x2f7d40 },
+  orange: { hat: 0xf28a2e, shade: 0xc9661a },
+  purple: { hat: 0x9a5cd0, shade: 0x7340a3 },
+  pink: { hat: 0xf07ab4, shade: 0xc95690 },
+  teal: { hat: 0x2fb5ad, shade: 0x1f8780 },
+};
 
 /** Local system fonts only – no web fonts from external servers. Rounded fonts first. */
 export const FONT_FAMILY =

@@ -10,7 +10,7 @@ export function richInventory(): Record<string, number> {
   return { coins: 5000, wood: 500, stone: 500, berries: 500, furniture: 0, cake: 0 };
 }
 
-/** A 16×16 map of pure grass without any buildings or paths, with a rich store and everything unlocked. */
+/** A 16×16 map of pure grass without any buildings, paths or residents, with a rich store and everything unlocked. */
 export function grassState(size = 16): SimState {
   const base = createInitialState(1);
   const tiles = new Array<Terrain>(size * size).fill('grass');
@@ -25,6 +25,9 @@ export function grassState(size = 16): SimState {
     earnedCoins: 0,
     unlocked: [...LOCKED_TYPE_IDS],
     planted: [],
+    residents: [],
+    nextResidentId: 1,
+    boats: [],
     revision: 0,
   };
 }

@@ -20,6 +20,7 @@ import {
 } from './buildingTextures';
 import { goodTextureKey, registerGoodTextures, signTextureKey } from './goodTextures';
 import { TEXTURE_SCALE } from './objectTextures';
+import { addGraphics } from '../../ui/FastGraphics';
 
 const PATH_DEPTH = 2;
 const OVERLAY_DEPTH = 800_000;
@@ -30,6 +31,15 @@ const POPUP_DEPTH = 960_000;
 /** A "+1" over a building is at least this big on screen (CSS px). */
 const POPUP_MIN_CSS_PX = 30;
 const POPUP_MS = 1300;
+/** At most this many finished "+3" pictures wait to be shown again (see {@link VillageView.popAmounts}). */
+const POPUP_POOL = 24;
+
+/** A "+3" picture: the good and its amount, floating up. */
+interface Popup {
+  readonly group: Phaser.GameObjects.Container;
+  readonly picture: Phaser.GameObjects.Image;
+  readonly label: Phaser.GameObjects.Text;
+}
 const INSPECT_DEPTH = 700_000;
 /** The sign above a house is at least this big on screen (CSS px), so it is seen from far away. */
 const MARKER_MIN_CSS_PX = 46;
@@ -79,6 +89,11 @@ export class VillageView {
   private readonly delivered = new Map<number, number>();
   /** Buildings that are rocking right now (so they can be set straight when they stop). */
   private readonly rocking = new Set<number>();
+  /**
+   * Finished "+3" pictures, hidden, ready to float up again. A label that keeps its text is not drawn again: in a
+   * big village something is delivered several times a second, and a new text means a new texture every time.
+   */
+  private readonly popups: Popup[] = [];
   private signTick = -1;
   private inspectId: number | undefined;
   /** The "no path" sign on the preview of a building that would have no path yet. */
@@ -98,10 +113,10 @@ export class VillageView {
   ) {
     registerBuildingTextures(scene);
     registerGoodTextures(scene);
-    this.inspectOverlay = scene.add.graphics().setDepth(INSPECT_DEPTH);
-    this.overlay = scene.add.graphics().setDepth(OVERLAY_DEPTH);
+    this.inspectOverlay = addGraphics(scene).setDepth(INSPECT_DEPTH);
+    this.overlay = addGraphics(scene).setDepth(OVERLAY_DEPTH);
     this.ghost = scene.add.image(0, 0, PUFF_KEY).setDepth(GHOST_DEPTH).setVisible(false);
-    this.badges = scene.add.graphics().setDepth(GHOST_DEPTH + 1);
+    this.badges = addGraphics(scene).setDepth(GHOST_DEPTH + 1);
     this.previewSign = scene.add.image(0, 0, signTextureKey('path')).setOrigin(0.5, 1).setDepth(MARKER_DEPTH).setVisible(false);
     layer.add([this.inspectOverlay, this.overlay, this.ghost, this.badges, this.previewSign]);
   }
@@ -377,10 +392,10 @@ export class VillageView {
     const gap = 62 * fit;
     shown.forEach(([id, amount], index) => {
       const offset = (index - (shown.length - 1) / 2) * gap;
-      const picture = this.scene.add.image(-18 * fit, 0, goodTextureKey(id)).setDisplaySize(36 * fit, 36 * fit);
-      const label = createLabel(this.scene, t('effect.plus', { count: amount }), 26).setPosition(16 * fit, 0).setScale(fit);
-      const group = this.scene.add.container(x + offset, y, [picture, label]).setDepth(POPUP_DEPTH);
-      this.layer.add(group);
+      const { group, picture, label } = this.popup(t('effect.plus', { count: amount }));
+      picture.setTexture(goodTextureKey(id)).setPosition(-18 * fit, 0).setDisplaySize(36 * fit, 36 * fit);
+      label.setPosition(16 * fit, 0).setScale(fit);
+      group.setPosition(x + offset, y).setVisible(true);
       group.setAlpha(0);
       this.scene.tweens.add({ targets: group, alpha: 1, duration: 140 });
       this.scene.tweens.add({
@@ -394,9 +409,33 @@ export class VillageView {
         alpha: 0,
         delay: POPUP_MS * 0.55,
         duration: POPUP_MS * 0.45,
-        onComplete: () => group.destroy(),
+        onComplete: () => {
+          if (this.popups.length < POPUP_POOL) {
+            group.setVisible(false);
+            this.popups.push({ group, picture, label });
+          } else {
+            group.destroy();
+          }
+        },
       });
     });
+  }
+
+  /** A hidden "+3" picture showing `text`: a waiting one with the same text if there is one, else one drawn anew. */
+  private popup(text: string): Popup {
+    const same = this.popups.findIndex((popup) => popup.label.text === text);
+    const reused = same >= 0 ? this.popups.splice(same, 1)[0] : this.popups.pop();
+    if (reused) {
+      if (reused.label.text !== text) {
+        reused.label.setText(text);
+      }
+      return reused;
+    }
+    const picture = this.scene.add.image(0, 0, '__DEFAULT');
+    const label = createLabel(this.scene, text, 26);
+    const group = this.scene.add.container(0, 0, [picture, label]).setDepth(POPUP_DEPTH);
+    this.layer.add(group);
+    return { group, picture, label };
   }
 
   /** Shows (or hides, with `undefined`) the area around the production building whose info card is open. */
@@ -491,6 +530,19 @@ export class VillageView {
         if (building && sprite) {
           sprite.image.setTint(COLORS.demolishTint);
           this.tintedId = building.id;
+        }
+        break;
+      }
+      case 'invite': {
+        // The house the new resident will move into (with a ✓ when ✓ can send the boat).
+        const home = preview.home === undefined ? undefined : this.simulation.state.buildings.find((b) => b.id === preview.home);
+        const type = home ? buildingType(home.type) : undefined;
+        if (home && type) {
+          const fits = preview.result === 'ok';
+          fillTiles(g, home.x, home.y, type.footprint.w, type.footprint.h, fits ? COLORS.ghostOk : COLORS.selected, 0.45);
+          if (fits) {
+            drawCornerBadge(this.badges, home.x, home.y, type.footprint.w, type.footprint.h, true);
+          }
         }
         break;
       }

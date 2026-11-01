@@ -6,18 +6,26 @@ import type { DeepReadonly } from '../sim/readonly';
 import type { SimState } from '../sim/state';
 import { itemName } from './costText';
 import { lockOf, type UnlockProgress } from '../sim/unlocks';
+import { checkInvite, housing } from '../sim/residents';
 
 /**
  * What the shop shows, without Phaser: one card per item of a tab with its
- * state – can be bought, too expensive (greyed but choosable, as in M3), or
- * locked (a lock and what the village still has to do). Pure and tested; the
- * shop (Phaser) only draws it.
+ * state – can be bought, too expensive (greyed but choosable, as in M3),
+ * locked (a lock and what the village still has to do) or, for inviting a
+ * resident (M6), no room (every house is full: greyed, a house and "2/2" on
+ * the card, a tap says why and chooses nothing). Pure and tested; the shop
+ * (Phaser) only draws it.
  */
 
 /** What the shop reads. */
-export type ShopView = DeepReadonly<Pick<SimState, 'buildings' | 'earnedCoins' | 'unlocked' | 'inventory'>>;
+export type ShopView = DeepReadonly<
+  Pick<SimState, 'buildings' | 'earnedCoins' | 'unlocked' | 'inventory' | 'world' | 'paths' | 'production' | 'revision' | 'residents' | 'boats'>
+>;
 
-export type CardState = 'ok' | 'dear' | 'locked';
+export type CardState = 'ok' | 'dear' | 'locked' | 'noRoom';
+
+/** Why a resident can not be invited: every house is full, or the village has as many residents as it may have. */
+export type NoRoomReason = 'noHouse' | 'full';
 
 export interface ShopCard {
   readonly typeId: string;
@@ -28,6 +36,11 @@ export interface ShopCard {
   readonly missing: Readonly<Record<string, number>>;
   /** For a locked card: the condition and how far the village is. */
   readonly lock?: { readonly unlock: UnlockDef; readonly progress: UnlockProgress };
+  /**
+   * For inviting a resident: how many live in a house (never more than the room – a homeless resident does not
+   * make "3/2") and how many the houses have room for, and – on a `noRoom` card – why.
+   */
+  readonly room?: { readonly residents: number; readonly capacity: number; readonly reason?: NoRoomReason };
 }
 
 /** The card of one item. */
@@ -38,7 +51,37 @@ export function shopCard(state: ShopView, typeId: string): ShopCard {
   if (lock) {
     return { typeId, state: 'locked', cost, missing, lock };
   }
+  if (buildingType(typeId)?.category === 'resident') {
+    const { housed, capacity } = housing(state);
+    const check = checkInvite(state, typeId);
+    if (check.result === 'noHouse' || check.result === 'full') {
+      return { typeId, state: 'noRoom', cost, missing, room: { residents: housed, capacity, reason: check.result } };
+    }
+    return { typeId, state: Object.keys(missing).length > 0 ? 'dear' : 'ok', cost, missing, room: { residents: housed, capacity } };
+  }
   return { typeId, state: Object.keys(missing).length > 0 ? 'dear' : 'ok', cost, missing };
+}
+
+/** The sentence of a card without room: "Alle Häuser sind voll. …" (empty for other cards). */
+export function noRoomSentence(card: ShopCard): string {
+  switch (card.room?.reason) {
+    case 'noHouse':
+      return t('shop.noHouse');
+    case 'full':
+      return t('shop.residentsFull');
+    case undefined:
+      return '';
+  }
+}
+
+/** The numbers on a card without room: residents in a house / room in all houses ("2/2", never more than full). */
+export function roomText(room: NonNullable<ShopCard['room']>): string {
+  return t('shop.progress', { current: Math.min(room.residents, room.capacity), needed: room.capacity });
+}
+
+/** The price on a card without room, for the row "coin 30 · house 2/2" (only coins: the invitation costs nothing else). */
+export function roomPrice(card: ShopCard): string {
+  return String(card.cost['coins'] ?? 0);
 }
 
 /** The cards of a shop tab, in the order of the file. */

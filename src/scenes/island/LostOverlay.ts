@@ -6,6 +6,7 @@ import { RoundButton } from '../../ui/RoundButton';
 import { COLORS } from '../../ui/style';
 import type { ViewSize } from '../../ui/viewport';
 import type { MenuSpot } from './VillageMenu';
+import { addGraphics } from '../../ui/FastGraphics';
 
 /** Smallest size of the sentence (CSS px): longer sentences shrink down to it. */
 const MIN_TEXT_FONT = 13;
@@ -30,8 +31,8 @@ export class LostOverlay {
 
   constructor(scene: Phaser.Scene, uiLayer: Phaser.GameObjects.Layer, onPlay: () => void) {
     this.veil = scene.add.zone(0, 0, 1, 1).setOrigin(0, 0).setInteractive();
-    this.dim = scene.add.graphics();
-    this.panel = scene.add.graphics();
+    this.dim = addGraphics(scene);
+    this.panel = addGraphics(scene);
     this.sentence = createLabel(scene, t('save.lostWindow'), 19);
     this.caption = createLabel(scene, t('lost.play'), 22);
     this.play = new RoundButton(scene, 0, 0, { radius: 48, icon: 'play', onTap: () => onPlay() });

@@ -84,8 +84,9 @@ describe('Bauen kostet Material und Geld', () => {
 
 describe('Abreißen erstattet die vollen Baukosten', () => {
   it('gibt für jeden Bautyp genau die Kosten zurück: Bauen und Abreißen ändert das Lager nicht', () => {
-    // Inselartikel (Baum, Fels …) bauen keine Gebäude: ihr Abreißen und die Ausnahmen stehen in island.test.ts.
-    for (const type of BUILDING_TYPES.filter((t) => t.category !== 'path' && t.category !== 'island')) {
+    // Inselartikel (Baum, Fels …) bauen keine Gebäude: ihr Abreißen und die Ausnahmen stehen in island.test.ts;
+    // die Einladung eines Bewohners steht in residents.test.ts.
+    for (const type of BUILDING_TYPES.filter((t) => t.category !== 'path' && t.category !== 'island' && t.category !== 'resident')) {
       const state = grassState(24);
       fillTerrain(state, 14, 2, 3, 4, 'forest');
       fillTerrain(state, 14, 8, 3, 4, 'rock');

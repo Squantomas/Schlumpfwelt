@@ -36,10 +36,11 @@ const WISHES = [
   'rock',
   'beach',
   'meadow',
+  'invite',
 ];
 
-/** Alles, was ein Gebäude auf die Karte stellt (Inselartikel verändern nur das Gelände). */
-const BUILDING_WISHES = WISHES.filter((id) => buildingType(id)?.category !== 'island');
+/** Alles, was ein Gebäude auf die Karte stellt (Inselartikel verändern nur das Gelände, die Einladung bringt einen Bewohner). */
+const BUILDING_WISHES = WISHES.filter((id) => buildingType(id)?.category !== 'island' && buildingType(id)?.category !== 'resident');
 
 /** Runs the bot for `ticks` ticks: every two seconds it connects buildings and orders the next thing it can pay. */
 function play(sim: Simulation, bot: Bot, wanted: readonly string[], ticks: number): void {

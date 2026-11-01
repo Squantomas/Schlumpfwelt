@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 import { createLabel, setLabelSize } from './label';
 import { COLORS } from './style';
+import { addGraphics } from './FastGraphics';
 
 export interface SquareButtonOptions {
   /** Short word under the picture; a line break (`\n`) is allowed. */
@@ -50,7 +51,7 @@ export class SquareButton extends Phaser.GameObjects.Container {
     this.fitContent = options.fitContent;
     this.footer = options.footer;
     this.minCaptionFont = options.minCaptionFont;
-    this.face = scene.add.graphics();
+    this.face = addGraphics(scene);
     this.caption = createLabel(scene, options.label, 14);
     this.add([this.face, options.content, this.caption]);
     if (this.footer) {

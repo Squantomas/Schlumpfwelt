@@ -7,6 +7,7 @@ import type { CardStatus, InfoItem, ProductionInfo } from '../../ui/productionIn
 import { RoundButton } from '../../ui/RoundButton';
 import { COLORS } from '../../ui/style';
 import { goodTextureKey, nearbyTextureKey } from './goodTextures';
+import { addGraphics } from '../../ui/FastGraphics';
 
 /** At most this many pictures per side ("needs" / "makes"); the market needs two, the most. */
 const MAX_ITEMS = 4;
@@ -44,9 +45,9 @@ export class InfoCard {
     uiLayer: Phaser.GameObjects.Layer,
     onClose: (eventTime: number) => void,
   ) {
-    this.panel = scene.add.graphics();
-    this.arrow = scene.add.graphics();
-    this.barGraphics = scene.add.graphics();
+    this.panel = addGraphics(scene);
+    this.arrow = addGraphics(scene);
+    this.barGraphics = addGraphics(scene);
     this.name = createLabel(scene, '', 28);
     this.status = createLabel(scene, '', 20);
     this.needsCaption = createLabel(scene, t('info.needs'), 16);

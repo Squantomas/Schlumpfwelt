@@ -3,6 +3,7 @@ import { placementCommand } from '../../src/sim/commands';
 import { canPlacePath, checkPlacement, footprintTiles, isPath, unconnectedBuildings, type Tile } from '../../src/sim/buildings';
 import { canAfford } from '../../src/sim/economy';
 import type { Simulation } from '../../src/sim/simulation';
+import { checkInvite } from '../../src/sim/residents';
 import { isUnlocked } from '../../src/sim/unlocks';
 
 /** How far (in tiles) the bot is willing to lay a path to reach the network. */
@@ -18,8 +19,8 @@ const key = (tile: Tile): string => `${String(tile.x)},${String(tile.y)}`;
  * until the village has unlocked them (the bot does not do anything special
  * for that: building and selling is all it takes). Island items (a tree, a
  * rock, a beach, a meadow) go on the free spot farthest from the middle, so
- * they never get in the way of the village. It only uses commands, like the
- * real UI.
+ * they never get in the way of the village. An invitation (a new resident)
+ * is sent as soon as a house has room. It only uses commands, like the real UI.
  */
 export class Bot {
   /** The tick at which each type was ordered. */
@@ -46,6 +47,15 @@ export class Bot {
       }
       if (!canAfford(state, typeId)) {
         return undefined;
+      }
+      if (buildingType(typeId)?.category === 'resident') {
+        // An invitation is not placed: it needs room in a house (else the bot builds the other things first).
+        if (checkInvite(state, typeId).result !== 'ok') {
+          continue;
+        }
+        this.sim.send({ type: 'inviteResident', typeId });
+        this.builtAt.set(typeId, state.tick);
+        return typeId;
       }
       const spot = this.findSpot(typeId);
       if (!spot) {

@@ -20,6 +20,7 @@ const SHOP_OF: Readonly<Record<Exclude<BuildingCategory, 'path'>, ShopCategory>>
   deco: 'deco',
   production: 'production',
   island: 'island',
+  resident: 'houses',
 };
 
 describe('Shop: Kategorien und Artikel (buildings.json)', () => {

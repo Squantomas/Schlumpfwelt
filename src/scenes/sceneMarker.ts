@@ -81,6 +81,12 @@ export function markVillage(info: {
   readonly menu: string;
   /** Where the controls of the open menu are (CSS px) as JSON, `{}` while it is closed. */
   readonly menuSpots: string;
+  /** M6: the residents as JSON (`id`, `name`, `hat`, `job` and `home` as building types, `activity`, `carrying`, `timer`, feet `x`/`y` in world px, body `sx`/`sy` on screen in CSS px). */
+  readonly residents: string;
+  /** M6: the boats as JSON (`id`, `passenger`, `at`, `shore`, tiles `left` to sail). */
+  readonly boats: string;
+  /** M6: id of the resident whose card is open, or an empty text. */
+  readonly residentCard: string;
 }): void {
   const data = document.documentElement.dataset;
   const next = {
@@ -104,6 +110,9 @@ export function markVillage(info: {
     repaint: info.repaint,
     menu: info.menu,
     menuSpots: info.menuSpots,
+    residents: info.residents,
+    boats: info.boats,
+    residentCard: info.residentCard,
   };
   for (const [key, value] of Object.entries(next)) {
     if (data[key] !== value) {
@@ -115,4 +124,9 @@ export function markVillage(info: {
 /** Publishes how saving stands (`<html data-save>`, JSON: store, autosave, start, saves, failures, savedTick) for tests. */
 export function markSave(info: string): void {
   document.documentElement.dataset.save = info;
+}
+
+/** Publishes what the frames cost (`<html data-perf>`, JSON: `total` frames, then over the last ones `frames`, `mean`, `p95`, `max`, the simulation's and drawing's share, residents, boats) for tests. */
+export function markPerf(info: string): void {
+  document.documentElement.dataset.perf = info;
 }

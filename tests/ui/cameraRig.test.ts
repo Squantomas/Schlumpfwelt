@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { screenToWorld, visibleRect, type Rect, type Size } from '../../src/ui/cameraMath';
-import { CameraRig } from '../../src/ui/cameraRig';
+import { CameraRig, GLIDE_MAX_STEP_MS } from '../../src/ui/cameraRig';
 
 const TILE = 64;
 const MAP: Rect = { x: 0, y: 0, width: 3072, height: 3072 };
@@ -261,6 +261,112 @@ describe('Nachgleiten', () => {
     rig.fling(-2, 0);
     rig.pan(0, 0);
     expect(rig.animating).toBe(false);
+  });
+});
+
+describe('Sanft an einen Ort fahren (glideTo: die Anlegestelle eines Boots)', () => {
+  beforeEach(() => {
+    rig.pinch({ x: 512, y: 384 }, { x: 512, y: 384 }, 4);
+  });
+
+  it('kommt am Ziel an, ohne zu springen: langsam los, schneller, langsam an', () => {
+    const target = { x: rig.view.centerX + 600, y: rig.view.centerY - 300 };
+    rig.glideTo(target);
+    expect(rig.animating).toBe(true);
+    expect(rig.glidingTo).toBe(true);
+    const steps: number[] = [];
+    let previous = { x: rig.view.centerX, y: rig.view.centerY };
+    for (let t = 0; t < 2000; t += 16) {
+      rig.update(16);
+      const now = { x: rig.view.centerX, y: rig.view.centerY };
+      steps.push(Math.hypot(now.x - previous.x, now.y - previous.y) * rig.view.zoom);
+      previous = now;
+    }
+    expect(rig.view.centerX).toBeCloseTo(target.x, 6);
+    expect(rig.view.centerY).toBeCloseTo(target.y, 6);
+    expect(rig.glidingTo).toBe(false);
+    expect(rig.animating).toBe(false);
+    // No jump: no frame moves more than a small part of the way; the start and the end are slow.
+    const way = Math.hypot(600, 300) * rig.view.zoom;
+    const fastest = Math.max(...steps);
+    expect(fastest).toBeLessThan(way * 0.05);
+    expect(steps[0] ?? 0).toBeLessThan(fastest * 0.2);
+    const moving = steps.filter((step) => step > 0);
+    expect(moving.at(-1) ?? 0).toBeLessThan(fastest * 0.2);
+  });
+
+  it('jede Berührung hält sie an: Griff, Ziehen, Zwei-Finger-Zoom, Zoom-Knopf', () => {
+    const target = { x: rig.view.centerX + 600, y: rig.view.centerY };
+    for (const touch of [
+      () => rig.stop(),
+      () => rig.pan(0, 0),
+      () => rig.pinch({ x: 512, y: 384 }, { x: 512, y: 384 }, 1),
+      () => rig.zoomBy(1.1, { x: 512, y: 384 }),
+    ]) {
+      rig.glideTo(target);
+      runFor(160);
+      touch();
+      expect(rig.glidingTo).toBe(false);
+      const stopped = rig.view.centerX;
+      runFor(1000);
+      expect(rig.view.centerX).toBeCloseTo(stopped, 6);
+    }
+  });
+
+  it('bleibt in den Grenzen der Kamera und zählt nicht als Nachgleiten', () => {
+    rig.glideTo({ x: -5000, y: -5000 });
+    expect(rig.gliding).toBe(false);
+    runFor(2000);
+    const seen = visibleRect(rig.view, TABLET);
+    expect(seen.x).toBeGreaterThanOrEqual(BOUNDS.x - 1e-6);
+    expect(seen.y).toBeGreaterThanOrEqual(BOUNDS.y - 1e-6);
+    expect(rig.animating).toBe(false);
+  });
+
+  it('ignoriert ein ungültiges Ziel', () => {
+    rig.glideTo({ x: Number.NaN, y: 0 });
+    expect(rig.animating).toBe(false);
+  });
+
+  it('zählt die echte Bildzeit (Korrekturrunde 2): bei 2,5 Bildern pro Sekunde ist sie nach höchstens 1,6 s da, nicht nach 40 s', () => {
+    const target = { x: rig.view.centerX + 900, y: rig.view.centerY };
+    rig.glideTo(target);
+    // Phaser's smoothed delta stays near 16 ms, while really 400 ms pass per frame.
+    let frames = 0;
+    while (rig.glidingTo && frames < 100) {
+      rig.update(16, 400);
+      frames += 1;
+    }
+    expect(rig.view.centerX).toBeCloseTo(target.x, 6);
+    // A frame counts at most GLIDE_MAX_STEP_MS: 1600 ms at most → at most 7 frames, never a jump to the end.
+    expect(frames).toBeLessThanOrEqual(Math.ceil(1600 / GLIDE_MAX_STEP_MS));
+    expect(frames).toBeGreaterThanOrEqual(3);
+  });
+
+  it('eine lange Pause springt nicht ans Ziel, eine ungültige Bildzeit hält sie nicht an', () => {
+    const start = rig.view.centerX;
+    const target = { x: start + 900, y: rig.view.centerY };
+    rig.glideTo(target);
+    rig.update(16, 60_000);
+    expect(rig.glidingTo).toBe(true);
+    expect(rig.view.centerX).toBeLessThan(target.x);
+    rig.update(16, Number.NaN);
+    rig.update(16, -50);
+    expect(rig.glidingTo).toBe(true);
+    runFor(2000);
+    expect(rig.view.centerX).toBeCloseTo(target.x, 6);
+  });
+
+  it('stopGlide hält nur die Fahrt an, dort wo die Kamera gerade ist', () => {
+    const target = { x: rig.view.centerX + 900, y: rig.view.centerY };
+    rig.glideTo(target);
+    runFor(400);
+    rig.stopGlide();
+    expect(rig.glidingTo).toBe(false);
+    const stopped = rig.view.centerX;
+    expect(stopped).toBeLessThan(target.x);
+    runFor(1000);
+    expect(rig.view.centerX).toBe(stopped);
   });
 });
 

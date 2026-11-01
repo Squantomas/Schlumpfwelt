@@ -1,6 +1,7 @@
 import { buildingType } from '../data/buildings';
 import { addBuilding, addPaths, demolishAt, relocateBuilding, type Tile } from './buildings';
 import { demolishPlanted, placeIslandItem } from './island';
+import { inviteResident, settleResidents } from './residents';
 import type { SimState } from './state';
 
 /**
@@ -20,7 +21,8 @@ export type Command =
   | PlantTreeCommand
   | PlaceRockCommand
   | FillLandCommand
-  | MakeMeadowCommand;
+  | MakeMeadowCommand
+  | InviteResidentCommand;
 
 export interface SetPausedCommand {
   readonly type: 'setPaused';
@@ -104,6 +106,16 @@ export interface MakeMeadowCommand {
   readonly y: number;
 }
 
+/**
+ * Invites a new resident (M6) with the shop item `typeId` (category `resident`): takes its cost, and a boat brings
+ * them to the house with room. Ignored if there is no room in any house, the village is full or it is too expensive.
+ * Counts as a change (`revision`).
+ */
+export interface InviteResidentCommand {
+  readonly type: 'inviteResident';
+  readonly typeId: string;
+}
+
 /** The command that puts a shop item on the tile (x, y): a building command, or for island items their own island command. */
 export function placementCommand(typeId: string, x: number, y: number): Command {
   switch (buildingType(typeId)?.island?.action) {
@@ -123,9 +135,16 @@ export function placementCommand(typeId: string, x: number, y: number): Command 
 /**
  * Applies a single command to the state (mutates `state`). Commands with
  * invalid data (unknown type or id, tile outside the map, not allowed there)
- * are ignored – they never throw and never change anything.
+ * are ignored – they never throw and never change anything. Afterwards the
+ * residents follow the change (a new workplace gets its worker, a demolished
+ * house's residents look for a new one, see `settleResidents`).
  */
 export function applyCommand(state: SimState, command: Command): void {
+  applyOne(state, command);
+  settleResidents(state);
+}
+
+function applyOne(state: SimState, command: Command): void {
   switch (command.type) {
     case 'setPaused':
       state.paused = command.paused;
@@ -150,6 +169,9 @@ export function applyCommand(state: SimState, command: Command): void {
     case 'fillLand':
     case 'makeMeadow':
       placeIslandItem(state, command.typeId, command.x, command.y, command.type);
+      return;
+    case 'inviteResident':
+      inviteResident(state, command.typeId);
       return;
     default:
       return assertNever(command);

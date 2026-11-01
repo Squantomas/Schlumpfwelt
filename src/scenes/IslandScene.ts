@@ -2,6 +2,7 @@ import Phaser from 'phaser';
 import { CAMERA_CONFIG } from '../data/camera';
 import { buildingType } from '../data/buildings';
 import { buildingAt, isConnected } from '../sim/buildings';
+import { activityOf } from '../sim/residents';
 import { hash2 } from '../sim/random';
 import type { GameSession } from '../save/session';
 import type { Simulation } from '../sim/simulation';
@@ -10,7 +11,10 @@ import { BuildTool, type Preview } from '../ui/buildTool';
 import { zoomLayout } from '../ui/buildLayout';
 import { growRect, tileAtWorld, visibleRect, type CameraBounds, type Point, type Rect } from '../ui/cameraMath';
 import { landRegions } from '../ui/cameraRegions';
+import { FrameStats } from '../ui/frameStats';
 import { simulationDelta } from '../ui/frameTime';
+import { glideAllowed, landingGlide } from '../ui/boatCamera';
+import { RESIDENT_BODY_Y, residentAt } from '../ui/residentHit';
 import { RoundButton } from '../ui/RoundButton';
 import { COLORS, TILE_SIZE, rgb } from '../ui/style';
 import { onViewportChange, type ViewSize } from '../ui/viewport';
@@ -28,11 +32,13 @@ import {
   registerIslandTextures,
 } from './island/objectTextures';
 import { LostOverlay } from './island/LostOverlay';
+import { registerResidentTextures } from './island/residentTextures';
+import { ResidentView } from './island/ResidentView';
 import { VillageMenu } from './island/VillageMenu';
 import { VillageView } from './island/VillageView';
 import { WorldCameraController } from './island/WorldCameraController';
 import { ISLAND_EVENTS, SCENES, type TileTapEvent } from './keys';
-import { markActiveScene, markCamera, markSave, markTap, markVillage } from './sceneMarker';
+import { markActiveScene, markCamera, markPerf, markSave, markTap, markVillage } from './sceneMarker';
 
 /** Tap ring: how long it takes to grow and fade away (ms). */
 const RING_MS = 900;
@@ -40,6 +46,22 @@ const RING_MS = 900;
 const RING_HOLD_MS = 500;
 /** Depth of things above all objects (their depth is their y position in the world). */
 const TOP_DEPTH = 1_000_000;
+/** The frame times are published every this many frames (`<html data-perf>`). */
+const PERF_EVERY = 20;
+/** How many of the last frames the published numbers cover. */
+const PERF_FRAMES = 300;
+
+/** What a frame cost on the main thread (ms): the whole frame, the simulation in it, and drawing. */
+interface PerfMeter {
+  readonly frame: FrameStats;
+  readonly sim: FrameStats;
+  readonly render: FrameStats;
+  /** All frames measured since the scene started (the smoke test waits for new ones). */
+  total: number;
+  frameStart: number;
+  renderStart: number;
+  simMs: number;
+}
 
 interface Glint {
   readonly sprite: Phaser.GameObjects.Image;
@@ -84,6 +106,13 @@ export class IslandScene extends Phaser.Scene {
   private landInView = 0;
   private buildTool!: BuildTool;
   private village!: VillageView;
+  private residentView!: ResidentView;
+  private perf!: PerfMeter;
+  private residentsText = '[]';
+  private boatsText = '[]';
+  private residentsTick = -1;
+  /** The boats the camera already knows (a new one with a guest may make it glide to the landing place). */
+  private seenBoats = new Set<number>();
   private buildUI!: BuildUI;
   private menu!: VillageMenu;
   private lost!: LostOverlay;
@@ -108,6 +137,7 @@ export class IslandScene extends Phaser.Scene {
 
     const { seed, world } = this.simulation.state;
     registerIslandTextures(this);
+    registerResidentTextures(this);
     // A restarted scene starts clean (the instance is reused).
     this.glints = [];
     this.objects.clear();
@@ -119,6 +149,11 @@ export class IslandScene extends Phaser.Scene {
     // What the page marker published about the village before a restart (a loaded village) must not look current.
     this.producers = '[]';
     this.producersTick = -1;
+    this.residentsText = '[]';
+    this.boatsText = '[]';
+    this.residentsTick = -1;
+    // Boats of a loaded village are no news: the camera only follows boats that set off from now on.
+    this.seenBoats = new Set(this.simulation.state.boats.map((boat) => boat.id));
     this.buildings = '[]';
     this.paths = '';
     this.previewText = 'none';
@@ -142,6 +177,7 @@ export class IslandScene extends Phaser.Scene {
     this.buildGlints(seed);
     this.village = new VillageView(this, this.worldLayer, this.simulation);
     this.village.sync();
+    this.residentView = new ResidentView(this, this.worldLayer, this.simulation);
     this.buildTool = new BuildTool(
       () => this.simulation.state,
       (command) => {
@@ -256,26 +292,143 @@ export class IslandScene extends Phaser.Scene {
     this.cameras.main.fadeIn(300, ...fade);
     this.worldCamera.fadeIn(300, ...fade);
 
+    this.startPerf();
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
       this.groundBlocks = releaseGroundBlocks(this.groundBlocks, (key) => this.textures.remove(key));
     });
   }
 
+  /**
+   * Measures every frame on the main thread, from its start (Phaser's `prestep`) to the end of drawing (`postrender`):
+   * the whole frame, the simulation in it and drawing (`<html data-perf>`, M6). The smoke test reads it with the
+   * processor slowed down four times.
+   */
+  private startPerf(): void {
+    const perf: PerfMeter = {
+      frame: new FrameStats(PERF_FRAMES),
+      sim: new FrameStats(PERF_FRAMES),
+      render: new FrameStats(PERF_FRAMES),
+      total: 0,
+      frameStart: 0,
+      renderStart: 0,
+      simMs: 0,
+    };
+    this.perf = perf;
+    const onPreStep = (): void => {
+      perf.frameStart = performance.now();
+      perf.simMs = 0;
+    };
+    const onPreRender = (): void => {
+      perf.renderStart = performance.now();
+    };
+    const onPostRender = (): void => {
+      if (perf.frameStart === 0) {
+        return;
+      }
+      const now = performance.now();
+      perf.frame.add(now - perf.frameStart);
+      perf.render.add(now - perf.renderStart);
+      perf.sim.add(perf.simMs);
+      perf.frameStart = 0;
+      perf.total += 1;
+      if (perf.total % PERF_EVERY === 0) {
+        this.publishPerf();
+      }
+    };
+    const events = this.game.events;
+    events.on(Phaser.Core.Events.PRE_STEP, onPreStep);
+    events.on(Phaser.Core.Events.PRE_RENDER, onPreRender);
+    events.on(Phaser.Core.Events.POST_RENDER, onPostRender);
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+      events.off(Phaser.Core.Events.PRE_STEP, onPreStep);
+      events.off(Phaser.Core.Events.PRE_RENDER, onPreRender);
+      events.off(Phaser.Core.Events.POST_RENDER, onPostRender);
+    });
+  }
+
+  private publishPerf(): void {
+    const round = (value: number): number => Math.round(value * 100) / 100;
+    const frame = this.perf.frame.summary();
+    const sim = this.perf.sim.summary();
+    const render = this.perf.render.summary();
+    const { state } = this.simulation;
+    markPerf(
+      JSON.stringify({
+        total: this.perf.total,
+        frames: frame.frames,
+        mean: round(frame.mean),
+        p95: round(frame.p95),
+        max: round(frame.max),
+        simMean: round(sim.mean),
+        simP95: round(sim.p95),
+        renderMean: round(render.mean),
+        renderP95: round(render.p95),
+        residents: state.residents.length,
+        boats: state.boats.length,
+      }),
+    );
+  }
+
   override update(time: number, delta: number): void {
     // The raw frame time, not Phaser's smoothed `delta`: only the clock of the simulation caps a frame (see frameTime.ts).
+    const simStart = performance.now();
     const alpha = this.simulation.update(simulationDelta(this.game.loop.rawDelta, delta));
+    this.perf.simMs += performance.now() - simStart;
     const seconds = ((this.simulation.state.tick + alpha) * this.simulation.tickMs) / 1000;
 
     this.session.autosave?.update(time);
     this.lost.setOpen(this.session.autosave?.isLost === true);
-    this.controller.update(delta);
+    this.followNewBoats();
+    // The glide to a boat counts real time (like the simulation); inertia and smooth zoom keep Phaser's delta.
+    this.controller.update(delta, simulationDelta(this.game.loop.rawDelta, delta));
     this.publishCamera();
+    this.residentView.update(alpha, seconds, this.controller.view.zoom, this.buildTool.inspectedResidentId);
     this.updateVillage(seconds, delta);
 
     for (const { sprite, phase } of this.glints) {
       const wave = 0.5 + 0.5 * Math.sin(seconds * 1.6 + phase);
       sprite.setAlpha(0.15 + 0.45 * wave).setScale((0.8 + 0.3 * wave) / TEXTURE_SCALE);
     }
+  }
+
+  /**
+   * A boat that sets off with a new resident (an invitation, a worker for a new building): while the child is just
+   * looking, the camera glides gently to where it lands, unless that is already in the picture. It never jumps, and
+   * the next touch stops it (see `CameraRig.glideTo`). While building, moving or demolishing, with the shop, the
+   * menu or a card open, the camera stays – and a glide that is running stops (`glideAllowed`).
+   */
+  private followNewBoats(): void {
+    const allowed = glideAllowed({
+      tool: this.buildTool.tool,
+      shopOpen: this.buildUI.shopOpen,
+      menuOpen: this.menu.isOpen,
+      lostOpen: this.lost.isOpen,
+      cardOpen: this.buildTool.cardOpen,
+    });
+    if (!allowed && this.controller.glidingTo) {
+      this.controller.stopGlide();
+    }
+    const boats = this.simulation.state.boats;
+    if (boats.length === 0 && this.seenBoats.size === 0) {
+      return;
+    }
+    const now = new Set<number>();
+    for (const boat of boats) {
+      now.add(boat.id);
+      if (this.seenBoats.has(boat.id) || boat.passenger === null) {
+        continue;
+      }
+      if (!allowed) {
+        continue;
+      }
+      const width = this.simulation.state.world.width;
+      const centre = (index: number): Point => ({ x: ((index % width) + 0.5) * TILE_SIZE, y: (Math.floor(index / width) + 0.5) * TILE_SIZE });
+      const target = landingGlide(this.controller.view, this.controller.viewSize, this.buildUI.freeBand, centre(boat.shore), centre(boat.at));
+      if (target) {
+        this.controller.glideTo(target);
+      }
+    }
+    this.seenBoats = now;
   }
 
   /** Publishes the camera for tests (`<html data-camera-*>`); the land count is only recomputed when the view changed. */
@@ -482,8 +635,16 @@ export class IslandScene extends Phaser.Scene {
     }
     // An explanation stays until the next tap.
     this.buildUI.clearNotice();
-    // A tap beside the open info card closes it and does nothing else.
-    if (this.buildTool.inspectedId !== undefined) {
+    // A resident under the finger (M6, only while looking): their card opens – also instead of another open card.
+    if (this.buildTool.tool === 'view') {
+      const residentId = this.residentAtTap(world);
+      if (residentId !== undefined) {
+        this.buildTool.inspectResident(residentId);
+        return;
+      }
+    }
+    // A tap beside the open card (of a building or a resident) closes it and does nothing else.
+    if (this.buildTool.cardOpen) {
       this.buildTool.closeInfo();
       return;
     }
@@ -512,6 +673,17 @@ export class IslandScene extends Phaser.Scene {
         }
       }
     }
+  }
+
+  /**
+   * The resident drawn under a tapped world point (where the picture is now), if any – within 24 CSS px of the body.
+   * On a building that answers the tap (a production building, a house without a path, a sign) only close to the body:
+   * far out the building keeps its picture (see `residentHit.ts`).
+   */
+  private residentAtTap(world: Point): number | undefined {
+    const tile = tileAtWorld(world, TILE_SIZE, this.simulation.state.world);
+    const onBuilding = (tile !== undefined && this.buildTool.buildingAnswersTap(tile, world)) || this.village.markerAt(world.x, world.y) !== undefined;
+    return residentAt(this.residentView.spots, world, this.controller.view.zoom, onBuilding);
   }
 
   /** Keeps the drawn village and the building controls in line with the state and the tool. */
@@ -554,6 +726,10 @@ export class IslandScene extends Phaser.Scene {
       // [building id, status, times delivered] – changes rarely, so the page attribute is rarely written.
       this.producers = JSON.stringify(state.production.map((p) => [p.buildingId, p.status, p.delivered]));
     }
+    if (state.tick !== this.residentsTick || revision !== this.publishedRevision) {
+      this.residentsTick = state.tick;
+      this.publishResidents();
+    }
     if (revision !== this.publishedRevision) {
       this.publishedRevision = revision;
       this.buildings = JSON.stringify(state.buildings.map((b) => [b.id, b.type, b.x, b.y, isConnected(state, b.id) ? 1 : 0]));
@@ -584,6 +760,9 @@ export class IslandScene extends Phaser.Scene {
       repaint: JSON.stringify(this.repaint),
       menu: this.lost.isOpen ? 'lost' : this.menu.shownState,
       menuSpots: JSON.stringify(this.lost.isOpen ? this.lost.spots : this.menu.spots),
+      residents: this.residentsText,
+      boats: this.boatsText,
+      residentCard: this.buildTool.inspectedResidentId === undefined ? '' : String(this.buildTool.inspectedResidentId),
     });
     const saveInfo = this.session.describe();
     if (saveInfo !== this.savePublished) {
@@ -592,6 +771,42 @@ export class IslandScene extends Phaser.Scene {
     }
   }
 
+  /**
+   * The residents and boats for tests (`<html data-residents data-boats>`, once per tick): who, where they work and live,
+   * what they do and carry, and where they are drawn – the feet in world px and the middle of the body on the screen
+   * (CSS px), where a tap hits them – and `icon` 1 while the good they carry shows over their head.
+   */
+  private publishResidents(): void {
+    const state = this.simulation.state;
+    const view = this.controller.view;
+    const size = this.controller.viewSize;
+    const round = (value: number): number => Math.round(value * 10) / 10;
+    const screen = (x: number, y: number): { sx: number; sy: number } => ({
+      sx: round((x - view.centerX) * view.zoom + size.width / 2),
+      sy: round((y - view.centerY) * view.zoom + size.height / 2),
+    });
+    const types = new Map(state.buildings.map((building) => [building.id, building.type]));
+    const typeOf = (id: number | null): string => (id === null ? '' : (types.get(id) ?? ''));
+    this.residentsText = JSON.stringify(
+      state.residents.map((resident) => {
+        const at = this.residentView.positionOf(resident.id);
+        return {
+          id: resident.id,
+          name: resident.name,
+          hat: resident.hat,
+          job: typeOf(resident.job),
+          home: typeOf(resident.home),
+          activity: activityOf(resident),
+          carrying: resident.carrying ?? '',
+          timer: resident.timer,
+          ...(at ? { x: round(at.x), y: round(at.y), ...screen(at.x, at.y - RESIDENT_BODY_Y), icon: at.carry ? 1 : 0 } : {}),
+        };
+      }),
+    );
+    this.boatsText = JSON.stringify(
+      state.boats.map((boat) => ({ id: boat.id, passenger: boat.passenger, at: boat.at, shore: boat.shore, left: boat.route.length })),
+    );
+  }
 
   private showRing(tile: TileTapEvent): void {
     this.ringTween?.stop();
@@ -680,5 +895,7 @@ function describePreview(preview: Preview): string {
       return preview.target ? `move:${preview.target.result}` : 'move:chosen';
     case 'demolish':
       return `demolish:${String(preview.tiles.length)}`;
+    case 'invite':
+      return `invite:${preview.result}`;
   }
 }
