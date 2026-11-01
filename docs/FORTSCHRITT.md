@@ -3,9 +3,9 @@
 Gedächtnis des Orchestrators. Bei Neustart: „Setze laut `docs/FORTSCHRITT.md` fort“.
 
 ## Aktueller Stand
-- **Aktueller Meilenstein:** M7 – Wohnen und Stimmung (Issue #8, Branch `m7-wohnen`, Builder `opus`/`xhigh`)
-- **Status:** M6 gemergt (PR #20, 2 Korrekturrunden); Reste in #21 (`nacharbeit`)
-- **Nächster Schritt:** Branch `m7-wohnen` von `main` anlegen, Builder M7 starten
+- **Aktueller Meilenstein:** M8 – Kinderfreundlich (Issue #9, Branch `m8-kinderfreundlich`, Builder `opus`/`high`)
+- **Status:** M7 gemergt (PR #22, 1 Korrekturrunde); Reste in #23 (`nacharbeit`)
+- **Nächster Schritt:** Branch `m8-kinderfreundlich` von `main` anlegen, Builder M8 starten
 
 ## Meilensteine
 | # | Issue | Branch | PR | Status |
@@ -17,7 +17,7 @@ Gedächtnis des Orchestrators. Bei Neustart: „Setze laut `docs/FORTSCHRITT.md`
 | M4 | #5 | m4-shop | #16 | fertig |
 | M5 | #6 | m5-speichern | #18 | fertig |
 | M6 | #7 | m6-schluempfe | #20 | fertig |
-| M7 | #8 | m7-wohnen | – | offen |
+| M7 | #8 | m7-wohnen | #22 | fertig |
 | M8 | #9 | m8-kinderfreundlich | – | offen |
 | M9 | #10 | m9-look-sound | – | offen |
 
@@ -41,3 +41,6 @@ Gedächtnis des Orchestrators. Bei Neustart: „Setze laut `docs/FORTSCHRITT.md`
 - M6-Einschränkungen (#21): Bewohner auf antwortenden Gebäuden bei weitem Zoom schwer zu treffen; Stopp der Kamerafahrt nur per Unit-Test belegt; laufende Bewohner im Headless schwer zu treffen; Gedränge auf einer Wegkachel.
 - Für M7: Zuhause per Ziehen – `settleResidents` ändert `home` nur bei Obdachlosen oder überfülltem Haus, ein von Hand gesetztes Zuhause bleibt. Stimmung braucht `SAVE_VERSION` 4 mit Migration und Normalisierer. Stimmung darf die Wirtschaft nur sanft beeinflussen (nie festsitzen), Wegelänge wirkt nur auf die Stimmung.
 - `npm run smoke` dauert headless voll etwa 40 min; `--m6-only` etwa 3 min je Gerät.
+- M7 erledigt (PR #22): Stimmung (fröhlich/normal/traurig) wird berechnet, nicht gespeichert: +1 Deko bis 2 Kacheln ums Haus, −1 weiter Weg (> 12 Schritte), −1 Hunger. Essen alle 3 min (Kuchen, sonst Beeren), Hunger wirkt nur auf die Stimmung. Arbeitstempo 120/100/80 % über die Rundenlänge, nie Stillstand. Umziehen per Ziehen (ab Zoom 0,5, Haus erst nach 250 ms Verweilen grün – gegen versehentliches Umziehen) und über „Umziehen“ auf der Karte (Haus antippen, ✓). Spielstand Version 4. Bildzeit 40 Bewohner Tablet Mittel 8–12 ms, p95 12–23 ms (Grenze 16/25).
+- M7-Einschränkungen (#23): Kamera läuft beim Ziehen am Rand nicht mit; „weiter Weg“ quer über Kacheln gezählt; Gelb beim Warten und schnelles Wischen nur im Headless belegt; p95 unter Last knapp an 25 ms; Karte/Hinweisbox verdecken auf kleinen Schirmen Teile des Dorfs.
+- Für M8: Tutorial für die ersten 5 Minuten soll Ziehen und Umziehen nicht zwingend verlangen (der Knopf „Umziehen“ ist der einfache Weg); Elternmenü mit PIN und Tageslimit, Gute-Nacht-Sequenz. Hinweisleiste wird stark genutzt – Tutorial-Sätze dürfen „Neu im Shop“ und Hinweise des Tragens nicht verschlucken.

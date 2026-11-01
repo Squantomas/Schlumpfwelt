@@ -26,6 +26,17 @@ import residentsJson from './residents.json';
  *   (`cutOffTicks`; a change of the village that joins the land ends the wait
  *   at once); `tripsBeforeRest` deliveries to the market before a worker goes
  *   home for a rest.
+ * - `mood` (M7, see `src/sim/mood.ts`): decoration within `decoRadius` tiles
+ *   of the house makes happy, a way from the door of the house to the door of
+ *   the work of more than `farTiles` steps (straight line, no detours) makes
+ *   sad; `pace` is how fast a worker works in each mood, in percent (a round
+ *   takes `intervalTicks × 100 / pace` ticks).
+ * - `food` (M7): every resident eats one unit from the store now and then –
+ *   the first of `goods` that is there (cake, else berries). The next meal
+ *   comes `mealTicks` later, but with many residents later still: the village
+ *   as a whole eats at most one unit every `mealGapTicks` (so a berry garden
+ *   always makes more than everybody eats, even with a sad gardener). With
+ *   nothing to eat a resident is hungry and looks again after `retryTicks`.
  */
 
 export interface WalkCosts {
@@ -49,7 +60,28 @@ export interface ResidentRules {
   };
 }
 
+export type Mood = 'happy' | 'normal' | 'sad';
+
+export interface MoodRules {
+  readonly decoRadius: number;
+  readonly farTiles: number;
+  readonly pace: Readonly<Record<Mood, number>>;
+}
+
+export interface FoodRules {
+  readonly goods: readonly string[];
+  readonly mealTicks: number;
+  readonly mealGapTicks: number;
+  readonly retryTicks: number;
+}
+
 export const RESIDENT_RULES: ResidentRules = residentsJson;
+
+/** How the residents feel and what makes them feel so (M7). */
+export const MOOD_RULES: MoodRules = residentsJson.mood;
+
+/** What and how often the residents eat (M7). */
+export const FOOD_RULES: FoodRules = residentsJson.food;
 
 /** The longest a resident stays or waits anywhere (ticks): a file may not ask for more. */
 export const LONGEST_TIMER = Math.max(

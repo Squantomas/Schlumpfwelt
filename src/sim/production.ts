@@ -10,7 +10,8 @@
  *    (a carpenter: 2 wood). If they are not there it waits (`waitingInput`)
  *    and takes nothing.
  * 2. It works `intervalTicks` ticks (`working`; the progress stands still
- *    while a path or the trees are missing).
+ *    while a path or the trees are missing). Since M7 the mood of the worker
+ *    makes a round a bit shorter (happy) or longer (sad), see `roundTicks`.
  * 3. At the end the goods go straight into the store. (Walking inhabitants
  *    that carry them come in M6 and change this.)
  *
@@ -30,6 +31,7 @@ import { buildingType } from '../data/buildings';
 import { COINS, MAX_AMOUNT, goodDef, sellableGoods } from '../data/goods';
 import { addAmounts, amountOf, hasAmounts, hasNearby, productionOf, takeAmounts, type ProducerState, type ProducerStatus, type ProductionView } from './economy';
 import { findBuilding, isConnected, type PlacedBuilding } from './buildings';
+import { MOODS, paceOf } from './mood';
 import type { SimState } from './state';
 
 /** What the production rules read and change. */
@@ -92,8 +94,26 @@ export function refreshStatuses(state: ProductionState): void {
   }
 }
 
-/** Lets every production building work for one tick. */
-export function tickProduction(state: ProductionState): void {
+/**
+ * How many ticks a round takes at `pace` percent (M7: the mood of the worker, see `mood.ts`; 100 is the normal
+ * `intervalTicks`, a happy worker is a bit faster, a sad one a bit slower – never stopped).
+ */
+export function roundTicks(intervalTicks: number, pace = 100): number {
+  const percent = Number.isFinite(pace) && pace > 0 ? pace : 100;
+  return Math.max(1, Math.round((intervalTicks * 100) / percent));
+}
+
+/** The longest a round can take (with the slowest mood): a saved progress below it is a round still running. */
+export function longestRound(intervalTicks: number): number {
+  return Math.max(intervalTicks, ...MOODS.map((mood) => roundTicks(intervalTicks, paceOf(mood))));
+}
+
+/**
+ * Lets every production building work for one tick. `paces` says how fast each one works (building id → percent,
+ * from the mood of its worker, `workPaces`); missing ones work at 100 %. A round that is already as long as a faster
+ * pace needs (the worker became happy meanwhile) ends at once.
+ */
+export function tickProduction(state: ProductionState, paces?: ReadonlyMap<number, number>): void {
   for (const producer of state.production) {
     const building = findBuilding(state, producer.buildingId);
     const rules = building ? productionOf(building.type) : undefined;
@@ -108,7 +128,7 @@ export function tickProduction(state: ProductionState): void {
       takeAmounts(state.inventory, rules.inputs);
     }
     producer.progress += 1;
-    if (producer.progress >= rules.intervalTicks) {
+    if (producer.progress >= roundTicks(rules.intervalTicks, paces?.get(producer.buildingId))) {
       producer.progress = 0;
       finishRound(state, producer, rules);
     }

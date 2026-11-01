@@ -61,7 +61,7 @@ export function markVillage(info: {
   readonly ui: string;
   /** The numbers in the store bar as `{ coins: 60, wood: 14, … }`. */
   readonly stock: string;
-  /** `[building id, status, times delivered]` per production building. */
+  /** `[building id, status, times delivered, pace in percent (M7)]` per production building. */
   readonly producers: string;
   /** Id of the building whose info card is open, or an empty text. */
   readonly card: string;
@@ -81,12 +81,22 @@ export function markVillage(info: {
   readonly menu: string;
   /** Where the controls of the open menu are (CSS px) as JSON, `{}` while it is closed. */
   readonly menuSpots: string;
-  /** M6: the residents as JSON (`id`, `name`, `hat`, `job` and `home` as building types, `activity`, `carrying`, `timer`, feet `x`/`y` in world px, body `sx`/`sy` on screen in CSS px). */
+  /**
+   * M6: the residents as JSON (`id`, `name`, `hat`, `job` and `home` as building types, `activity`, `carrying`,
+   * `timer`, feet `x`/`y` in world px, body `sx`/`sy` on screen in CSS px); M7: `mood`, `reason` (the key of the
+   * reason on the card), `hungry`, `homeId` and `sign` 1 while the heart or cloud shows over the head.
+   */
   readonly residents: string;
   /** M6: the boats as JSON (`id`, `passenger`, `at`, `shore`, tiles `left` to sail). */
   readonly boats: string;
   /** M6: id of the resident whose card is open, or an empty text. */
   readonly residentCard: string;
+  /** M7: the resident being carried as JSON (`resident`, finger `sx`/`sy` in CSS px, house under it: `house`, `result`, `used`, `capacity`), or an empty text. */
+  readonly drag: string;
+  /** M7: the "2/2" shown over the house of a move preview, or an empty text. */
+  readonly homeLabel: string;
+  /** M7: the tick of the simulation (to measure how fast a building works). */
+  readonly tick: string;
 }): void {
   const data = document.documentElement.dataset;
   const next = {
@@ -113,6 +123,9 @@ export function markVillage(info: {
     residents: info.residents,
     boats: info.boats,
     residentCard: info.residentCard,
+    drag: info.drag,
+    homeLabel: info.homeLabel,
+    tick: info.tick,
   };
   for (const [key, value] of Object.entries(next)) {
     if (data[key] !== value) {

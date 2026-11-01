@@ -19,11 +19,12 @@ import type { SimState } from '../sim/state';
 import { ITEM_IDS } from '../data/goods';
 import { canAfford, missingFor, refundFor } from '../sim/economy';
 import { findRoute, type RouteFailure } from '../sim/route';
-import { checkInvite, type InviteResult } from '../sim/residents';
+import { checkHome, checkInvite, type HomeResult, type InviteResult } from '../sim/residents';
 import { isUnlocked } from '../sim/unlocks';
 import { terrainAt, type Terrain } from '../sim/world';
 import type { Point } from './cameraMath';
 import { listText, missingParams, totalUnits } from './costText';
+import { ResidentDrag, houseAtPoint, type DropResult } from './residentDrag';
 import { TILE_SIZE } from './style';
 
 /**
@@ -36,19 +37,29 @@ import { TILE_SIZE } from './style';
  *
  * It only reads the simulation state (through `getState`) and sends commands
  * (through `send`); the scene draws whatever `preview()` says.
+ *
+ * Moving house (M7) works both ways: by carrying a resident onto a house while
+ * looking (the one exception to "never by dragging", see {@link ResidentDrag})
+ * or by tapping: "Umziehen" on the resident's card → tap a house (green with
+ * room, red when full) → ✓.
  */
 
 /** What the tools read: the placement rules' view plus the working state (for refunds), the tick (for the cards) and the residents (M6). */
 export type BuildToolState = PlacementView & DeepReadonly<Pick<SimState, 'production' | 'tick' | 'earnedCoins' | 'residents' | 'boats' | 'nextResidentId'>>;
 
-export type ToolId = 'view' | 'path' | 'shop' | 'place' | 'move' | 'demolish';
+/** `home` (M7): choosing a new house for a resident (reached by "Umziehen" on their card). */
+export type ToolId = 'view' | 'path' | 'shop' | 'place' | 'move' | 'demolish' | 'home';
+
+/** The tools that have a button in the toolbar. */
+export type ToolbarToolId = Exclude<ToolId, 'view' | 'place' | 'home'>;
 
 /**
- * The buttons of the toolbar, in order (without "view", which is "no tool", and
- * "place", which is reached by choosing something in the shop): the shop
- * replaces the three buy tools of M2/M3 (house, building, deco).
+ * The buttons of the toolbar, in order (without "view", which is "no tool",
+ * "place", which is reached by choosing something in the shop, and "home",
+ * which is reached from a resident's card): the shop replaces the three buy
+ * tools of M2/M3 (house, building, deco).
  */
-export const TOOLS: readonly Exclude<ToolId, 'view' | 'place'>[] = ['path', 'shop', 'move', 'demolish'];
+export const TOOLS: readonly ToolbarToolId[] = ['path', 'shop', 'move', 'demolish'];
 
 export interface PathPreviewTile extends Tile {
   /** `ok`: will be laid; `existing`: already a path; `blocked`: can not be laid there. */
@@ -80,6 +91,22 @@ export type Preview =
       readonly result: InviteResult;
       readonly home?: number;
       readonly missing?: Readonly<Record<string, number>>;
+    }
+  /**
+   * A new home for a resident (M7): the house tapped with the tool "home", or the house under the finger while a
+   * resident is carried (`carried`: no ✓ / ✕ then, letting go decides). `used` / `capacity` for the "2/2".
+   * `waiting`: a carried resident over a house with room, but the finger has not stayed there long enough yet (see
+   * `DROP_DWELL_MS`) – letting go now would move nobody, so it is not green yet.
+   */
+  | {
+      readonly kind: 'home';
+      readonly residentId: number;
+      readonly houseId: number;
+      readonly result: HomeResult;
+      readonly used: number;
+      readonly capacity: number;
+      readonly carried: boolean;
+      readonly waiting: boolean;
     };
 
 type Pending =
@@ -89,7 +116,14 @@ type Pending =
   | { readonly kind: 'path'; readonly anchor: Tile; readonly target?: Tile }
   | { readonly kind: 'move'; readonly id: number; readonly target?: Tile }
   | { readonly kind: 'demolish'; readonly x: number; readonly y: number }
-  | { readonly kind: 'invite'; readonly typeId: string };
+  | { readonly kind: 'invite'; readonly typeId: string }
+  | { readonly kind: 'home'; readonly houseId: number };
+
+/** What letting go of a carried resident says (a short notice), if anything. */
+export interface DropNotice {
+  readonly key: TextKey;
+  readonly params: TextParams;
+}
 
 /**
  * The top left tile of a thing of the given type if the child tapped `tile`:
@@ -208,6 +242,10 @@ export class BuildTool {
   /** Has the child chosen a card since the tool was switched on (or the last ✓)? Only then a card it can not pay says what is missing. */
   private variantChosen = false;
   private lastStoreKey = 0;
+  /** The resident who gets a new home with the tool "home" (M7). */
+  private mover: number | undefined;
+  /** Carrying a resident onto a house while looking (M7). */
+  private readonly drag: ResidentDrag;
 
   /** `onRefund` is called when ✓ demolishes a building that gives something back (for the little "+10" display). */
   constructor(
@@ -219,6 +257,7 @@ export class BuildTool {
     this.announced = new Set(this.getState().unlocked);
     this.seenInShop = new Set(this.getState().unlocked);
     this.lastStoreKey = this.storeKey();
+    this.drag = new ResidentDrag(this.getState, this.send);
   }
 
   /**
@@ -240,9 +279,9 @@ export class BuildTool {
     }
   }
 
-  /** Counts every change of tool, variant, preview and (see {@link sync}) store, for redrawing. */
+  /** Counts every change of tool, variant, preview, carried resident and (see {@link sync}) store, for redrawing. */
   get version(): number {
-    return this.changes;
+    return this.changes + this.drag.version;
   }
 
   /** A number that changes when the amount of something in the store changes (no allocation, called every frame). */
@@ -270,9 +309,11 @@ export class BuildTool {
    * Items are placed with {@link chooseItem}, so `place` can not be selected here.
    */
   selectTool(tool: ToolId): void {
-    if (tool === this.current || tool === 'place') {
+    if (tool === this.current || tool === 'place' || tool === 'home') {
       return;
     }
+    this.drag.cancel();
+    this.mover = undefined;
     if (tool === 'shop') {
       this.openShop();
       return;
@@ -286,8 +327,13 @@ export class BuildTool {
     this.changes += 1;
   }
 
-  /** Back to "view" (the ✕ in the hint bar). */
+  /** Back to "view" (the ✕ in the hint bar). Leaving "home" opens the card of that resident again. */
   exitTool(): void {
+    if (this.current === 'home' && this.mover !== undefined && this.getState().residents.some((r) => r.id === this.mover)) {
+      this.inspectedResident = this.mover;
+      this.inspected = undefined;
+    }
+    this.mover = undefined;
     this.current = 'view';
     this.chosen = undefined;
     this.pending = { kind: 'none' };
@@ -322,6 +368,8 @@ export class BuildTool {
       return;
     }
     this.backTo = this.current === 'place' && this.chosen !== undefined ? 'place' : 'view';
+    this.drag.cancel();
+    this.mover = undefined;
     this.current = 'shop';
     if (this.backTo !== 'place') {
       this.pending = { kind: 'none' };
@@ -456,6 +504,75 @@ export class BuildTool {
     }
   }
 
+  // --- Moving house (M7) ---
+
+  /** Can this resident move house now? Not while they are still on the boat. */
+  canMoveHome(residentId: number): boolean {
+    const resident = this.getState().residents.find((r) => r.id === residentId);
+    return resident !== undefined && resident.doing !== 'boat';
+  }
+
+  /**
+   * "Umziehen" on the card of the resident: the card closes and the child taps the new house (then ✓). Returns false
+   * (and changes nothing) if no card of a resident is open or they can not move now.
+   */
+  startMoveHome(): boolean {
+    const residentId = this.inspectedResidentId;
+    if (residentId === undefined || !this.canMoveHome(residentId)) {
+      return false;
+    }
+    this.drag.cancel();
+    this.current = 'home';
+    this.mover = residentId;
+    this.chosen = undefined;
+    this.pending = { kind: 'none' };
+    this.inspected = undefined;
+    this.inspectedResident = undefined;
+    this.variantChosen = false;
+    this.changes += 1;
+    return true;
+  }
+
+  /**
+   * A press on a resident while looking (M7): can they be carried? Moving the finger then carries them
+   * ({@link carryResident}); released without moving it stays a tap ({@link cancelCarry}, then the tap opens the card).
+   */
+  grabResident(residentId: number, at: Point): boolean {
+    return this.current === 'view' && this.drag.grab(residentId, at);
+  }
+
+  /** The finger carries the resident to `at` (world px); `overUi`: over a bar or the card, where no house can be hit. An open card closes. */
+  carryResident(at: Point, overUi = false): void {
+    const first = this.drag.carried === undefined;
+    this.drag.carry(at, overUi);
+    if (first && this.drag.carried && (this.inspected !== undefined || this.inspectedResident !== undefined)) {
+      // The card would cover the houses: it closes while carrying.
+      this.inspected = undefined;
+      this.inspectedResident = undefined;
+      this.changes += 1;
+    }
+  }
+
+  /** Let go at `at` (world px): a house with room → `assignHome`. Returns what to tell the child (moved in, full, their own house), if anything. */
+  dropResident(at: Point, overUi = false): DropNotice | undefined {
+    return dropNotice(this.drag.drop(at, overUi), (id) => this.residentName(id));
+  }
+
+  /** The carrying ends without letting go on anything (a second finger, the system took the pointer, a tap). */
+  cancelCarry(): void {
+    this.drag.cancel();
+  }
+
+  /** Once per frame (time in ms, one clock): a carried resident who stayed over a house with room long enough turns it green. */
+  updateCarry(now: number): void {
+    this.drag.update(now);
+  }
+
+  /** The resident being carried, where the finger is (world px) and over which house – or `undefined`. */
+  get carried(): ResidentDrag['carried'] {
+    return this.drag.carried;
+  }
+
   /** Can the player pay for the chosen item right now? (`true` when nothing is chosen.) */
   get itemAffordable(): boolean {
     const item = this.item;
@@ -477,6 +594,12 @@ export class BuildTool {
     }
     if (preview.kind === 'invite') {
       return 'hint.invite';
+    }
+    if (this.drag.carried) {
+      return preview.kind === 'home' && !preview.waiting ? 'hint.dragDrop' : 'hint.dragHome';
+    }
+    if (preview.kind === 'home') {
+      return 'hint.homeConfirm';
     }
     // A place that works, but where the building will have no path yet: say what to do next.
     const noPath = this.noPathHint(preview);
@@ -500,6 +623,8 @@ export class BuildTool {
         return 'hint.demolish';
       case 'place':
         return placeHint(item);
+      case 'home':
+        return 'hint.homeSelect';
     }
   }
 
@@ -524,14 +649,25 @@ export class BuildTool {
       case 'demolish':
         return totalUnits(preview.refund) > 0 ? { list: listText(preview.refund) } : undefined;
       case 'none': {
+        const carried = this.drag.carried?.residentId ?? (this.current === 'home' ? this.mover : undefined);
+        if (carried !== undefined) {
+          return { name: this.residentName(carried) };
+        }
         const item = this.item;
         return item && this.variantChosen && !this.itemAffordable ? missingParams(missingFor(this.getState(), item)) : undefined;
       }
       case 'invite':
         return preview.result === 'cost' ? missingParams(preview.missing ?? {}) : undefined;
+      case 'home':
+        return { name: this.residentName(preview.residentId), current: preview.used, needed: preview.capacity };
       case 'path':
         return undefined;
     }
+  }
+
+  /** The name of a resident ('' if they are not there). */
+  private residentName(residentId: number | undefined): string {
+    return this.getState().residents.find((r) => r.id === residentId)?.name ?? '';
   }
 
   private problemOf(preview: Preview): TextKey | undefined {
@@ -552,6 +688,8 @@ export class BuildTool {
       }
       case 'invite':
         return inviteProblem(preview);
+      case 'home':
+        return homeProblem(preview.result);
       case 'none':
       case 'demolish':
         return undefined;
@@ -625,6 +763,18 @@ export class BuildTool {
         return this.tapPath(tile);
       case 'move':
         return this.tapMove(tile, building?.id, footprint?.id);
+      case 'home': {
+        // Only houses count, by their picture: a flower or a path in front of a house does not hide it.
+        const houseId = world ? houseAtPoint(state, world) : building && buildingType(building.type)?.category === 'house' ? building.id : undefined;
+        if (houseId !== undefined) {
+          this.pending = { kind: 'home', houseId };
+          this.changes += 1;
+          return undefined;
+        }
+        this.pending = { kind: 'none' };
+        this.changes += 1;
+        return 'hint.homePickHouse';
+      }
       case 'demolish': {
         if (building) {
           this.pending = { kind: 'demolish', x: building.x, y: building.y };
@@ -689,7 +839,7 @@ export class BuildTool {
 
   /** What to show right now, computed from the pending taps and the current state (cached until something changes). */
   preview(): Preview {
-    const key = `${String(this.changes)}|${String(this.getState().revision)}|${String(this.storeKey())}`;
+    const key = `${String(this.changes)}|${String(this.drag.version)}|${String(this.getState().revision)}|${String(this.storeKey())}`;
     if (this.cache?.key !== key) {
       this.cache = { key, preview: this.computePreview() };
     }
@@ -698,6 +848,11 @@ export class BuildTool {
 
   private computePreview(): Preview {
     const state = this.getState();
+    const carried = this.drag.carried;
+    if (carried) {
+      const target = carried.target;
+      return target ? { kind: 'home', residentId: carried.residentId, ...target, carried: true, waiting: target.result === 'ok' && !carried.ready } : { kind: 'none' };
+    }
     const pending = this.pending;
     switch (pending.kind) {
       case 'none':
@@ -764,6 +919,14 @@ export class BuildTool {
           ? { kind: 'demolish', tiles: [{ x: pending.x, y: pending.y }], refund: plantedRefund(state, pending.x, pending.y) }
           : { kind: 'none' };
       }
+      case 'home': {
+        const mover = this.mover;
+        const check = mover === undefined ? undefined : checkHome(state, mover, pending.houseId);
+        if (mover === undefined || !check || check.result === 'noResident' || check.result === 'noHouse') {
+          return { kind: 'none' };
+        }
+        return { kind: 'home', residentId: mover, houseId: pending.houseId, ...check, carried: false, waiting: false };
+      }
       case 'invite': {
         const check = checkInvite(state, pending.typeId);
         return {
@@ -793,12 +956,15 @@ export class BuildTool {
         return true;
       case 'invite':
         return preview.result === 'ok';
+      case 'home':
+        return !preview.carried && preview.result === 'ok';
     }
   }
 
-  /** Is there a preview (so ✓ and ✕ are shown)? */
+  /** Is there a preview (so ✓ and ✕ are shown)? A carried resident has none: letting go decides. */
   get hasPreview(): boolean {
-    return this.preview().kind !== 'none';
+    const preview = this.preview();
+    return preview.kind !== 'none' && !(preview.kind === 'home' && preview.carried);
   }
 
   /**
@@ -841,6 +1007,11 @@ export class BuildTool {
         this.send({ type: 'inviteResident', typeId: preview.typeId });
         this.exitTool();
         return undefined;
+      case 'home':
+        // Moved in: back to looking, with the card of the resident open (it shows the new home).
+        this.send({ type: 'assignHome', residentId: preview.residentId, houseId: preview.houseId });
+        this.exitTool();
+        return undefined;
     }
     this.pending = { kind: 'none' };
     this.changes += 1;
@@ -865,6 +1036,11 @@ export class BuildTool {
     if (this.pending.kind !== 'none' && this.preview().kind === 'none') {
       this.pending = { kind: 'none' };
     }
+    // The resident who was choosing a home is gone (a loaded village): nothing to choose for.
+    if (this.current === 'home' && !this.getState().residents.some((r) => r.id === this.mover)) {
+      this.mover = undefined;
+      this.exitTool();
+    }
     const inspected = this.inspected;
     if (inspected !== undefined && !this.getState().buildings.some((b) => b.id === inspected)) {
       this.inspected = undefined;
@@ -880,6 +1056,42 @@ export class BuildTool {
       this.inspectedResident = undefined;
       this.changes += 1;
     }
+  }
+}
+
+/**
+ * What letting go says: "moved in" for a house with room; "hold a moment" when it was let go there too soon (a swipe);
+ * why not for a full house or their own; and beside the houses (meadow, a bar) where to let go next time.
+ */
+export function dropNotice(result: DropResult | undefined, nameOf: (residentId: number) => string): DropNotice | undefined {
+  if (!result) {
+    return undefined;
+  }
+  const name = nameOf(result.residentId);
+  const target = result.target;
+  if (!target) {
+    return { key: 'hint.dragNoHouse', params: { name } };
+  }
+  const params = { name, current: target.used, needed: target.capacity };
+  if (result.moved) {
+    return { key: 'hint.homeMoved', params };
+  }
+  const key = homeProblem(target.result) ?? 'hint.dragHold';
+  return { key, params };
+}
+
+/** Why a resident can not move into the house (M7): it is full, it is their own, or it is no house. */
+function homeProblem(result: HomeResult): TextKey | undefined {
+  switch (result) {
+    case 'ok':
+      return undefined;
+    case 'full':
+      return 'hint.homeFull';
+    case 'same':
+      return 'hint.homeSame';
+    case 'noHouse':
+    case 'noResident':
+      return 'hint.homePickHouse';
   }
 }
 

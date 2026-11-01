@@ -1,9 +1,10 @@
 import { productionOf } from '../../src/sim/economy';
+import { roundTicks } from '../../src/sim/production';
 import { describe, expect, it } from 'vitest';
 import { t } from '../../src/data/texts';
 import { createInitialState } from '../../src/sim/state';
 import { cardStatus, missingInputOf, productionInfo } from '../../src/ui/productionInfo';
-import { buildConnected, fillTerrain, grassState, setStore, tickN } from '../sim/helpers';
+import { buildConnected, fillTerrain, grassState, run, setStore, tickN } from '../sim/helpers';
 
 describe('productionInfo: Bilder „braucht → macht“', () => {
   it('Holzfällerhütte braucht Bäume und macht Holz', () => {
@@ -37,16 +38,36 @@ describe('productionInfo: Bilder „braucht → macht“', () => {
 });
 
 describe('cardStatus: ein kurzer Satz und der Fortschritt', () => {
-  it('zeigt „fleißig“ mit wachsendem Fortschritt', () => {
+  it('zeigt „fleißig“ mit wachsendem Fortschritt (im Startdorf fröhlich: etwas schneller)', () => {
     const state = createInitialState(1);
     const garden = state.buildings.find((b) => b.type === 'berry-garden');
     const id = garden?.id ?? -1;
-    expect(cardStatus(state, id)).toMatchObject({ status: 'working', text: 'status.working', progress: 0 });
-    // Die Hälfte der Runde (der Takt steht in buildings.json).
-    tickN(state, Math.floor((productionOf('berry-garden')?.intervalTicks ?? 50) / 2));
+    expect(cardStatus(state, id)).toMatchObject({ status: 'working', text: 'status.workingHappy', progress: 0, pace: 120, mood: 'happy' });
+    // Die Hälfte der Runde des fröhlichen Gärtners (der Takt steht in buildings.json).
+    const round = roundTicks(productionOf('berry-garden')?.intervalTicks ?? 50, 120);
+    tickN(state, Math.floor(round / 2));
     const status = cardStatus(state, id);
     expect(status?.progress).toBeGreaterThan(0.4);
     expect(status?.progress).toBeLessThan(0.6);
+  });
+
+  it('sagt, wenn der Arbeiter normal oder traurig ist (M7); ohne Arbeiter 100 %', () => {
+    const state = createInitialState(1);
+    const garden = state.buildings.find((b) => b.type === 'berry-garden');
+    const id = garden?.id ?? -1;
+    const cx = Math.floor(state.world.width / 2);
+    const cy = Math.floor(state.world.height / 2);
+    run(state, { type: 'demolish', x: cx - 4, y: cy - 1 }, { type: 'demolish', x: cx - 1, y: cy - 3 });
+    expect(cardStatus(state, id)).toMatchObject({ text: 'status.working', pace: 100, mood: 'normal' });
+    for (const r of state.residents) {
+      r.hungry = true;
+    }
+    expect(cardStatus(state, id)).toMatchObject({ text: 'status.workingSad', pace: 80, mood: 'sad' });
+    expect(t('status.workingSad')).toBe('Arbeitet etwas langsamer. Fröhlich geht es schneller.');
+    state.residents = [];
+    const alone = cardStatus(state, id);
+    expect(alone).toMatchObject({ text: 'status.working', pace: 100 });
+    expect(alone && 'mood' in alone).toBe(false);
   });
 
   it('zeigt den leeren Markt als „nichts zu verkaufen“', () => {

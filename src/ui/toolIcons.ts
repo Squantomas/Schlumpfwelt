@@ -1,13 +1,13 @@
 import type Phaser from 'phaser';
 import type { ShopCategory } from '../data/buildings';
-import type { ToolId } from './buildTool';
+import type { ToolbarToolId } from './buildTool';
 import { COLORS, HOUSE_PALETTES } from './style';
 
 /**
  * Little pictures for the toolbar, drawn with Phaser graphics around (0, 0)
  * inside a box of `s × s` CSS px. Placeholders until the real graphics (M8).
  */
-export function drawToolIcon(g: Phaser.GameObjects.Graphics, tool: Exclude<ToolId, 'view' | 'place'>, s: number): void {
+export function drawToolIcon(g: Phaser.GameObjects.Graphics, tool: ToolbarToolId, s: number): void {
   g.clear();
   switch (tool) {
     case 'path':
@@ -42,6 +42,23 @@ export function drawCategoryIcon(g: Phaser.GameObjects.Graphics, category: ShopC
       drawIsland(g, s);
       break;
   }
+}
+
+/** The button "Umziehen" on a resident's card (M7): a mushroom house with an arrow pointing into it. */
+export function drawMoveHomeIcon(g: Phaser.GameObjects.Graphics, s: number): void {
+  g.clear();
+  g.save();
+  g.translateCanvas(s * 0.14, 0);
+  drawHouse(g, s * 0.82);
+  g.restore();
+  const y = s * 0.2;
+  const left = -s * 0.5;
+  const tip = -s * 0.12;
+  const head = s * 0.13;
+  g.fillStyle(COLORS.white).fillRoundedRect(left - 2, y - s * 0.06 - 2, tip - left + 4, s * 0.12 + 4, s * 0.06);
+  g.fillTriangle(tip + head * 0.9 + 2, y, tip - 2, y - head - 3, tip - 2, y + head + 3);
+  g.fillStyle(COLORS.buttonIcon).fillRoundedRect(left, y - s * 0.06, tip - left, s * 0.12, s * 0.06);
+  g.fillTriangle(tip + head * 0.9, y, tip, y - head, tip, y + head);
 }
 
 function drawPath(g: Phaser.GameObjects.Graphics, s: number): void {

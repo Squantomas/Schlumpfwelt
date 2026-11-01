@@ -3,7 +3,8 @@ import { HAT_IDS } from '../../src/data/residents';
 import { t } from '../../src/data/texts';
 import type { Resident } from '../../src/sim/residents';
 import { createInitialState } from '../../src/sim/state';
-import { activityText, hatColorText, jobText, residentInfo, residentSentence } from '../../src/ui/residentInfo';
+import type { MoodFactors } from '../../src/sim/mood';
+import { activityText, cardRows, hatColorText, jobText, moodLine, moodReason, moodTip, residentInfo, residentSentence } from '../../src/ui/residentInfo';
 import { grassState, run } from '../sim/helpers';
 
 const resident = (changes: Partial<Resident> = {}): Resident => ({
@@ -22,6 +23,8 @@ const resident = (changes: Partial<Resident> = {}): Resident => ({
   carrying: null,
   seen: 0,
   trips: 0,
+  meal: 1800,
+  hungry: false,
   ...changes,
 });
 
@@ -80,5 +83,95 @@ describe('residentInfo', () => {
     const first = state.residents[0];
     const info = first ? residentInfo(state, first.id) : undefined;
     expect(info && residentSentence(info)).toBe(`${first?.name ?? ''}: ${info?.activity ?? ''}`);
+  });
+});
+
+describe('Stimmung auf der Karte (M7)', () => {
+  const factors = (changes: Partial<MoodFactors>): MoodFactors => ({ mood: 'normal', homeless: false, deco: false, far: false, near: false, hungry: false, ...changes });
+
+  it('im Startdorf sind beide fröhlich: Deko am Haus, dazu ein Lob', () => {
+    const state = createInitialState(1);
+    for (const r of state.residents) {
+      const info = residentInfo(state, r.id);
+      expect(info?.mood).toBe('happy');
+      expect(info?.moodLine).toBe('Fröhlich – Deko am Haus.');
+      expect(info?.tip).toBe('Fröhlich geht die Arbeit schneller!');
+      expect(info?.canMove).toBe(true);
+    }
+  });
+
+  it('ohne Deko normal mit dem Tipp „Blumen am Haus machen fröhlich.“; mit Hunger traurig mit dem Tipp zum Essen', () => {
+    const state = createInitialState(1);
+    const cx = Math.floor(state.world.width / 2);
+    const cy = Math.floor(state.world.height / 2);
+    run(state, { type: 'demolish', x: cx - 4, y: cy - 1 }, { type: 'demolish', x: cx - 1, y: cy - 3 });
+    const [first] = state.residents;
+    if (!first) {
+      throw new Error('fehlt');
+    }
+    expect(residentInfo(state, first.id)).toMatchObject({ mood: 'normal', moodLine: 'Normal – keine Deko am Haus.', tip: 'Tipp: Blumen am Haus machen fröhlich.' });
+    first.hungry = true;
+    expect(residentInfo(state, first.id)).toMatchObject({ mood: 'sad', moodLine: 'Traurig – hat Hunger.', tip: 'Tipp: Ein Beerengarten bringt Essen.' });
+  });
+
+  it('wer noch kein Zuhause hat, ist normal und bekommt den Tipp zum Haus; auf dem Boot kann niemand umziehen', () => {
+    const state = grassState();
+    state.residents = [resident(), resident({ id: 2, doing: 'boat' })];
+    expect(residentInfo(state, 1)).toMatchObject({ mood: 'normal', moodLine: 'Normal – noch kein Zuhause.', tip: 'Tipp: Bau ein Haus mit Blumen daneben.', canMove: true });
+    expect(residentInfo(state, 2)?.canMove).toBe(false);
+  });
+
+  it('auf dem Boot: ein Tipp auf das ausgegraute „Umziehen“ setzt einen kurzen Satz an die Stelle des Tipps', () => {
+    const state = grassState();
+    state.residents = [resident({ id: 2, name: 'Lumo', doing: 'boat' })];
+    const info = residentInfo(state, 2);
+    if (!info) {
+      throw new Error('fehlt');
+    }
+    const note = t('resident.boatWait', { name: info.name });
+    expect(note).toBe('Lumo steigt gleich aus.');
+    const tall = cardRows(info, false, note);
+    expect(tall).toHaveLength(6);
+    expect(tall[5]).toBe(note);
+    expect(tall.slice(0, 5)).toEqual(cardRows(info, false).slice(0, 5));
+    const compact = cardRows(info, true, note);
+    expect(compact).toHaveLength(4);
+    expect(compact[3]).toBe(note);
+    expect(cardRows(info, true)[3]).toBe(info.tip);
+    // Short enough for the card of a phone, with the longest name.
+    expect(t('resident.boatWait', { name: 'Wolkenstein 12' }).length).toBeLessThanOrEqual(42);
+  });
+
+  it('der Grund nennt zuerst, was stört (Hunger, weiter Weg, kein Zuhause), sonst die Deko', () => {
+    expect(moodReason(factors({ hungry: true, far: true }))).toBe('reason.hungryFar');
+    expect(moodReason(factors({ hungry: true, homeless: true }))).toBe('reason.hungryHomeless');
+    expect(moodReason(factors({ hungry: true, deco: true }))).toBe('reason.hungry');
+    expect(moodReason(factors({ far: true, deco: true }))).toBe('reason.decoFar');
+    expect(moodReason(factors({ far: true }))).toBe('reason.far');
+    expect(moodReason(factors({ homeless: true }))).toBe('reason.homeless');
+    expect(moodReason(factors({ deco: true, near: true }))).toBe('reason.deco');
+    expect(moodReason(factors({}))).toBe('reason.noDeco');
+  });
+
+  it('der Tipp hilft dort, wo es hakt: Essen vor Weg vor Haus vor Deko; fröhlich gibt es ein Lob', () => {
+    expect(moodTip(factors({ mood: 'happy', deco: true }))).toBe('tip.happy');
+    expect(moodTip(factors({ mood: 'sad', hungry: true, far: true }))).toBe('tip.food');
+    expect(moodTip(factors({ mood: 'sad', far: true }))).toBe('tip.near');
+    expect(moodTip(factors({ homeless: true }))).toBe('tip.house');
+    expect(moodTip(factors({}))).toBe('tip.deco');
+    expect(moodLine(factors({ mood: 'sad', far: true }))).toBe('Traurig – weiter Weg zur Arbeit.');
+  });
+
+  it('jede Zeile bleibt kurz (höchstens 42 Zeichen) – sie passt auf die Karte eines Handys', () => {
+    const all: MoodFactors[] = [];
+    for (const mood of ['happy', 'normal', 'sad'] as const) {
+      for (let bits = 0; bits < 16; bits += 1) {
+        all.push(factors({ mood, homeless: (bits & 1) > 0, deco: (bits & 2) > 0, far: (bits & 4) > 0, hungry: (bits & 8) > 0 }));
+      }
+    }
+    for (const f of all) {
+      expect(moodLine(f).length).toBeLessThanOrEqual(42);
+      expect(t(moodTip(f)).length).toBeLessThanOrEqual(42);
+    }
   });
 });

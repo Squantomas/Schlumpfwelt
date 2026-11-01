@@ -6,7 +6,12 @@
  *
  * Format and versions:
  * - `format` marks our files (`SAVE_FORMAT`), `version` is the schema version.
- * - Version 3 (current, M6) adds the residents: who they are, where they live
+ * - Version 4 (current, M7) adds the food of every resident: the ticks to
+ *   the next meal (`meal`) and whether they are hungry (`hungry`). The mood
+ *   itself is not saved – it follows from the village and the hunger. A
+ *   village of version 3 gets its meals spread over the next minutes, nobody
+ *   is hungry (`migrateV3ToV4`).
+ * - Version 3 (M6) adds the residents: who they are, where they live
  *   and work, where they are and where they go (with their way), the boats on
  *   the water, the next resident id and the residents' random generator.
  * - Version 2 holds everything else that makes up a village: the seed,
@@ -37,7 +42,8 @@ import type { PlacedBuilding } from './buildings';
 import { PRODUCER_STATUSES, newProducer, normalizeInventory, productionOf, type ProducerState, type ProducerStatus } from './economy';
 import { generateIsland } from './islandGen';
 import { normalizePlanted, type PlantedTile } from './island';
-import { refreshStatuses } from './production';
+import { firstMeal } from './mood';
+import { longestRound, refreshStatuses } from './production';
 import { normalizeSeed } from './random';
 import type { DeepReadonly } from './readonly';
 import { readResidents } from './residentSave';
@@ -50,7 +56,7 @@ import { TERRAINS, createWorld, inBounds, isLand, type Terrain, type World } fro
 export const SAVE_FORMAT = 'village-save';
 
 /** The schema version `toSaveData` writes. Raise it with every change of the format and add a migration. */
-export const SAVE_VERSION = 3;
+export const SAVE_VERSION = 4;
 
 /**
  * Limits against absurd files (a loaded village must never make the game stand still): a map side in tiles is at
@@ -128,6 +134,8 @@ export function toSaveData(state: DeepReadonly<SimState>): SaveData {
       carrying: r.carrying,
       seen: r.seen,
       trips: r.trips,
+      meal: r.meal,
+      hungry: r.hungry,
     })),
     nextResidentId: state.nextResidentId,
     boats: state.boats.map((b) => ({ id: b.id, at: b.at, route: [...b.route], step: b.step, passenger: b.passenger, shore: b.shore })),
@@ -218,8 +226,21 @@ export function migrateV2ToV3(data: Readonly<SaveRecord>): SaveRecord {
   };
 }
 
+/**
+ * Version 3 → 4 (M7): the residents did not eat yet. Everybody is fed; the first meals are spread over one time
+ * between meals (`firstMeal`), so a village does not empty its store at one moment.
+ */
+export function migrateV3ToV4(data: Readonly<SaveRecord>): SaveRecord {
+  const residents = Array.isArray(data['residents']) ? (data['residents'] as unknown[]) : [];
+  return {
+    ...data,
+    version: 4,
+    residents: residents.map((entry, i) => (isRecord(entry) ? { ...entry, meal: firstMeal(i, residents.length), hungry: false } : entry)),
+  };
+}
+
 /** The steps by the version they start at: `MIGRATIONS[1]` leads from version 1 to 2. */
-export const MIGRATIONS: Readonly<Record<number, Migration>> = { 1: migrateV1ToV2, 2: migrateV2ToV3 };
+export const MIGRATIONS: Readonly<Record<number, Migration>> = { 1: migrateV1ToV2, 2: migrateV2ToV3, 3: migrateV3ToV4 };
 
 /**
  * Applies the steps one after the other from `from` up to `target`. Returns
@@ -393,8 +414,8 @@ function readProduction(raw: unknown, buildings: readonly PlacedBuilding[]): Pro
     const status = entry['status'];
     result.push({
       buildingId: building.id,
-      // A round that is "over" in the file starts again; the inputs of a running round were already taken.
-      progress: progress < rules.intervalTicks ? progress : 0,
+      // A round that is "over" in the file starts again (a sad worker's round is the longest); the inputs of a running round were already taken.
+      progress: progress < longestRound(rules.intervalTicks) ? progress : 0,
       status: PRODUCER_STATUSES.includes(status as ProducerStatus) ? (status as ProducerStatus) : 'working',
       delivered: wholeNumber(entry['delivered'], 0),
       lastSale: wholeNumber(entry['lastSale'], 0),

@@ -3,7 +3,7 @@ import { SHOP_CATEGORIES, buildingType, shopItems, type BuildingType } from '../
 import { ITEM_IDS } from '../../data/goods';
 import { t, type TextKey, type TextParams } from '../../data/texts';
 import type { Rect } from '../../ui/cameraMath';
-import { TOOLS, type BuildTool, type BuildToolState, type ToolId } from '../../ui/buildTool';
+import { TOOLS, type BuildTool, type BuildToolState, type ToolId, type ToolbarToolId } from '../../ui/buildTool';
 import { CHIP_H, CHIP_W, EXIT_RADIUS, HINT_MAX_HEIGHT_NARROW, HINT_MIN_HEIGHT, hintBarGeometry, layoutBuildUi, type BuildLayout } from '../../ui/buildLayout';
 import { CANCEL_DIAMETER, CONFIRM_DIAMETER } from '../../ui/confirmLayout';
 import { createLabel, setLabelSize } from '../../ui/label';
@@ -48,6 +48,11 @@ export interface UiSpot {
   readonly font?: number;
   /** The shop line: height of the sentence as measured (CSS px). */
   readonly textH?: number;
+  /** The card of a resident: how many rows it shows and the mood its picture shows (M7). */
+  readonly rows?: number;
+  readonly mood?: string;
+  /** The card of a resident on the boat says "… steigt gleich aus." in place of the tip (after a tap on "Umziehen"). */
+  readonly note?: boolean;
 }
 
 /** The words under the toolbar buttons and the shop tabs are at least this big (CSS px), else only the picture stays. */
@@ -85,7 +90,7 @@ export class BuildUI {
   private readonly exitButton: RoundButton;
   private readonly confirmButton: RoundButton;
   private readonly cancelButton: RoundButton;
-  private readonly toolButtons = new Map<Exclude<ToolId, 'view' | 'place'>, SquareButton>();
+  private readonly toolButtons = new Map<ToolbarToolId, SquareButton>();
   private readonly chipButtons = new Map<string, SquareButton>();
   private readonly shopStar: Phaser.GameObjects.Graphics;
   /** The gear under the zoom buttons: opens the menu (save and load a file). Only while looking. */
@@ -136,11 +141,27 @@ export class BuildUI {
       this.tool.closeInfo();
       this.refresh();
     });
-    this.residentCard = new ResidentCard(scene, uiLayer, (time) => {
-      this.touched(time);
-      this.tool.closeInfo();
-      this.refresh();
-    });
+    this.residentCard = new ResidentCard(
+      scene,
+      uiLayer,
+      (time) => {
+        this.touched(time);
+        this.tool.closeInfo();
+        this.refresh();
+      },
+      (time) => {
+        // "Umziehen" (M7): the card closes, the hint bar asks for the new house.
+        this.touched(time);
+        this.board.clearExplanation();
+        this.tool.startMoveHome();
+        this.refresh();
+      },
+      (time) => {
+        // The dimmed "Umziehen" (still on the boat): the card says why by itself.
+        this.touched(time);
+        this.spotsDirty = true;
+      },
+    );
     this.knownResidents = this.getState().nextResidentId;
     this.stock.update(this.getState().inventory, false);
     this.toolbarPanel = addGraphics(scene);
@@ -563,7 +584,7 @@ export class BuildUI {
     const inspected = this.tool.inspectedId;
     const cardOpen = this.tool.cardOpen;
     this.cardFallback = undefined;
-    let layout = layoutBuildUi({ ...input, infoOpen: cardOpen, hintHeight: this.measureHint() });
+    let layout = layoutBuildUi({ ...input, infoOpen: cardOpen, residentOpen: this.tool.inspectedResidentId !== undefined, hintHeight: this.measureHint() });
     if (cardOpen && layout.card && !layout.card.fits) {
       // No room for the card (a very low screen): its sentence goes into the hint bar instead.
       this.cardFallback = this.cardSentence(inspected);
@@ -648,15 +669,26 @@ export class BuildUI {
       }
       const stockRect = this.stock.rect;
       spots['stock'] = { x: stockRect.x + stockRect.width / 2, y: stockRect.y + stockRect.height / 2, enabled: true, w: stockRect.width, h: stockRect.height };
+      // The free part of the screen between the bars (where a glide to a boat or a chosen house brings it), not a button.
+      const band = this.freeBand;
+      const bandBottom = Math.min(band.bottom, this.view.height);
+      spots['band'] = { x: this.view.width / 2, y: (band.top + bandBottom) / 2, enabled: false, w: this.view.width, h: Math.max(0, bandBottom - band.top) };
       // Only one card is open at a time: the info card of a building or the card of a resident.
       const openCard = this.card.isOpen ? this.card : this.residentCard.isOpen ? this.residentCard : undefined;
       if (openCard) {
         const cardRect = openCard.rect;
-        const rows = openCard === this.residentCard ? { font: this.residentCard.rowsFont } : {};
+        const rows =
+          openCard === this.residentCard
+            ? { font: this.residentCard.rowsFont, rows: this.residentCard.rowCount, mood: this.residentCard.shownMood, ...(this.residentCard.noteShown ? { note: true } : {}) }
+            : {};
         spots['card'] = { x: cardRect.x + cardRect.width / 2, y: cardRect.y + cardRect.height / 2, enabled: true, w: cardRect.width, h: cardRect.height, ...rows };
         const close = openCard.closeSpot;
         const closeSize = 'size' in close ? close.size : 64;
         spots['card-close'] = { x: close.x, y: close.y, enabled: true, w: closeSize, h: closeSize };
+        const move = openCard === this.residentCard ? this.residentCard.moveSpot : undefined;
+        if (move) {
+          spots['card-move'] = { x: move.x, y: move.y, enabled: move.enabled, w: move.w, h: move.h, font: move.font };
+        }
       }
       for (const button of this.chipButtons.values()) {
         if (button.visible) {

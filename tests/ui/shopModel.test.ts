@@ -194,5 +194,5 @@ describe('Einladen im Shop (M6)', () => {
 });
 
 function fakeResident(): SimState['residents'][number] {
-  return { id: 1, name: 'Lumo', hat: 0, home: null, job: null, at: 0, route: [], step: 0, doing: 'stay', goal: 'visit', place: null, timer: 1, carrying: null, seen: 0, trips: 0 };
+  return { id: 1, name: 'Lumo', hat: 0, home: null, job: null, at: 0, route: [], step: 0, doing: 'stay', goal: 'visit', place: null, timer: 1, carrying: null, seen: 0, trips: 0, meal: 1800, hungry: false };
 }

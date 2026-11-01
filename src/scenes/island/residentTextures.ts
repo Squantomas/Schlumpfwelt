@@ -1,5 +1,5 @@
 import type Phaser from 'phaser';
-import { HAT_IDS } from '../../data/residents';
+import { HAT_IDS, type Mood } from '../../data/residents';
 import { COLORS, HAT_COLORS, cssColor, cssRgba } from '../../ui/style';
 import { circle, ellipse, make, roundedBox } from './objectTextures';
 
@@ -37,6 +37,12 @@ export const BOAT_BACK_KEY = 'resident-boat-back';
 export const BOAT_FRONT_KEY = 'resident-boat-front';
 export const RESIDENT_RING_KEY = 'resident-ring';
 
+/** The pictures of the moods (M7): heart, face, cloud – on the card and (heart and cloud only) over a resident now and then. */
+export const MOOD_SIZE = 48;
+export function moodTextureKey(mood: Mood): string {
+  return `mood-${mood}`;
+}
+
 const css = cssColor;
 
 /** Creates the textures (once; later scenes reuse them). */
@@ -51,6 +57,15 @@ export function registerResidentTextures(scene: Phaser.Scene): void {
   });
   make(scene, BOAT_FRONT_KEY, BOAT_SIZE.width, BOAT_SIZE.height, (ctx) => {
     drawBoatFront(ctx, BOAT_SIZE.width / 2, 40);
+  });
+  make(scene, moodTextureKey('happy'), MOOD_SIZE, MOOD_SIZE, (ctx) => {
+    drawHeart(ctx, MOOD_SIZE / 2, MOOD_SIZE / 2 + 1, MOOD_SIZE * 0.4);
+  });
+  make(scene, moodTextureKey('normal'), MOOD_SIZE, MOOD_SIZE, (ctx) => {
+    drawFace(ctx, MOOD_SIZE / 2, MOOD_SIZE / 2, MOOD_SIZE * 0.4);
+  });
+  make(scene, moodTextureKey('sad'), MOOD_SIZE, MOOD_SIZE, (ctx) => {
+    drawCloud(ctx, MOOD_SIZE / 2, MOOD_SIZE / 2 - 3, MOOD_SIZE * 0.4);
   });
   make(scene, RESIDENT_RING_KEY, 64, 32, (ctx) => {
     ctx.strokeStyle = cssRgba(COLORS.residentRing, 0.95);
@@ -207,4 +222,80 @@ export function drawInvite(ctx: CanvasRenderingContext2D, width: number, height:
   drawResident(ctx, HAT_COLORS['red'] ?? { hat: COLORS.cancel, shade: COLORS.cancelShade }, false, cx - 26, waterY - 57 + 2);
   drawBoatFront(ctx, cx, waterY);
   ctx.restore();
+}
+
+/** A heart around (x, y) of about `r` radius, with a white rim (readable on grass, water and the card). */
+function heartPath(ctx: CanvasRenderingContext2D, x: number, y: number, r: number): void {
+  ctx.beginPath();
+  ctx.moveTo(x, y + r * 0.95);
+  ctx.bezierCurveTo(x - r * 1.35, y + r * 0.05, x - r * 0.85, y - r * 1.05, x, y - r * 0.4);
+  ctx.bezierCurveTo(x + r * 0.85, y - r * 1.05, x + r * 1.35, y + r * 0.05, x, y + r * 0.95);
+  ctx.closePath();
+}
+
+function drawHeart(ctx: CanvasRenderingContext2D, x: number, y: number, r: number): void {
+  ctx.lineJoin = 'round';
+  heartPath(ctx, x, y, r);
+  ctx.strokeStyle = css(COLORS.moodRim);
+  ctx.lineWidth = r * 0.32;
+  ctx.stroke();
+  ctx.fillStyle = css(COLORS.moodHeart);
+  ctx.fill();
+  heartPath(ctx, x + r * 0.12, y + r * 0.1, r * 0.72);
+  ctx.save();
+  ctx.clip();
+  ellipse(ctx, x + r * 0.6, y + r * 0.5, r * 0.8, r * 0.7, css(COLORS.moodHeartShade));
+  ctx.restore();
+  ellipse(ctx, x - r * 0.42, y - r * 0.3, r * 0.2, r * 0.13, cssRgba(COLORS.white, 0.85), -0.6);
+}
+
+/** A round sunny face with a straight mouth: "normal". */
+function drawFace(ctx: CanvasRenderingContext2D, x: number, y: number, r: number): void {
+  circle(ctx, x, y, r + r * 0.16, css(COLORS.moodRim));
+  circle(ctx, x, y, r, css(COLORS.moodFace));
+  ellipse(ctx, x + r * 0.25, y + r * 0.3, r * 0.7, r * 0.6, cssRgba(COLORS.moodFaceShade, 0.45));
+  circle(ctx, x - r * 0.36, y - r * 0.18, r * 0.13, css(COLORS.eye));
+  circle(ctx, x + r * 0.36, y - r * 0.18, r * 0.13, css(COLORS.eye));
+  ctx.strokeStyle = css(COLORS.eye);
+  ctx.lineWidth = r * 0.12;
+  ctx.lineCap = 'round';
+  ctx.beginPath();
+  ctx.moveTo(x - r * 0.34, y + r * 0.36);
+  ctx.lineTo(x + r * 0.34, y + r * 0.36);
+  ctx.stroke();
+}
+
+/** A small grey-blue cloud with a drop under it: "sad". */
+function drawCloud(ctx: CanvasRenderingContext2D, x: number, y: number, r: number): void {
+  const puffs: readonly [number, number, number][] = [
+    [-0.55, 0.15, 0.42],
+    [0, -0.18, 0.55],
+    [0.55, 0.12, 0.44],
+    [0, 0.3, 0.45],
+  ];
+  for (const [dx, dy, pr] of puffs) {
+    circle(ctx, x + dx * r, y + dy * r, pr * r + r * 0.14, css(COLORS.moodRim));
+  }
+  // The drop below.
+  const dropX = x + r * 0.15;
+  const dropY = y + r * 0.95;
+  ctx.fillStyle = css(COLORS.moodRim);
+  ctx.beginPath();
+  ctx.moveTo(dropX, dropY - r * 0.42);
+  ctx.quadraticCurveTo(dropX + r * 0.36, dropY + r * 0.02, dropX, dropY + r * 0.3);
+  ctx.quadraticCurveTo(dropX - r * 0.36, dropY + r * 0.02, dropX, dropY - r * 0.42);
+  ctx.fill();
+  ctx.fillStyle = css(COLORS.moodDrop);
+  ctx.beginPath();
+  ctx.moveTo(dropX, dropY - r * 0.28);
+  ctx.quadraticCurveTo(dropX + r * 0.24, dropY + r * 0.02, dropX, dropY + r * 0.2);
+  ctx.quadraticCurveTo(dropX - r * 0.24, dropY + r * 0.02, dropX, dropY - r * 0.28);
+  ctx.fill();
+  for (const [dx, dy, pr] of puffs) {
+    circle(ctx, x + dx * r, y + dy * r, pr * r, css(COLORS.moodCloud));
+  }
+  ellipse(ctx, x + r * 0.1, y + r * 0.45, r * 0.8, r * 0.22, css(COLORS.moodCloudShade));
+  for (const [dx, dy, pr] of puffs.slice(0, 3)) {
+    circle(ctx, x + dx * r, y + dy * r - pr * r * 0.12, pr * r * 0.86, css(COLORS.moodCloud));
+  }
 }

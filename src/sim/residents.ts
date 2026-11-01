@@ -41,12 +41,21 @@
  *   is refused at once (every tile knows its landmass), they wait a minute at a
  *   time (`cutOffTicks`), and the change of the village that joins the land
  *   sends them off at once.
+ * - **Food and mood (M7, `mood.ts`):** every resident eats from the store now
+ *   and then; the mood (decoration at the house, the way to work, hunger) is
+ *   worked out from the village and changes only how fast a worker works.
+ * - **Moving house (M7):** a child can put a resident into another house with
+ *   room (`assignHome`: dragged there, or chosen on the card). They move in at
+ *   once – the figure stands at the new door and rests – and stay there: only
+ *   residents without a home (or in a house over its room, after loading) are
+ *   given a house by the village itself.
  */
 import { buildingType, capacityOf } from '../data/buildings';
 import { HAT_IDS, RESIDENT_NAMES, RESIDENT_RULES } from '../data/residents';
 import type { PlacedBuilding } from './buildings';
 import { costOf, missingAmounts, takeAmounts, type ProducerState } from './economy';
 import { MAX_BOATS, MAX_RESIDENTS } from './limits';
+import { eat, mealInterval } from './mood';
 import { Rng, hash2, normalizeSeed } from './random';
 import type { DeepReadonly } from './readonly';
 import type { SimState } from './state';
@@ -93,6 +102,10 @@ export interface Resident {
   seen: number;
   /** Deliveries since the last rest at home. */
   trips: number;
+  /** Ticks until the next meal (M7, see `mood.ts`). */
+  meal: number;
+  /** It was time to eat and the store had nothing (M7): makes sad until the next meal. */
+  hungry: boolean;
 }
 
 /** A boat that brings a new resident to the coast and sails away again. */
@@ -305,6 +318,9 @@ function addResident(state: SimState, rng: Rng, job: number | null, home: number
     carrying: null,
     seen: job !== null ? (index.producers.get(job)?.delivered ?? 0) : 0,
     trips: 0,
+    // They arrive fed.
+    meal: mealInterval(state.residents.length + 1),
+    hungry: false,
   };
   state.nextResidentId += 1;
   state.residents.push(resident);
@@ -349,6 +365,76 @@ export function inviteResident(state: SimState, typeId: string): number | undefi
   takeAmounts(state.inventory, costOf(typeId));
   state.revision += 1;
   return resident.id;
+}
+
+// --- Moving house (M7) ---
+
+/**
+ * Can a resident move into this house?
+ * - `same`: they live there already.
+ * - `full`: every place in it is taken (`used` of `capacity`, for "2/2").
+ * - `noHouse`: the building is not a house with room for residents (or not there).
+ * - `noResident`: there is no such resident on land (on the boat they first step out).
+ */
+export type HomeResult = 'ok' | 'same' | 'full' | 'noHouse' | 'noResident';
+
+export interface HomeCheck {
+  readonly result: HomeResult;
+  /** Residents living in the house now (0 when it is no house). */
+  readonly used: number;
+  /** Its room (0 when it is no house). */
+  readonly capacity: number;
+}
+
+export function checkHome(
+  view: Pick<InviteView, 'world' | 'buildings' | 'production' | 'revision' | 'residents'>,
+  residentId: number,
+  houseId: number,
+): HomeCheck {
+  const house = villageIndex(view).byId.get(houseId);
+  const capacity = house && buildingType(house.type)?.category === 'house' ? capacityOf(house.type) : 0;
+  const used = capacity > 0 ? (occupancy(view.residents).get(houseId) ?? 0) : 0;
+  const resident = view.residents.find((r) => r.id === residentId);
+  if (!resident || resident.doing === 'boat') {
+    return { result: 'noResident', used, capacity };
+  }
+  if (capacity <= 0) {
+    return { result: 'noHouse', used, capacity };
+  }
+  if (resident.home === houseId) {
+    return { result: 'same', used, capacity };
+  }
+  return { result: used < capacity ? 'ok' : 'full', used, capacity };
+}
+
+/**
+ * Moves a resident into another house (ignored unless {@link checkHome} says
+ * `ok`). They move in at once: the figure stands at the door of the new house
+ * and rests there (something they carried is put down – the store has it
+ * anyway), then goes on with the day. Counts as a change (`revision`), so it is
+ * saved at once. Returns whether they moved.
+ */
+export function assignHome(state: SimState, residentId: number, houseId: number): boolean {
+  if (checkHome(state, residentId, houseId).result !== 'ok') {
+    return false;
+  }
+  const resident = state.residents.find((r) => r.id === residentId);
+  const house = villageIndex(state).byId.get(houseId);
+  if (!resident || !house) {
+    return false;
+  }
+  resident.home = houseId;
+  resident.at = doorOf(state, house);
+  resident.route = [];
+  resident.step = 0;
+  resident.doing = 'stay';
+  resident.goal = 'home';
+  resident.place = houseId;
+  resident.timer = RESIDENT_RULES.routine.restTicks;
+  resident.carrying = null;
+  resident.trips = 0;
+  state.revision += 1;
+  return true;
 }
 
 // --- Keeping residents in line with the village ---
@@ -728,8 +814,15 @@ export function tickResidents(state: SimState): void {
   const index = villageIndex(state);
   const rng = new Rng(state.residentRng);
   tickBoats(state, index);
+  const count = state.residents.length;
   for (const resident of state.residents) {
     tickResident(state, index, rng, resident);
+    if (resident.doing !== 'boat') {
+      resident.meal -= 1;
+      if (resident.meal <= 0) {
+        eat(state.inventory, resident, count);
+      }
+    }
   }
   state.residentRng = rng.state;
 }

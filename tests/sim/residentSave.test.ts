@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest';
 import { HAT_IDS, LONGEST_TIMER, MAX_NAME_LENGTH, RESIDENT_NAMES, RESIDENT_RULES } from '../../src/data/residents';
 import { MAX_ID, MAX_RESIDENTS, MAX_ROUTE } from '../../src/sim/limits';
 import { residentSeed } from '../../src/sim/residents';
-import { SAVE_VERSION, fromSaveData, loadFromText, migrateV2ToV3, saveToText, toSaveData } from '../../src/sim/saveData';
+import { LONGEST_MEAL, firstMeal, mealInterval, moodOf } from '../../src/sim/mood';
+import { longestRound } from '../../src/sim/production';
+import { SAVE_VERSION, fromSaveData, loadFromText, migrateV2ToV3, migrateV3ToV4, saveToText, toSaveData } from '../../src/sim/saveData';
 import { Simulation } from '../../src/sim/simulation';
 import { createInitialState, type SimState } from '../../src/sim/state';
 import { doorOf, isWalkable } from '../../src/sim/walk';
@@ -47,7 +49,7 @@ function load(data: unknown): SimState {
 
 const residentsOf = (data: Record<string, unknown>): Record<string, unknown>[] => data['residents'] as Record<string, unknown>[];
 
-describe('Spielstand der Bewohner (Version 3)', () => {
+describe('Spielstand der Bewohner (seit Version 3)', () => {
   it('speichert Bewohner, Wege, Boote, die nächste Id und den Zufall – und lädt sie unverändert', () => {
     const sailing = residentVillage(3);
     expect(sailing.boats.length).toBeGreaterThan(0);
@@ -62,7 +64,7 @@ describe('Spielstand der Bewohner (Version 3)', () => {
     }
     const state = walking;
     expect(toSaveData(state).version).toBe(SAVE_VERSION);
-    expect(SAVE_VERSION).toBe(3);
+    expect(SAVE_VERSION).toBe(4);
   });
 
   it('ein laufender Bewohner mit Uhr 0 kommt unverändert zurück (die Uhr wird nicht auf 1 gesetzt)', () => {
@@ -161,6 +163,95 @@ describe('Spielstand: Version 2 → 3 (alte Dörfer bekommen ihre Bewohner)', ()
     };
     const loaded = load(withGarden);
     expect(loaded.residents).toHaveLength(2);
+  });
+});
+
+describe('Spielstand: Version 3 → 4 (M7: Essen; die Stimmung folgt aus dem Dorf)', () => {
+  it('migrateV3ToV4 ändert die Eingabe nicht: alle satt, erste Mahlzeiten über eine Essenszeit verteilt, Unsinn bleibt Unsinn', () => {
+    const input = { format: 'village-save', version: 3, residents: [{ id: 1 }, { id: 2 }, 'x', { id: 3, meal: 5, hungry: true }] };
+    const copy = structuredClone(input);
+    const out = migrateV3ToV4(input);
+    expect(input).toEqual(copy);
+    expect(out['version']).toBe(4);
+    expect(out['residents']).toEqual([
+      { id: 1, meal: firstMeal(0, 4), hungry: false },
+      { id: 2, meal: firstMeal(1, 4), hungry: false },
+      'x',
+      { id: 3, meal: firstMeal(3, 4), hungry: false },
+    ]);
+    expect(migrateV3ToV4({ version: 3, residents: 'alt' })).toEqual({ version: 4, residents: [] });
+  });
+
+  it('ein Dorf der Version 3 lädt: niemand hungrig, Mahlzeiten verteilt, die Stimmung wie im Dorf, sonst alles gleich', () => {
+    const state = residentVillage(40);
+    const v3 = saveWith(state, (data) => {
+      data['version'] = 3;
+      for (const resident of residentsOf(data)) {
+        delete resident['meal'];
+        delete resident['hungry'];
+      }
+    });
+    const loaded = load(v3);
+    expect(loaded.residents.map((r) => r.id)).toEqual(state.residents.map((r) => r.id));
+    loaded.residents.forEach((resident, i) => {
+      expect(resident.hungry).toBe(false);
+      expect(resident.meal).toBe(firstMeal(i, state.residents.length));
+      expect(moodOf(loaded, resident)).toEqual(moodOf(state, { ...resident, hungry: false }));
+    });
+    const strip = (r: SimState['residents'][number]): Partial<SimState['residents'][number]> => ({ ...r, meal: 0, hungry: false });
+    expect(loaded.residents.map(strip)).toEqual(state.residents.map(strip));
+    expect(loaded.inventory).toEqual(state.inventory);
+    expect(toSaveData(loaded).version).toBe(4);
+  });
+
+  it('Mahlzeit und Hunger kommen unverändert zurück', () => {
+    const state = residentVillage(40);
+    const [first, second] = state.residents;
+    if (!first || !second) {
+      throw new Error('fehlt');
+    }
+    first.hungry = true;
+    first.meal = 3;
+    second.meal = mealInterval(9);
+    const loaded = load(JSON.parse(saveToText(state)));
+    expect(loaded.residents).toEqual(state.residents);
+    expect(moodOf(loaded, loaded.residents[0] ?? first)).toEqual(moodOf(state, first));
+  });
+
+  it('kaputte Mahlzeiten werden repariert: zu lang wird gekürzt, Unsinn wird eine verteilte Mahlzeit; Hunger nur bei true', () => {
+    const state = residentVillage(40);
+    const data = saveWith(state, (d) => {
+      const list = residentsOf(d);
+      list.forEach((resident, i) => {
+        resident['meal'] = [1e12, -5, 'bald', null, Number.NaN, 2.7][i % 6];
+        resident['hungry'] = ['ja', 1, null, true, false, {}][i % 6];
+      });
+    });
+    const loaded = load(data);
+    loaded.residents.forEach((resident, i) => {
+      expect(Number.isInteger(resident.meal)).toBe(true);
+      expect(resident.meal).toBeGreaterThanOrEqual(0);
+      expect(resident.meal).toBeLessThanOrEqual(LONGEST_MEAL);
+      expect(resident.hungry).toBe(i % 6 === 3);
+    });
+    expect(loaded.residents[0]?.meal).toBe(LONGEST_MEAL);
+    expect(loaded.residents[1]?.meal).toBe(0);
+    expect(loaded.residents[2]?.meal).toBe(firstMeal(2, loaded.residents.length));
+  });
+
+  it('die lange Runde eines traurigen Arbeiters geht nach dem Laden weiter', () => {
+    const state = residentVillage(10);
+    const producer = state.production[0];
+    if (!producer) {
+      throw new Error('fehlt');
+    }
+    const building = state.buildings.find((b) => b.id === producer.buildingId);
+    const interval = building?.type === 'market' ? 30 : 35;
+    producer.progress = longestRound(interval) - 1;
+    expect(producer.progress).toBeGreaterThanOrEqual(interval);
+    expect(load(JSON.parse(saveToText(state))).production[0]?.progress).toBe(producer.progress);
+    producer.progress = longestRound(interval);
+    expect(load(JSON.parse(saveToText(state))).production[0]?.progress).toBe(0);
   });
 });
 
@@ -276,7 +367,7 @@ describe('Spielstand: kaputte Bewohner werden repariert', () => {
 
   it('stürzt bei keinem Unsinn ab', () => {
     const state = residentVillage(10);
-    for (const junk of [null, 5, 'viele', [null, 7, 'x', [], { id: 'a' }, { id: 3, name: 5, at: -4, route: 'x', doing: 'fliegen', goal: 9, step: -3, timer: 'lang' }]]) {
+    for (const junk of [null, 5, 'viele', [null, 7, 'x', [], { id: 'a' }, { id: 3, name: 5, at: -4, route: 'x', doing: 'fliegen', goal: 9, step: -3, timer: 'lang', meal: 'bald', hungry: 'ja' }]]) {
       const data = saveWith(state, (d) => {
         d['residents'] = junk;
         d['boats'] = junk;

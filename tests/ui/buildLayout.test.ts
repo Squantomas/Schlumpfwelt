@@ -301,3 +301,30 @@ describe('Infokarte', () => {
     expect(at(320, 568)?.compact).toBe(false);
   });
 });
+
+describe('Karte eines Bewohners (M7: mehr Zeilen, darf höher sein)', () => {
+  it.each(MORE_SCREENS)('liegt bei %i×%i frei von Lagerleiste, Zoom-Knöpfen und Werkzeugleiste und ist höchstens 330 px hoch', (width, height) => {
+    const layout = layoutBuildUi(input(width, height, { infoOpen: true, residentOpen: true, hintHeight: 0, hintAtTop: false }));
+    const card = layout.card;
+    if (!card) {
+      throw new Error('keine Karte');
+    }
+    expect(card.fits).toBe(true);
+    expect(card.rect.height).toBeLessThanOrEqual(330);
+    for (const [name, rect] of parts(layout)) {
+      expect(rect.y + rect.height, `${name} unten`).toBeLessThanOrEqual(height + 0.001);
+      if (name !== 'Infokarte') {
+        expect(intersects(card.rect, rect), `Karte überdeckt ${name}`).toBe(false);
+      }
+    }
+    // Never lower than the card of a building: the resident's card only takes more of the free band.
+    const building = layoutBuildUi(input(width, height, { infoOpen: true, hintHeight: 0, hintAtTop: false })).card;
+    expect(card.rect.height).toBeGreaterThanOrEqual(building?.rect.height ?? 0);
+  });
+
+  it('nutzt auf dem Handy hochkant mehr Höhe als die Infokarte eines Gebäudes', () => {
+    const resident = layoutBuildUi(input(320, 568, { infoOpen: true, residentOpen: true, hintHeight: 0, hintAtTop: false })).card;
+    const building = layoutBuildUi(input(320, 568, { infoOpen: true, hintHeight: 0, hintAtTop: false })).card;
+    expect(resident?.rect.height).toBeGreaterThan(building?.rect.height ?? 0);
+  });
+});

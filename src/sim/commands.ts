@@ -1,7 +1,7 @@
 import { buildingType } from '../data/buildings';
 import { addBuilding, addPaths, demolishAt, relocateBuilding, type Tile } from './buildings';
 import { demolishPlanted, placeIslandItem } from './island';
-import { inviteResident, settleResidents } from './residents';
+import { assignHome, inviteResident, settleResidents } from './residents';
 import type { SimState } from './state';
 
 /**
@@ -22,7 +22,8 @@ export type Command =
   | PlaceRockCommand
   | FillLandCommand
   | MakeMeadowCommand
-  | InviteResidentCommand;
+  | InviteResidentCommand
+  | AssignHomeCommand;
 
 export interface SetPausedCommand {
   readonly type: 'setPaused';
@@ -116,6 +117,16 @@ export interface InviteResidentCommand {
   readonly typeId: string;
 }
 
+/**
+ * Moves a resident into another house (M7): dragged onto it, or chosen on the card. Ignored unless the house has
+ * room (see `checkHome`). They move in at once and stay there. Counts as a change (`revision`).
+ */
+export interface AssignHomeCommand {
+  readonly type: 'assignHome';
+  readonly residentId: number;
+  readonly houseId: number;
+}
+
 /** The command that puts a shop item on the tile (x, y): a building command, or for island items their own island command. */
 export function placementCommand(typeId: string, x: number, y: number): Command {
   switch (buildingType(typeId)?.island?.action) {
@@ -172,6 +183,9 @@ function applyOne(state: SimState, command: Command): void {
       return;
     case 'inviteResident':
       inviteResident(state, command.typeId);
+      return;
+    case 'assignHome':
+      assignHome(state, command.residentId, command.houseId);
       return;
     default:
       return assertNever(command);

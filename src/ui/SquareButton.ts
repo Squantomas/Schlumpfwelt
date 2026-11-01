@@ -44,6 +44,8 @@ export class SquareButton extends Phaser.GameObjects.Container {
   private readonly footer: SquareButtonOptions['footer'];
   private readonly minCaptionFont: number | undefined;
   private captionOff = false;
+  /** The size the word should have (CSS px, see {@link setCaptionFont}); `undefined`: it follows the height. */
+  private wantedCaption: number | undefined;
 
   constructor(scene: Phaser.Scene, options: SquareButtonOptions) {
     super(scene, 0, 0);
@@ -98,6 +100,23 @@ export class SquareButton extends Phaser.GameObjects.Container {
       this.caption.setPosition(0, -height / 2 + height * 0.04 + pictureHeight + captionHeight / 2);
       this.footer.layoutTo(width - 8, footerHeight * 0.8);
       this.footer.setPosition(0, height / 2 - footerHeight / 2 - height * 0.03);
+    } else if (this.wantedCaption !== undefined) {
+      // A word of a given size (the button "Umziehen" matches the rows of its card): it takes the room it needs from
+      // the picture – the picture keeps at least half of the button – and shrinks only if the button is too narrow.
+      const lines = this.caption.text.split('\n').length;
+      const minFont = this.minCaptionFont ?? 11;
+      const area = Math.min(height * 0.5, Math.max(height * (1 - PICTURE_SHARE), this.wantedCaption * 1.25 * lines + 4));
+      setLabelSize(this.caption, Math.max(minFont, Math.floor(Math.min(this.wantedCaption, (area - 4) / (1.25 * lines)))), width - 6);
+      const picture = height - area;
+      this.fitContent(this.content, width * 0.8, picture * 0.86);
+      this.content.setPosition(0, -height / 2 + picture / 2 + height * 0.04);
+      this.caption.setPosition(0, height / 2 - area / 2 - height * 0.02);
+      const tooNarrow = this.captionOff || Number.parseFloat(String(this.caption.style.fontSize)) < minFont;
+      this.caption.setVisible(!tooNarrow);
+      if (tooNarrow) {
+        this.fitContent(this.content, width * 0.8, height * 0.8);
+        this.content.setPosition(0, 0);
+      }
     } else {
       const lines = this.caption.text.split('\n').length;
       const minFont = this.minCaptionFont ?? 11;
@@ -112,6 +131,20 @@ export class SquareButton extends Phaser.GameObjects.Container {
       }
     }
     this.draw();
+    return this;
+  }
+
+  /**
+   * The word under the picture gets this size (CSS px) instead of one that follows the height – as far as the button
+   * has room for it (it takes some from the picture, and it shrinks to the width). Lays the button out again.
+   */
+  setCaptionFont(font: number | undefined): this {
+    if (font !== this.wantedCaption) {
+      this.wantedCaption = font;
+      if (this.buttonWidth > 0 && this.buttonHeight > 0) {
+        this.layoutTo(this.buttonWidth, this.buttonHeight);
+      }
+    }
     return this;
   }
 

@@ -5,6 +5,7 @@ import { costOf, productionOf } from '../../src/sim/economy';
 import { Simulation } from '../../src/sim/simulation';
 import { createInitialState } from '../../src/sim/state';
 import { Bot } from './bot';
+import { run } from './helpers';
 
 const SECOND = 10;
 
@@ -42,16 +43,31 @@ describe('Einkommen am Start (Korrekturrunde 1, T2)', () => {
     expect(rate).toBeLessThanOrEqual(0.8);
   });
 
-  it('nach 80 bis 95 Sekunden sind 40 Taler zusätzlich zum Start verdient – das zweite Haus kommt auch ohne Startgeld in dieser Zeit', () => {
-    const sim = new Simulation(createInitialState(1));
+  /** Sekunden, bis das Dorf 40 Taler zusätzlich zum Start hat. */
+  function secondsFor40(state: ReturnType<typeof createInitialState>): number {
+    const sim = new Simulation(state);
     const start = sim.state.inventory['coins'] ?? 0;
     let seconds = 0;
     while ((sim.state.inventory['coins'] ?? 0) < start + 40 && seconds < 300) {
       coinsAfter(sim, 1);
       seconds += 1;
     }
+    return seconds;
+  }
+
+  it('nach 80 bis 95 Sekunden sind 40 Taler zusätzlich zum Start verdient – das zweite Haus kommt auch ohne Startgeld in dieser Zeit', () => {
+    // Bei normaler Stimmung (M7: ohne die Deko am Haus) wie bis M6 (dort gemessen: 87 s).
+    const plain = createInitialState(1);
+    const cx = Math.floor(plain.world.width / 2);
+    const cy = Math.floor(plain.world.height / 2);
+    run(plain, { type: 'demolish', x: cx - 4, y: cy - 1 }, { type: 'demolish', x: cx - 1, y: cy - 3 });
+    const seconds = secondsFor40(plain);
     expect(seconds).toBeGreaterThanOrEqual(80);
     expect(seconds).toBeLessThanOrEqual(95);
+    // Im Startdorf selbst sind beide fröhlich (Blume und Busch am Haus): etwas schneller, aber kein Geschenk (M7: 72 s).
+    const happy = secondsFor40(createInitialState(1));
+    expect(happy).toBeLessThan(seconds);
+    expect(happy).toBeGreaterThanOrEqual(65);
   });
 
   it('das Holz für das zweite Haus liegt im Startlager', () => {

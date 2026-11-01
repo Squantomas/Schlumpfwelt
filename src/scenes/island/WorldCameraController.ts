@@ -26,6 +26,17 @@ export interface WorldCameraOptions {
   readonly blocksWheel?: (x: number, y: number) => boolean;
   /** A tap on the world (not on a button): the world point and the screen point (CSS px). */
   readonly onTap: (world: Point, screen: Point, eventTime: number) => void;
+  /**
+   * Optional (M7): does a first press here pick something up (a resident)? Then moving the finger carries it
+   * (`onCarry`) instead of moving the camera, and the release puts it down (`onDrop`). Released without moving it
+   * stays a tap (`onCancelCarry`, then `onTap`); a second finger cancels it and pinches.
+   */
+  readonly onGrab?: (world: Point, screen: Point) => boolean;
+  readonly onCarry?: (world: Point, screen: Point) => void;
+  readonly onDrop?: (world: Point, screen: Point, eventTime: number) => void;
+  readonly onCancelCarry?: () => void;
+  /** Optional: one finger starts to drag the picture; `screen` is where it was pressed (CSS px). */
+  readonly onPanStart?: (world: Point, screen: Point) => void;
 }
 
 /** Largest wheel step that is taken into account (some mice send huge values). */
@@ -38,6 +49,8 @@ const MAX_WHEEL_DELTA = 240;
  * - One finger or the left mouse button drags, two fingers pinch (zoom around
  *   the middle between them), the mouse wheel zooms around the pointer.
  * - Presses that start on a game object (the +/− buttons) never move the camera.
+ * - A press on something the scene lets pick up (a resident, M7) carries it
+ *   instead of moving the camera; a press beside it moves the camera as always.
  * - The world camera zooms by `rig zoom × render scale`, so the game zoom and
  *   the canvas resolution multiply cleanly (see `viewport.ts`).
  */
@@ -62,8 +75,13 @@ export class WorldCameraController {
         },
         pan: (dx, dy) => this.rig.pan(dx, dy),
         pinch: (from, to, scale) => this.rig.pinch(from, to, scale),
-        tap: (at) => options.onTap(screenToWorld(this.rig.view, this.rig.viewSize, at), at, this.upTime),
+        tap: (at) => options.onTap(this.toWorld(at), at, this.upTime),
         fling: (vx, vy) => this.rig.fling(vx, vy),
+        grab: (at) => options.onGrab?.(this.toWorld(at), at) === true,
+        carry: (at) => options.onCarry?.(this.toWorld(at), at),
+        drop: (at) => options.onDrop?.(this.toWorld(at), at, this.upTime),
+        cancelCarry: () => options.onCancelCarry?.(),
+        panStart: (at) => options.onPanStart?.(this.toWorld(at), at),
       },
       { tapMaxMovePx: options.tapMaxMovePx },
     );
@@ -89,6 +107,18 @@ export class WorldCameraController {
 
   get view(): CameraRig['view'] {
     return this.rig.view;
+  }
+
+  /**
+   * True while a finger or the mouse button is down for a gesture (dragging, pinching, holding or carrying a
+   * resident): then nothing else moves the world under the finger – no glide to a boat, no mouse wheel.
+   */
+  get gestureActive(): boolean {
+    return this.tracker.active && this.scene.input.manager.pointers.some((pointer) => pointer.isDown);
+  }
+
+  private toWorld(at: Point): Point {
+    return screenToWorld(this.rig.view, this.rig.viewSize, at);
   }
 
   get viewSize(): Size {
@@ -192,8 +222,9 @@ export class WorldCameraController {
 
   private readonly onWheel = (pointer: Phaser.Input.Pointer, _over: unknown, _dx: number, deltaY: number): void => {
     const point = this.cssPoint(pointer);
-    // The wheel over a panel, the menu or the open shop does not zoom the island behind it.
-    if ((this.options.blocksWheel ?? this.options.blocksPoint)?.(point.x, point.y) === true) {
+    // The wheel over a panel, the menu or the open shop does not zoom the island behind it; nor while the world is
+    // held (a carried resident would slide away under the finger, a drag would jump).
+    if (this.gestureActive || (this.options.blocksWheel ?? this.options.blocksPoint)?.(point.x, point.y) === true) {
       return;
     }
     const delta = Math.max(-MAX_WHEEL_DELTA, Math.min(MAX_WHEEL_DELTA, deltaY));

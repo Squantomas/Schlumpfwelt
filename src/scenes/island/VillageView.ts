@@ -6,7 +6,7 @@ import { nearbyArea, nearbyTiles, productionOf } from '../../sim/economy';
 import type { Simulation } from '../../sim/simulation';
 import type { PathPreviewTile, Preview } from '../../ui/buildTool';
 import { createLabel } from '../../ui/label';
-import { markerY } from '../../ui/markerPosition';
+import { homeLabelY, markerY, type AvoidBox } from '../../ui/markerPosition';
 import { signsFor } from '../../ui/signs';
 import { COLORS, TILE_SIZE } from '../../ui/style';
 import {
@@ -41,6 +41,11 @@ interface Popup {
   readonly label: Phaser.GameObjects.Text;
 }
 const INSPECT_DEPTH = 700_000;
+/** The "2/2" over a house a resident would move into (M7): font size in world px, at least this many CSS px on screen. */
+const HOME_LABEL_FONT = 30;
+/** The "2/2" over a house is drawn above everything in the world – also above a carried resident (see `ResidentView`). */
+const HOME_LABEL_DEPTH = 995_000;
+const HOME_LABEL_MIN_CSS_PX = 22;
 /** The sign above a house is at least this big on screen (CSS px), so it is seen from far away. */
 const MARKER_MIN_CSS_PX = 46;
 const MARKER_MAX_SCALE = 3.4;
@@ -102,6 +107,9 @@ export class VillageView {
   /** The ✓ / ✕ signs of the preview, above the ghost. */
   private readonly badges: Phaser.GameObjects.Graphics;
   private readonly ghost: Phaser.GameObjects.Image;
+  /** How many live in the house a resident would move into, and how many fit ("2/2", M7). */
+  private readonly homeLabel: Phaser.GameObjects.Text;
+  private homeLabelAt: { readonly houseId: number; readonly x: number; readonly y: number } | undefined;
   private revision = -1;
   private liftedId: number | undefined;
   private tintedId: number | undefined;
@@ -118,7 +126,13 @@ export class VillageView {
     this.ghost = scene.add.image(0, 0, PUFF_KEY).setDepth(GHOST_DEPTH).setVisible(false);
     this.badges = addGraphics(scene).setDepth(GHOST_DEPTH + 1);
     this.previewSign = scene.add.image(0, 0, signTextureKey('path')).setOrigin(0.5, 1).setDepth(MARKER_DEPTH).setVisible(false);
-    layer.add([this.inspectOverlay, this.overlay, this.ghost, this.badges, this.previewSign]);
+    this.homeLabel = createLabel(scene, '', HOME_LABEL_FONT).setOrigin(0.5, 1).setDepth(HOME_LABEL_DEPTH).setVisible(false);
+    layer.add([this.inspectOverlay, this.overlay, this.ghost, this.badges, this.previewSign, this.homeLabel]);
+  }
+
+  /** The "2/2" over the house of the preview, for tests: `''` when none is shown. */
+  get shownHomeLabel(): string {
+    return this.homeLabel.visible ? this.homeLabel.text : '';
   }
 
   /** Number of signs ("this house needs a path") that are showing. */
@@ -292,8 +306,12 @@ export class VillageView {
     }
   }
 
-  /** Moves the signs (bobbing, size for the current zoom) and wobbles the lifted building. `seconds` is simulation time, `minWorldY` the top edge (world px) they must stay below. */
-  update(seconds: number, deltaMs: number, zoom: number, minWorldY = Number.NEGATIVE_INFINITY): void {
+  /**
+   * Moves the signs (bobbing, size for the current zoom) and wobbles the lifted building. `seconds` is simulation time,
+   * `minWorldY` the top edge (world px) they must stay below, `carried` the box of a carried resident that the "2/2"
+   * over a house keeps clear of.
+   */
+  update(seconds: number, deltaMs: number, zoom: number, minWorldY = Number.NEGATIVE_INFINITY, carried?: AvoidBox): void {
     const step = Math.min(deltaMs, 100) / 1000;
     // Whether a building waits for wood or has no path can change with every tick, not only with the revision.
     if (this.simulation.state.tick !== this.signTick) {
@@ -317,10 +335,50 @@ export class VillageView {
         .setPosition(marker.baseX, markerY(marker.baseY + bob - 4, minWorldY, MARKER_SIZE.height * fit * pop, marker.houseBottomY))
         .setScale((fit * pop) / TEXTURE_SCALE);
     }
+    if (this.homeLabelAt) {
+      const fit = Phaser.Math.Clamp(HOME_LABEL_MIN_CSS_PX / (HOME_LABEL_FONT * zoom), 1, MARKER_MAX_SCALE);
+      this.homeLabel.setScale(fit);
+      const { x, houseId } = this.homeLabelAt;
+      // The "needs a path" sign over the house would hide the number: it stands above the sign (and the figure).
+      const avoid = [this.signBox(houseId, zoom, minWorldY), carried];
+      this.homeLabel.setPosition(x, homeLabelY(this.homeLabelAt.y, x, this.homeLabel.displayWidth / 2, HOME_LABEL_FONT * fit * 1.3, minWorldY, avoid));
+    }
     const lifted = this.liftedId === undefined ? undefined : this.sprites.get(this.liftedId);
     if (lifted) {
       lifted.image.setAngle(Math.sin(seconds * 9) * 2.4).setY(lifted.baseY - 8 + Math.sin(seconds * 9) * 1.5);
     }
+  }
+
+  /**
+   * Where the "needs a path" sign over building `id` can be at `zoom` (world px), over the whole range of its bobbing –
+   * or `undefined` without a sign.
+   */
+  private signBox(id: number, zoom: number, minWorldY: number): AvoidBox | undefined {
+    const marker = this.markers.get(id);
+    if (!marker || marker.leaving) {
+      return undefined;
+    }
+    const fit = Phaser.Math.Clamp(MARKER_MIN_CSS_PX / (MARKER_BUBBLE * zoom), 1, MARKER_MAX_SCALE);
+    const height = MARKER_SIZE.height * fit;
+    const tip = markerY(marker.baseY - 4 * fit - 4, minWorldY, height, marker.houseBottomY);
+    return { x: marker.baseX, halfWidth: (MARKER_SIZE.width * fit) / 2, top: tip - height, bottom: tip + 8 * fit };
+  }
+
+  /**
+   * The top of the "0/2" over house `houseId` (world px) at `zoom` if it were shown now: just above the roof, or above
+   * its "needs a path" sign (for the camera that glides to a house chosen as a new home).
+   */
+  homeLabelTop(houseId: number, zoom: number): number | undefined {
+    const house = this.simulation.state.buildings.find((b) => b.id === houseId);
+    const type = house ? buildingType(house.type) : undefined;
+    if (!house || !type) {
+      return undefined;
+    }
+    const fit = Phaser.Math.Clamp(HOME_LABEL_MIN_CSS_PX / (HOME_LABEL_FONT * zoom), 1, MARKER_MAX_SCALE);
+    const height = HOME_LABEL_FONT * fit * 1.3;
+    const x = (house.x + type.footprint.w / 2) * TILE_SIZE;
+    const sign = this.signBox(houseId, zoom, Number.NEGATIVE_INFINITY);
+    return homeLabelY(house.y * TILE_SIZE - type.look.rise - 4, x, 1, height, Number.NEGATIVE_INFINITY, [sign]) - height;
   }
 
   /** The sign on the ghost of a building that would stand without a path: the same size and bob as the real one. */
@@ -479,6 +537,8 @@ export class VillageView {
     this.badges.clear();
     this.ghost.setVisible(false);
     this.previewSignAt = undefined;
+    this.homeLabel.setVisible(false);
+    this.homeLabelAt = undefined;
     this.resetHighlights();
 
     switch (preview.kind) {
@@ -543,6 +603,29 @@ export class VillageView {
           if (fits) {
             drawCornerBadge(this.badges, home.x, home.y, type.footprint.w, type.footprint.h, true);
           }
+        }
+        break;
+      }
+      case 'home': {
+        // The house a resident would move into (M7): green with ✓ when there is room, red with ✕ when not – and "2/2".
+        // Carried over a house with room, it is yellow without a mark until the finger stayed there a moment
+        // (`waiting`, Korrekturrunde 1): only green counts.
+        const house = this.simulation.state.buildings.find((b) => b.id === preview.houseId);
+        const type = house ? buildingType(house.type) : undefined;
+        if (house && type) {
+          const fits = preview.result === 'ok';
+          if (preview.waiting) {
+            fillTiles(g, house.x, house.y, type.footprint.w, type.footprint.h, COLORS.selected, 0.35);
+          } else {
+            fillTiles(g, house.x, house.y, type.footprint.w, type.footprint.h, fits ? COLORS.ghostOk : COLORS.ghostBad, 0.5);
+            drawCornerBadge(this.badges, house.x, house.y, type.footprint.w, type.footprint.h, fits);
+          }
+          const text = t('shop.progress', { current: preview.used, needed: preview.capacity });
+          if (this.homeLabel.text !== text) {
+            this.homeLabel.setText(text);
+          }
+          this.homeLabelAt = { houseId: house.id, x: (house.x + type.footprint.w / 2) * TILE_SIZE, y: house.y * TILE_SIZE - type.look.rise - 4 };
+          this.homeLabel.setVisible(true);
         }
         break;
       }
