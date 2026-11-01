@@ -139,6 +139,11 @@ describe('Tutorial: wohin die Hand zeigt (M8)', () => {
     expect(tutorialTarget(undefined, ui)).toEqual({ kind: 'none' });
   });
 
+  it('beim Lob mit offenem Werkzeug zuerst auf das ✕ (sonst stünde das Lob nie da)', () => {
+    expect(tutorialTarget(step('praise'), { ...ui, tool: 'path' })).toEqual({ kind: 'spot', name: 'exit' });
+    expect(tutorialTarget(step('praise'), { ...ui, tool: 'shop' })).toEqual({ kind: 'spot', name: 'shop-close' });
+  });
+
   it('erst zurück zum Anschauen, wenn ein anderes Werkzeug an ist', () => {
     expect(tutorialTarget(step('resident'), { ...ui, tool: 'shop' })).toEqual({ kind: 'spot', name: 'shop-close' });
     expect(tutorialTarget(step('coins'), { ...ui, tool: 'move' })).toEqual({ kind: 'spot', name: 'exit' });

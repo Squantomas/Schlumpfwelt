@@ -634,7 +634,9 @@ export class IslandScene extends Phaser.Scene {
     }
     const state = this.simulation.state;
     const touches = this.buildUI.touchCount;
-    const tapped = this.worldTapped || touches !== this.tutorialTouches;
+    // The praise ends with a tap only once it was really to be seen (a tool hint or a message goes before it).
+    const praising = currentStep(this.tutorial)?.id === 'praise';
+    const tapped = (this.worldTapped || touches !== this.tutorialTouches) && (!praising || this.buildUI.showsTutorial);
     this.worldTapped = false;
     this.tutorialTouches = touches;
     const next = advanceTutorial(this.tutorial, {
@@ -1212,10 +1214,11 @@ export class IslandScene extends Phaser.Scene {
     });
     const limit = this.parent.describe();
     const night = JSON.stringify(this.night.shown);
-    const key = `${tutorial}|${limit}|${night}|${this.parentPanel.shownState}`;
+    const bedtime = this.simulation.state.bedtime ? '1' : '0';
+    const key = `${tutorial}|${limit}|${night}|${this.parentPanel.shownState}|${bedtime}`;
     if (key !== this.dayPublished) {
       this.dayPublished = key;
-      markParent({ tutorial, parent: this.parentPanel.shownState, parentText: this.parentPanel.shownSentence, limit, night, bedtime: this.simulation.state.bedtime ? '1' : '0' });
+      markParent({ tutorial, parent: this.parentPanel.shownState, parentText: this.parentPanel.shownSentence, limit, night, bedtime });
     }
   }
 

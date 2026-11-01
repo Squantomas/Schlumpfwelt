@@ -257,7 +257,8 @@ export function tutorialTarget(step: TutorialStepDef | undefined, ui: TutorialUi
     case 'coins':
       return backToView(ui) ?? spot('stock');
     case 'praise':
-      return { kind: 'none' };
+      // The praise is only seen in the hint bar while looking at the island: a tool still open (the path just laid) is ended first.
+      return backToView(ui) ?? { kind: 'none' };
     case 'path': {
       if (ui.tool === 'view') {
         return spot('tool-path');
