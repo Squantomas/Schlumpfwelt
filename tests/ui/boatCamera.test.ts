@@ -35,6 +35,20 @@ describe('landingGlide', () => {
     expect(landingGlide(after, TABLET, BAND, shore, start)).toBeUndefined();
   });
 
+  it('fährt auch hin, wenn nur die Anlegestelle im Bild ist und das Boot von außerhalb käme', () => {
+    const view = { centerX: 1000, centerY: 1000, zoom: 0.5 };
+    // The shore is in the picture (screen x 862), the start 448 world px further right is not (screen x 1086).
+    const shore = { x: 1700, y: 1000 };
+    const start = { x: 2148, y: 1000 };
+    const target = landingGlide(view, TABLET, BAND, shore, start);
+    expect(target).toBeDefined();
+    if (!target) {
+      return;
+    }
+    expect(target.x).toBeCloseTo((shore.x + start.x) / 2, 6);
+    expect(landingGlide({ centerX: target.x, centerY: target.y, zoom: view.zoom }, TABLET, BAND, shore, start)).toBeUndefined();
+  });
+
   it('eine Anlegestelle unter der Leiste oben oder am Rand zählt als nicht im Bild', () => {
     const view = { centerX: 1000, centerY: 1000, zoom: 1 };
     // Under the store bar (screen y 40).
