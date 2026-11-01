@@ -330,6 +330,15 @@ export class BuildUI {
     return this.hintRect.height > 0 && !this.hintAtBottom ? this.hintRect.y + this.hintRect.height + 6 : 0;
   }
 
+  /** The band of the screen (CSS px, from the top) between the bars above (store, hint) and below (hint, toolbar). */
+  get freeBand(): { readonly top: number; readonly bottom: number } {
+    const hint = this.hintRect.height > 0 ? this.hintRect : undefined;
+    const stock = this.stock.rect;
+    const above = [stock.height > 0 ? stock.y + stock.height : 0, hint && !this.hintAtBottom ? hint.y + hint.height : 0];
+    const below = [this.toolbarRect.height > 0 ? this.toolbarRect.y : Number.POSITIVE_INFINITY, hint && this.hintAtBottom ? hint.y : Number.POSITIVE_INFINITY];
+    return { top: Math.max(...above), bottom: Math.min(...below) };
+  }
+
   /** Is this screen point (CSS px) on a panel? Then a press there is not for the camera. */
   coversPoint(x: number, y: number): boolean {
     return [this.toolbarRect, this.shop.rect, this.hintRect, this.chipRect, this.stock.rect, this.card.rect, this.residentCard.rect].some(
@@ -643,8 +652,11 @@ export class BuildUI {
       const openCard = this.card.isOpen ? this.card : this.residentCard.isOpen ? this.residentCard : undefined;
       if (openCard) {
         const cardRect = openCard.rect;
-        spots['card'] = { x: cardRect.x + cardRect.width / 2, y: cardRect.y + cardRect.height / 2, enabled: true, w: cardRect.width, h: cardRect.height };
-        spots['card-close'] = { ...openCard.closeSpot, enabled: true, w: 64, h: 64 };
+        const rows = openCard === this.residentCard ? { font: this.residentCard.rowsFont } : {};
+        spots['card'] = { x: cardRect.x + cardRect.width / 2, y: cardRect.y + cardRect.height / 2, enabled: true, w: cardRect.width, h: cardRect.height, ...rows };
+        const close = openCard.closeSpot;
+        const closeSize = 'size' in close ? close.size : 64;
+        spots['card-close'] = { x: close.x, y: close.y, enabled: true, w: closeSize, h: closeSize };
       }
       for (const button of this.chipButtons.values()) {
         if (button.visible) {

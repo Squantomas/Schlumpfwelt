@@ -1,7 +1,7 @@
 import Phaser from 'phaser';
 import { CAMERA_CONFIG } from '../data/camera';
 import { buildingType } from '../data/buildings';
-import { buildingAt, buildingAtPoint, isConnected } from '../sim/buildings';
+import { buildingAt, isConnected } from '../sim/buildings';
 import { activityOf } from '../sim/residents';
 import { hash2 } from '../sim/random';
 import type { GameSession } from '../save/session';
@@ -13,7 +13,8 @@ import { growRect, tileAtWorld, visibleRect, type CameraBounds, type Point, type
 import { landRegions } from '../ui/cameraRegions';
 import { FrameStats } from '../ui/frameStats';
 import { simulationDelta } from '../ui/frameTime';
-import { residentAt } from '../ui/residentHit';
+import { landingGlide } from '../ui/boatCamera';
+import { RESIDENT_BODY_Y, residentAt } from '../ui/residentHit';
 import { RoundButton } from '../ui/RoundButton';
 import { COLORS, TILE_SIZE, rgb } from '../ui/style';
 import { onViewportChange, type ViewSize } from '../ui/viewport';
@@ -110,6 +111,8 @@ export class IslandScene extends Phaser.Scene {
   private residentsText = '[]';
   private boatsText = '[]';
   private residentsTick = -1;
+  /** The boats the camera already knows (a new one with a guest may make it glide to the landing place). */
+  private seenBoats = new Set<number>();
   private buildUI!: BuildUI;
   private menu!: VillageMenu;
   private lost!: LostOverlay;
@@ -149,6 +152,8 @@ export class IslandScene extends Phaser.Scene {
     this.residentsText = '[]';
     this.boatsText = '[]';
     this.residentsTick = -1;
+    // Boats of a loaded village are no news: the camera only follows boats that set off from now on.
+    this.seenBoats = new Set(this.simulation.state.boats.map((boat) => boat.id));
     this.buildings = '[]';
     this.paths = '';
     this.previewText = 'none';
@@ -373,6 +378,7 @@ export class IslandScene extends Phaser.Scene {
 
     this.session.autosave?.update(time);
     this.lost.setOpen(this.session.autosave?.isLost === true);
+    this.followNewBoats();
     this.controller.update(delta);
     this.publishCamera();
     this.residentView.update(alpha, seconds, this.controller.view.zoom, this.buildTool.inspectedResidentId);
@@ -382,6 +388,35 @@ export class IslandScene extends Phaser.Scene {
       const wave = 0.5 + 0.5 * Math.sin(seconds * 1.6 + phase);
       sprite.setAlpha(0.15 + 0.45 * wave).setScale((0.8 + 0.3 * wave) / TEXTURE_SCALE);
     }
+  }
+
+  /**
+   * A boat that sets off with a new resident (an invitation, a worker for a new building): while the child is just
+   * looking, the camera glides gently to where it lands, unless that is already in the picture. It never jumps, and
+   * the next touch stops it (see `CameraRig.glideTo`). While building, moving or demolishing, the camera stays.
+   */
+  private followNewBoats(): void {
+    const boats = this.simulation.state.boats;
+    if (boats.length === 0 && this.seenBoats.size === 0) {
+      return;
+    }
+    const now = new Set<number>();
+    for (const boat of boats) {
+      now.add(boat.id);
+      if (this.seenBoats.has(boat.id) || boat.passenger === null) {
+        continue;
+      }
+      if (this.buildTool.tool !== 'view' || this.buildUI.shopOpen || this.menu.isOpen || this.lost.isOpen) {
+        continue;
+      }
+      const width = this.simulation.state.world.width;
+      const centre = (index: number): Point => ({ x: ((index % width) + 0.5) * TILE_SIZE, y: (Math.floor(index / width) + 0.5) * TILE_SIZE });
+      const target = landingGlide(this.controller.view, this.controller.viewSize, this.buildUI.freeBand, centre(boat.shore), centre(boat.at));
+      if (target) {
+        this.controller.glideTo(target);
+      }
+    }
+    this.seenBoats = now;
   }
 
   /** Publishes the camera for tests (`<html data-camera-*>`); the land count is only recomputed when the view changed. */
@@ -629,14 +664,11 @@ export class IslandScene extends Phaser.Scene {
   }
 
   /**
-   * The resident drawn under a tapped world point, if any. On a building (its footprint or its picture) only a tap
-   * on the resident's body counts: the house behind them keeps its taps.
+   * The resident drawn under a tapped world point (where the picture is now), if any – within 24 CSS px of the body,
+   * on a building too: the house keeps the taps that are clearly beside the resident.
    */
   private residentAtTap(world: Point): number | undefined {
-    const state = this.simulation.state;
-    const tile = tileAtWorld(world, TILE_SIZE, state.world);
-    const onBuilding = (tile ? buildingAt(state, tile.x, tile.y) : undefined) ?? buildingAtPoint(state, world.x, world.y, TILE_SIZE);
-    return residentAt(this.residentView.spots, world, this.controller.view.zoom, onBuilding !== undefined);
+    return residentAt(this.residentView.spots, world, this.controller.view.zoom);
   }
 
   /** Keeps the drawn village and the building controls in line with the state and the tool. */
@@ -738,7 +770,8 @@ export class IslandScene extends Phaser.Scene {
       sx: round((x - view.centerX) * view.zoom + size.width / 2),
       sy: round((y - view.centerY) * view.zoom + size.height / 2),
     });
-    const typeOf = (id: number | null): string => (id === null ? '' : (state.buildings.find((b) => b.id === id)?.type ?? ''));
+    const types = new Map(state.buildings.map((building) => [building.id, building.type]));
+    const typeOf = (id: number | null): string => (id === null ? '' : (types.get(id) ?? ''));
     this.residentsText = JSON.stringify(
       state.residents.map((resident) => {
         const at = this.residentView.positionOf(resident.id);
@@ -751,7 +784,7 @@ export class IslandScene extends Phaser.Scene {
           activity: activityOf(resident),
           carrying: resident.carrying ?? '',
           timer: resident.timer,
-          ...(at ? { x: round(at.x), y: round(at.y), ...screen(at.x, at.y - 26), icon: at.carry ? 1 : 0 } : {}),
+          ...(at ? { x: round(at.x), y: round(at.y), ...screen(at.x, at.y - RESIDENT_BODY_Y), icon: at.carry ? 1 : 0 } : {}),
         };
       }),
     );

@@ -1,22 +1,21 @@
 import { describe, expect, it } from 'vitest';
-import { RESIDENT_HIT_BOTTOM, RESIDENT_HIT_RADIUS, RESIDENT_HIT_TOP, distanceToResident, residentAt, residentHitRadius } from '../../src/ui/residentHit';
+import { RESIDENT_BODY_Y, RESIDENT_HIT_BOTTOM, RESIDENT_HIT_RADIUS, RESIDENT_HIT_TOP, distanceToResident, residentAt, residentHitRadius } from '../../src/ui/residentHit';
 import { MIN_TAP_SIZE } from '../../src/ui/style';
+
+const ZOOMS = [0.0962, 0.2, 0.25, 0.35, 0.5, 0.75, 1, 1.5, 2, 3];
 
 describe('residentHitRadius', () => {
   it('ist auf dem Schirm nie kleiner als 48 CSS-px im Durchmesser', () => {
-    for (const zoom of [0.2, 0.35, 0.5, 0.75, 1, 1.5, 2, 3]) {
-      expect(2 * residentHitRadius(zoom, false) * zoom, String(zoom)).toBeGreaterThanOrEqual(MIN_TAP_SIZE - 1e-9);
-      expect(residentHitRadius(zoom, false)).toBeGreaterThanOrEqual(RESIDENT_HIT_RADIUS);
+    for (const zoom of ZOOMS) {
+      expect(2 * residentHitRadius(zoom) * zoom, String(zoom)).toBeGreaterThanOrEqual(MIN_TAP_SIZE - 1e-9);
+      expect(residentHitRadius(zoom)).toBeGreaterThanOrEqual(RESIDENT_HIT_RADIUS);
     }
   });
 
-  it('auf einem Gebäude zählt nur der Körper', () => {
-    expect(residentHitRadius(0.3, true)).toBe(RESIDENT_HIT_RADIUS);
-  });
-
   it('kommt mit einem kaputten Zoom zurecht', () => {
-    expect(residentHitRadius(0, false)).toBe(RESIDENT_HIT_RADIUS);
-    expect(residentHitRadius(Number.NaN, false)).toBe(RESIDENT_HIT_RADIUS);
+    expect(residentHitRadius(0)).toBe(RESIDENT_HIT_RADIUS);
+    expect(residentHitRadius(Number.NaN)).toBe(RESIDENT_HIT_RADIUS);
+    expect(residentHitRadius(Number.POSITIVE_INFINITY)).toBe(RESIDENT_HIT_RADIUS);
   });
 });
 
@@ -75,8 +74,37 @@ describe('residentAt', () => {
     // 24 CSS px at zoom 0.4 are 60 world px.
     expect(residentAt(one, { x: 150, y: 180 }, 0.4)).toBe(9);
     expect(residentAt(one, { x: 150, y: 180 }, 1)).toBeUndefined();
-    // On a building only the body counts.
-    expect(residentAt(one, { x: 150, y: 180 }, 0.4, true)).toBeUndefined();
-    expect(residentAt(one, { x: 110, y: 180 }, 0.4, true)).toBe(9);
+  });
+
+  it('trifft jeden Tipp in einem Kreis von 24 CSS-px um die Körpermitte – bei jedem Zoom und in jeder Richtung', () => {
+    const spot = { id: 4, x: 500, y: 700 };
+    const centre = { x: spot.x, y: spot.y - RESIDENT_BODY_Y };
+    expect(RESIDENT_BODY_Y).toBeGreaterThanOrEqual(RESIDENT_HIT_BOTTOM);
+    expect(RESIDENT_BODY_Y).toBeLessThanOrEqual(RESIDENT_HIT_TOP);
+    for (const zoom of ZOOMS) {
+      for (let step = 0; step < 32; step += 1) {
+        const angle = (step / 32) * Math.PI * 2;
+        for (const css of [0, 12, 20, 22, MIN_TAP_SIZE / 2]) {
+          const point = { x: centre.x + (Math.cos(angle) * css) / zoom, y: centre.y + (Math.sin(angle) * css) / zoom };
+          expect(residentAt([spot], point, zoom), `Zoom ${String(zoom)}, ${String(css)} px, Richtung ${String(step)}`).toBe(4);
+        }
+      }
+    }
+  });
+
+  it('gilt auch an Gebäuden: der Bewohner an der Tür gewinnt nahe am Körper, weiter weg gehört der Tipp dem Haus', () => {
+    // A worker at the door of a building (the house is above them); 20 and 22 CSS px to the side hit them at every zoom.
+    const worker = { id: 2, x: 320, y: 640 };
+    for (const zoom of [0.25, 0.5, 1, 2]) {
+      for (const css of [20, 22]) {
+        for (const side of [-1, 1]) {
+          expect(residentAt([worker], { x: worker.x + (side * css) / zoom, y: worker.y - RESIDENT_BODY_Y }, zoom)).toBe(2);
+        }
+      }
+      // The roof two tiles above (well beyond 24 CSS px at zoom 0.5 and more) stays with the house.
+      if (zoom >= 0.5) {
+        expect(residentAt([worker], { x: worker.x, y: worker.y - 128 }, zoom)).toBeUndefined();
+      }
+    }
   });
 });

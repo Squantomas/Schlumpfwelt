@@ -264,6 +264,71 @@ describe('Nachgleiten', () => {
   });
 });
 
+describe('Sanft an einen Ort fahren (glideTo: die Anlegestelle eines Boots)', () => {
+  beforeEach(() => {
+    rig.pinch({ x: 512, y: 384 }, { x: 512, y: 384 }, 4);
+  });
+
+  it('kommt am Ziel an, ohne zu springen: langsam los, schneller, langsam an', () => {
+    const target = { x: rig.view.centerX + 600, y: rig.view.centerY - 300 };
+    rig.glideTo(target);
+    expect(rig.animating).toBe(true);
+    expect(rig.glidingTo).toBe(true);
+    const steps: number[] = [];
+    let previous = { x: rig.view.centerX, y: rig.view.centerY };
+    for (let t = 0; t < 2000; t += 16) {
+      rig.update(16);
+      const now = { x: rig.view.centerX, y: rig.view.centerY };
+      steps.push(Math.hypot(now.x - previous.x, now.y - previous.y) * rig.view.zoom);
+      previous = now;
+    }
+    expect(rig.view.centerX).toBeCloseTo(target.x, 6);
+    expect(rig.view.centerY).toBeCloseTo(target.y, 6);
+    expect(rig.glidingTo).toBe(false);
+    expect(rig.animating).toBe(false);
+    // No jump: no frame moves more than a small part of the way; the start and the end are slow.
+    const way = Math.hypot(600, 300) * rig.view.zoom;
+    const fastest = Math.max(...steps);
+    expect(fastest).toBeLessThan(way * 0.05);
+    expect(steps[0] ?? 0).toBeLessThan(fastest * 0.2);
+    const moving = steps.filter((step) => step > 0);
+    expect(moving.at(-1) ?? 0).toBeLessThan(fastest * 0.2);
+  });
+
+  it('jede Berührung hält sie an: Griff, Ziehen, Zwei-Finger-Zoom, Zoom-Knopf', () => {
+    const target = { x: rig.view.centerX + 600, y: rig.view.centerY };
+    for (const touch of [
+      () => rig.stop(),
+      () => rig.pan(0, 0),
+      () => rig.pinch({ x: 512, y: 384 }, { x: 512, y: 384 }, 1),
+      () => rig.zoomBy(1.1, { x: 512, y: 384 }),
+    ]) {
+      rig.glideTo(target);
+      runFor(160);
+      touch();
+      expect(rig.glidingTo).toBe(false);
+      const stopped = rig.view.centerX;
+      runFor(1000);
+      expect(rig.view.centerX).toBeCloseTo(stopped, 6);
+    }
+  });
+
+  it('bleibt in den Grenzen der Kamera und zählt nicht als Nachgleiten', () => {
+    rig.glideTo({ x: -5000, y: -5000 });
+    expect(rig.gliding).toBe(false);
+    runFor(2000);
+    const seen = visibleRect(rig.view, TABLET);
+    expect(seen.x).toBeGreaterThanOrEqual(BOUNDS.x - 1e-6);
+    expect(seen.y).toBeGreaterThanOrEqual(BOUNDS.y - 1e-6);
+    expect(rig.animating).toBe(false);
+  });
+
+  it('ignoriert ein ungültiges Ziel', () => {
+    rig.glideTo({ x: Number.NaN, y: 0 });
+    expect(rig.animating).toBe(false);
+  });
+});
+
 describe('Größenänderung und Drehen', () => {
   it('wendet die Grenzen neu an', () => {
     rig.pinch({ x: 512, y: 384 }, { x: 512, y: 384 }, 4);

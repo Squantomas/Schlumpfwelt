@@ -113,6 +113,11 @@ export class WorldCameraController {
     this.rig.zoomBy(factor, { x: width / 2, y: height / 2 });
   }
 
+  /** Glides gently so that the world point `center` comes to the middle (a touch stops it). */
+  glideTo(center: Point): void {
+    this.rig.glideTo(center);
+  }
+
   /** Advances inertia and smooth zoom; call once per frame. */
   update(deltaMs: number): void {
     this.rig.update(deltaMs);

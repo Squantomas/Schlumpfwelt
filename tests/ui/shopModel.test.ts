@@ -4,7 +4,7 @@ import { t } from '../../src/data/texts';
 import { createInitialState } from '../../src/sim/state';
 import { MAX_RESIDENTS } from '../../src/sim/limits';
 import type { SimState } from '../../src/sim/state';
-import { nameList, newItemsText, noRoomSentence, progressText, roomText, shopCard, shopCards, unlockIcons, unlockSentenceText } from '../../src/ui/shopModel';
+import { nameList, newItemsText, noRoomSentence, progressText, roomPrice, roomText, shopCard, shopCards, unlockIcons, unlockSentenceText } from '../../src/ui/shopModel';
 import { grassState, run, setStore } from '../sim/helpers';
 
 describe('shopCards', () => {
@@ -156,6 +156,19 @@ describe('Einladen im Shop (M6)', () => {
     const dear = shopCard(state, 'invite');
     expect(dear.state).toBe('dear');
     expect(dear.missing).toEqual({ coins: 25 });
+  });
+
+  it('zählt nur, wer in einem Haus wohnt: Heimatlose machen nie „3/2“, und der Preis steht auch ohne Platz auf der Karte', () => {
+    const state = createInitialState(1);
+    const one = state.residents[0];
+    state.residents.push({ ...(one ?? fakeResident()), id: 99, name: 'Gast', home: null, job: null });
+    const card = shopCard(state, 'invite');
+    expect(card.state).toBe('noRoom');
+    expect(card.room).toEqual({ residents: 2, capacity: 2, reason: 'noHouse' });
+    expect(card.room ? roomText(card.room) : '').toBe('2/2');
+    expect(roomText({ residents: 3, capacity: 2 })).toBe('2/2');
+    expect(roomPrice(card)).toBe(String(buildingType('invite')?.cost['coins'] ?? -1));
+    expect(roomPrice(card)).toBe('30');
   });
 
   it('kein Platz geht vor „zu teuer“', () => {

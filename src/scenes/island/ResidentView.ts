@@ -27,6 +27,10 @@ const SPREAD_Y = 0.26;
 const FOOT_DOWN = 0.12;
 /** The water line of a boat below the middle of its tile (world px). */
 const BOAT_WATER_DOWN = 10;
+/** The boat is drawn this much bigger than its texture: easy to see from afar (the passenger keeps their size). */
+const BOAT_SCALE = 1.25;
+/** A boat comes into sight out at sea: it fades in over this many seconds. */
+const BOAT_FADE_IN = 0.8;
 
 interface Figure {
   readonly sprite: Phaser.GameObjects.Image;
@@ -49,6 +53,8 @@ interface BoatFigure {
   readonly back: Phaser.GameObjects.Image;
   readonly front: Phaser.GameObjects.Image;
   facing: number;
+  /** When it came into sight (seconds of the simulation's clock), for the fade-in. */
+  readonly born: number;
 }
 
 /**
@@ -140,6 +146,10 @@ export class ResidentView {
         // Busy at work: a small hop now and then.
         lift = Math.max(0, Math.sin(seconds * 6 + resident.id)) * 2.2;
       }
+      if (figure.sprite.alpha !== 1) {
+        // Stepped out of a boat that was still fading in.
+        figure.sprite.setAlpha(1);
+      }
       figure.sprite
         .setVisible(true)
         .setPosition(footX, footY - lift)
@@ -169,10 +179,10 @@ export class ResidentView {
       boatsSeen.add(boat.id);
       let figure = this.boats.get(boat.id);
       if (!figure) {
-        const back = this.scene.add.image(0, 0, BOAT_BACK_KEY).setOrigin(BOAT_ORIGIN.x, BOAT_ORIGIN.y).setScale(1 / TEXTURE_SCALE);
-        const front = this.scene.add.image(0, 0, BOAT_FRONT_KEY).setOrigin(BOAT_ORIGIN.x, BOAT_ORIGIN.y).setScale(1 / TEXTURE_SCALE);
+        const back = this.scene.add.image(0, 0, BOAT_BACK_KEY).setOrigin(BOAT_ORIGIN.x, BOAT_ORIGIN.y).setScale(BOAT_SCALE / TEXTURE_SCALE);
+        const front = this.scene.add.image(0, 0, BOAT_FRONT_KEY).setOrigin(BOAT_ORIGIN.x, BOAT_ORIGIN.y).setScale(BOAT_SCALE / TEXTURE_SCALE);
         this.layer.add([back, front]);
-        figure = { back, front, facing: 1 };
+        figure = { back, front, facing: 1, born: seconds };
         this.boats.set(boat.id, figure);
       }
       const point = boatPoint(state, boat, alpha);
@@ -183,14 +193,15 @@ export class ResidentView {
       const water = point.y * TILE_SIZE + BOAT_WATER_DOWN + Math.sin(seconds * 2.2 + boat.id) * 1.5;
       const angle = Math.sin(seconds * 1.7 + boat.id) * 2;
       const flip = figure.facing < 0;
-      figure.back.setPosition(x, water).setAngle(angle).setFlipX(flip).setDepth(water - 0.02);
-      figure.front.setPosition(x, water).setAngle(angle).setFlipX(flip).setDepth(water);
+      const shown = clamp((seconds - figure.born) / BOAT_FADE_IN, 0, 1);
+      figure.back.setPosition(x, water).setAngle(angle).setFlipX(flip).setDepth(water - 0.02).setAlpha(shown);
+      figure.front.setPosition(x, water).setAngle(angle).setFlipX(flip).setDepth(water).setAlpha(shown);
       const passenger = boat.passenger === null ? undefined : this.figures.get(boat.passenger);
       if (passenger && boat.passenger !== null) {
         // The passenger stands in the boat, in front of the mast.
-        const seatX = x - 6 * figure.facing;
-        const seatY = water - BOAT_SEAT_Y;
-        passenger.sprite.setVisible(true).setPosition(seatX, seatY).setAngle(angle).setFlipX(flip).setDepth(water - 0.01);
+        const seatX = x - 6 * BOAT_SCALE * figure.facing;
+        const seatY = water - BOAT_SEAT_Y * BOAT_SCALE;
+        passenger.sprite.setVisible(true).setPosition(seatX, seatY).setAngle(angle).setFlipX(flip).setDepth(water - 0.01).setAlpha(shown);
         passenger.depth = water - 0.01;
         spots.push({ id: boat.passenger, x: seatX, y: seatY });
         this.drawn.set(boat.passenger, { x: seatX, y: seatY, carry: false });

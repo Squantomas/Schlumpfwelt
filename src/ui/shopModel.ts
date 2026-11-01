@@ -36,7 +36,10 @@ export interface ShopCard {
   readonly missing: Readonly<Record<string, number>>;
   /** For a locked card: the condition and how far the village is. */
   readonly lock?: { readonly unlock: UnlockDef; readonly progress: UnlockProgress };
-  /** For inviting a resident: how many live in the village and how many the houses have room for, and – on a `noRoom` card – why. */
+  /**
+   * For inviting a resident: how many live in a house (never more than the room – a homeless resident does not
+   * make "3/2") and how many the houses have room for, and – on a `noRoom` card – why.
+   */
   readonly room?: { readonly residents: number; readonly capacity: number; readonly reason?: NoRoomReason };
 }
 
@@ -49,12 +52,12 @@ export function shopCard(state: ShopView, typeId: string): ShopCard {
     return { typeId, state: 'locked', cost, missing, lock };
   }
   if (buildingType(typeId)?.category === 'resident') {
-    const { residents, capacity } = housing(state);
+    const { housed, capacity } = housing(state);
     const check = checkInvite(state, typeId);
     if (check.result === 'noHouse' || check.result === 'full') {
-      return { typeId, state: 'noRoom', cost, missing, room: { residents, capacity, reason: check.result } };
+      return { typeId, state: 'noRoom', cost, missing, room: { residents: housed, capacity, reason: check.result } };
     }
-    return { typeId, state: Object.keys(missing).length > 0 ? 'dear' : 'ok', cost, missing, room: { residents, capacity } };
+    return { typeId, state: Object.keys(missing).length > 0 ? 'dear' : 'ok', cost, missing, room: { residents: housed, capacity } };
   }
   return { typeId, state: Object.keys(missing).length > 0 ? 'dear' : 'ok', cost, missing };
 }
@@ -71,9 +74,14 @@ export function noRoomSentence(card: ShopCard): string {
   }
 }
 
-/** The numbers on a card without room: residents / room in all houses ("2/2"). */
+/** The numbers on a card without room: residents in a house / room in all houses ("2/2", never more than full). */
 export function roomText(room: NonNullable<ShopCard['room']>): string {
-  return t('shop.progress', { current: room.residents, needed: room.capacity });
+  return t('shop.progress', { current: Math.min(room.residents, room.capacity), needed: room.capacity });
+}
+
+/** The price on a card without room, for the row "coin 30 · house 2/2" (only coins: the invitation costs nothing else). */
+export function roomPrice(card: ShopCard): string {
+  return String(card.cost['coins'] ?? 0);
 }
 
 /** The cards of a shop tab, in the order of the file. */

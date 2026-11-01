@@ -4,7 +4,7 @@ import { t } from '../../data/texts';
 import type { Rect } from '../../ui/cameraMath';
 import { createLabel, setLabelSize } from '../../ui/label';
 import { RoundButton } from '../../ui/RoundButton';
-import { noRoomSentence, progressText, roomText, shopCards, unlockIcons, unlockSentenceText, type ShopCard, type ShopView } from '../../ui/shopModel';
+import { noRoomSentence, progressText, roomPrice, roomText, shopCards, unlockIcons, unlockSentenceText, type ShopCard, type ShopView } from '../../ui/shopModel';
 import { SHOP_ARROW, shopCellRects, shopPages, type ShopLayout } from '../../ui/shopLayout';
 import { SquareButton } from '../../ui/SquareButton';
 import { COLORS, clamp } from '../../ui/style';
@@ -16,24 +16,29 @@ import { addGraphics } from '../../ui/FastGraphics';
 
 /**
  * The foot of a card: what it costs, or – on a locked card – what the village still has to build or earn, or – on the
- * card "invite" when every house is full (M6) – a house and how many residents live in how much room ("2/2").
+ * card "invite" when every house is full (M6) – the price and how many residents live in how much room ("30 · 2/2";
+ * on cards too small for both only the room).
  */
 class CardFooter extends Phaser.GameObjects.Container {
   private readonly cost: CostRow;
-  /** The pictures of the condition (a building; for money the market and a coin: "earn it at the market"). */
+  /** The pictures of the condition (a building; for money the market and a coin: "earn it at the market"); on a card without room a coin and a house. */
   private readonly icons: Phaser.GameObjects.Image[];
   private readonly progress: Phaser.GameObjects.Text;
+  /** The price on a card without room (after the coin). */
+  private readonly price: Phaser.GameObjects.Text;
   private footerH = 1;
   private footerW = 1;
   private locked = false;
   private shownIcons = 0;
+  private priced = false;
 
   constructor(scene: Phaser.Scene) {
     super(scene, 0, 0);
     this.cost = new CostRow(scene);
     this.icons = [0, 1].map(() => scene.add.image(0, 0, goodTextureKey('coins')).setVisible(false));
     this.progress = createLabel(scene, '', 14).setVisible(false);
-    this.add([this.cost, ...this.icons, this.progress]);
+    this.price = createLabel(scene, '', 14).setVisible(false);
+    this.add([this.cost, ...this.icons, this.progress, this.price]);
     scene.add.existing(this);
   }
 
@@ -47,11 +52,13 @@ class CardFooter extends Phaser.GameObjects.Container {
 
   showCost(card: ShopCard): void {
     this.locked = false;
+    this.priced = false;
     this.cost.setVisible(true).setCost(card.cost, card.missing);
     for (const icon of this.icons) {
       icon.setVisible(false);
     }
     this.progress.setVisible(false);
+    this.price.setVisible(false);
   }
 
   /** The requirement as pictures and "0/1" (a lock sits on the picture of the card). */
@@ -63,15 +70,23 @@ class CardFooter extends Phaser.GameObjects.Container {
     this.showCondition(unlockIcons(lock.unlock), progressText(lock.progress));
   }
 
-  /** No room for another resident: a house and "residents/room". */
+  /** No room for another resident: the price (a coin and "30") and a house with "residents/room". */
   showRoom(card: ShopCard): void {
     if (card.room) {
-      this.showCondition([{ kind: 'building', id: 'house-red' }], roomText(card.room));
+      this.showCondition(
+        [
+          { kind: 'coins', id: 'coins' },
+          { kind: 'building', id: 'house-red' },
+        ],
+        roomText(card.room),
+        roomPrice(card),
+      );
     }
   }
 
-  private showCondition(pictures: readonly { readonly kind: 'building' | 'coins'; readonly id: string }[], text: string): void {
+  private showCondition(pictures: readonly { readonly kind: 'building' | 'coins'; readonly id: string }[], text: string, price?: string): void {
     this.locked = true;
+    this.priced = price !== undefined;
     this.cost.setVisible(false);
     this.shownIcons = pictures.length;
     this.icons.forEach((icon, index) => {
@@ -82,31 +97,64 @@ class CardFooter extends Phaser.GameObjects.Container {
       }
     });
     this.progress.setText(text).setVisible(true);
+    this.price.setText(price ?? '').setVisible(this.priced);
     this.placeLock();
   }
 
-  /** Pictures and number in one row, as big as the foot allows; the pictures give way first, the number stays at 13 px or more. */
+  /**
+   * Pictures and numbers in one row, as big as the foot allows; the pictures give way first, the numbers stay at
+   * 13 px or more. A price that does not fit any more goes (with its coin): the room is what the card is about.
+   */
   private placeLock(): void {
     if (!this.locked) {
       return;
     }
     const fontSize = clamp(this.footerH * 0.8, 13, 17);
     setLabelSize(this.progress, fontSize);
+    setLabelSize(this.price, fontSize);
     const gap = 3;
-    let size = Math.min(this.footerH * 1.05, 30);
+    const groupGap = 8;
     const shownIcons = this.icons.slice(0, this.shownIcons);
     const widthOf = (icon: Phaser.GameObjects.Image, edge: number): number => icon.width * Math.min(edge / icon.width, edge / icon.height);
-    const total = (): number => shownIcons.reduce((sum, icon) => sum + widthOf(icon, size) + gap, 0) + this.progress.width;
-    while (total() > this.footerW - 2 && size > 14) {
-      size -= 1;
+    type Item = { readonly icon: Phaser.GameObjects.Image } | { readonly text: Phaser.GameObjects.Text } | 'space';
+    const [coin, house] = shownIcons;
+    const withPrice: Item[] | undefined = this.priced && coin && house ? [{ icon: coin }, { text: this.price }, 'space', { icon: house }, { text: this.progress }] : undefined;
+    const plain: Item[] = this.priced && house ? [{ icon: house }, { text: this.progress }] : [...shownIcons.map((icon) => ({ icon })), { text: this.progress }];
+    const widthAt = (row: readonly Item[], edge: number): number =>
+      row.reduce((sum, item) => sum + (item === 'space' ? groupGap - gap : 'icon' in item ? widthOf(item.icon, edge) + gap : item.text.width + gap), 0) - gap;
+    const fit = (row: readonly Item[]): number => {
+      let edge = Math.min(this.footerH * 1.05, 30);
+      while (widthAt(row, edge) > this.footerW - 2 && edge > 14) {
+        edge -= 1;
+      }
+      return edge;
+    };
+    let row = plain;
+    let size = fit(plain);
+    if (withPrice) {
+      const priced = fit(withPrice);
+      if (widthAt(withPrice, priced) <= this.footerW - 2) {
+        row = withPrice;
+        size = priced;
+      }
     }
-    let left = -total() / 2;
-    for (const icon of shownIcons) {
-      const scale = Math.min(size / icon.width, size / icon.height);
-      icon.setScale(scale).setPosition(left + (icon.width * scale) / 2, 0);
-      left += icon.width * scale + gap;
+    for (const icon of this.icons) {
+      icon.setVisible(row.some((item) => item !== 'space' && 'icon' in item && item.icon === icon));
     }
-    this.progress.setPosition(left + this.progress.width / 2, 0);
+    this.price.setVisible(row === withPrice);
+    let left = -widthAt(row, size) / 2;
+    for (const item of row) {
+      if (item === 'space') {
+        left += groupGap - gap;
+      } else if ('icon' in item) {
+        const scale = Math.min(size / item.icon.width, size / item.icon.height);
+        item.icon.setScale(scale).setPosition(left + (item.icon.width * scale) / 2, 0);
+        left += item.icon.width * scale + gap;
+      } else {
+        item.text.setPosition(left + item.text.width / 2, 0);
+        left += item.text.width + gap;
+      }
+    }
   }
 }
 
