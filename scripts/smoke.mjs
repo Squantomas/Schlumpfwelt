@@ -2979,15 +2979,31 @@ async function testResidents({ context, page, check, shot, size, input, name, pr
       return state.residents.every((o) => o.id === r.id || o.sx === undefined || Math.hypot(o.sx - x, o.sy - y) > reach);
     });
   };
-  /** Tippt einen stehenden Bewohner an (um `offset` CSS-px neben seine Körpermitte) und wartet auf seine Karte. */
+  /**
+   * Tippt einen stehenden Bewohner an (um `offset` CSS-px neben seine Körpermitte) und wartet auf seine Karte. Ein
+   * Arbeiter geht los, sobald sein Gebäude liefert (Tragen), auch mitten in seiner Arbeitszeit: Ist der Bewohner beim
+   * Tipp schon losgegangen, gilt der Versuch nicht und ein neuer folgt; stand er still, ist ein Fehlschlag ein Fehler.
+   */
   const tapResident = async (view, what, offset = NO_OFFSET) => {
     const ui = (await readVillage(page)).ui;
-    const { found: target } = await waitForResidents(page, (state) => standingOnScreen(state, ui, view, offset), `einen stehenden Bewohner im Bild (${what})`, 60_000);
-    const point = { x: target.sx + offset.dx, y: target.sy + offset.dy };
-    await input.tap(point);
-    await waitForResidents(page, (state) => state.card === String(target.id), `die Karte von ${target.name} nach dem Tipp ${offset.dx}/${offset.dy} px neben die Körpermitte (${what})`, 5000);
-    const village = await waitForVillage(page, (v) => 'card' in v.ui && 'card-close' in v.ui, `Karte und ✕ in data-ui (${what})`, 4000);
-    return { target, village, point };
+    for (let attempt = 1; ; attempt += 1) {
+      const { found: target } = await waitForResidents(page, (state) => standingOnScreen(state, ui, view, offset), `einen stehenden Bewohner im Bild (${what})`, 60_000);
+      const point = { x: target.sx + offset.dx, y: target.sy + offset.dy };
+      await input.tap(point);
+      const hit = await waitForResidents(page, (state) => state.card === String(target.id), `die Karte von ${target.name} nach dem Tipp ${offset.dx}/${offset.dy} px neben die Körpermitte (${what})`, attempt < 3 ? 2500 : 5000).catch((error) => error);
+      if (hit instanceof Error) {
+        const now = (await readResidents(page)).residents.find((r) => r.id === target.id);
+        const walkedOff = !now || !STANDING.includes(now.activity) || Math.hypot(now.sx - target.sx, now.sy - target.sy) > 3;
+        if (attempt < 3 && walkedOff && (await readResidents(page)).card === '') {
+          console.log(`  [${name}] (${what}: ${target.name} ging gerade los – ${now?.activity}, noch einmal)`);
+          await sleep(400);
+          continue;
+        }
+        throw new Error(`${hit.message}; ${target.name} jetzt ${JSON.stringify(now)}, vorher ${JSON.stringify(target)}`);
+      }
+      const village = await waitForVillage(page, (v) => 'card' in v.ui && 'card-close' in v.ui, `Karte und ✕ in data-ui (${what})`, 4000);
+      return { target, village, point };
+    }
   };
   /** Liegt der Bildschirmpunkt (CSS-px) auf dem Grundriss eines Gebäudes? Dann gewinnt dort trotzdem der Bewohner. */
   const onBuilding = (village, cam, view, point) => {
@@ -3007,7 +3023,7 @@ async function testResidents({ context, page, check, shot, size, input, name, pr
       const { target, village, point } = await tapResident(view, label, offset);
       check(village.ui.card.font >= 12, `${label}: Zeilen der Karte ${village.ui.card.font} px, mindestens 12`);
       const building = onBuilding(village, cam, view, point);
-      if (building) buildingsHit.push(`${offset.dx}/${offset.dy}: ${target.job || target.home} auf ${building}`);
+      if (building) buildingsHit.push(`${offset.dx}/${offset.dy}: ${target.name} auf ${building}`);
       await closeCard(label);
       await sleep(400); // gleich nach dem ✕ ignoriert die Welt Tipps (Doppeltipp-Schutz)
     }
