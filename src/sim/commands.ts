@@ -1,7 +1,7 @@
 import { buildingType } from '../data/buildings';
 import { addBuilding, addPaths, demolishAt, relocateBuilding, type Tile } from './buildings';
 import { demolishPlanted, placeIslandItem } from './island';
-import { assignHome, inviteResident, settleResidents } from './residents';
+import { assignHome, goToBed, inviteResident, settleResidents, wakeUp } from './residents';
 import type { SimState } from './state';
 
 /**
@@ -23,7 +23,8 @@ export type Command =
   | FillLandCommand
   | MakeMeadowCommand
   | InviteResidentCommand
-  | AssignHomeCommand;
+  | AssignHomeCommand
+  | SetBedtimeCommand;
 
 export interface SetPausedCommand {
   readonly type: 'setPaused';
@@ -127,6 +128,18 @@ export interface AssignHomeCommand {
   readonly houseId: number;
 }
 
+/**
+ * Bedtime on or off (M8): sent by the game when the parents' daily time is up (on) and when the next day begins or
+ * the parents give more time (off). On: nothing is produced, nobody eats, everybody walks home to bed (`instant`: is
+ * in bed at once – the game starts in the night). Off: they wake up and step out one after the other. Does not count
+ * as a change of the village (`revision`).
+ */
+export interface SetBedtimeCommand {
+  readonly type: 'setBedtime';
+  readonly bedtime: boolean;
+  readonly instant?: boolean;
+}
+
 /** The command that puts a shop item on the tile (x, y): a building command, or for island items their own island command. */
 export function placementCommand(typeId: string, x: number, y: number): Command {
   switch (buildingType(typeId)?.island?.action) {
@@ -186,6 +199,17 @@ function applyOne(state: SimState, command: Command): void {
       return;
     case 'assignHome':
       assignHome(state, command.residentId, command.houseId);
+      return;
+    case 'setBedtime':
+      if (command.bedtime) {
+        if (!state.bedtime || command.instant === true) {
+          state.bedtime = true;
+          goToBed(state, command.instant === true);
+        }
+      } else if (state.bedtime) {
+        state.bedtime = false;
+        wakeUp(state);
+      }
       return;
     default:
       return assertNever(command);

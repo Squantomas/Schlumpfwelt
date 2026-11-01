@@ -25,6 +25,13 @@ export interface SimState {
   tick: number;
   /** While paused, time stands still: commands are applied, nothing else happens. */
   paused: boolean;
+  /**
+   * Bedtime (M8): set from outside when the parents' daily time is up (`setBedtime`). While it is on, nothing is
+   * produced and nobody eats; every resident walks home and sleeps there (without a home: where they are, see
+   * `goToBed` in `residents.ts`). Like `paused` it belongs to the running game, not to the village: it is not saved – a
+   * loaded village starts awake, and the game puts it to bed again if the day's time is still up.
+   */
+  bedtime: boolean;
   /** Houses, decoration and production buildings (no paths). */
   buildings: PlacedBuilding[];
   /** Id for the next building; ids are never reused. */
@@ -77,6 +84,7 @@ export function createInitialState(seed: number = DEFAULT_SEED): SimState {
     world,
     tick: 0,
     paused: false,
+    bedtime: false,
     buildings: [],
     nextBuildingId: 1,
     paths: [],

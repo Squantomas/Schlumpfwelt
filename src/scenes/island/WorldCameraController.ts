@@ -35,6 +35,8 @@ export interface WorldCameraOptions {
   readonly onCarry?: (world: Point, screen: Point) => void;
   readonly onDrop?: (world: Point, screen: Point, eventTime: number) => void;
   readonly onCancelCarry?: () => void;
+  /** May a held resident be carried now (false: the evening covers the island)? */
+  readonly mayCarry?: () => boolean;
   /** Optional: one finger starts to drag the picture; `screen` is where it was pressed (CSS px). */
   readonly onPanStart?: (world: Point, screen: Point) => void;
 }
@@ -59,6 +61,8 @@ export class WorldCameraController {
   private readonly tracker: GestureTracker;
   /** Browser time of the release that is being handled (for the tap callback). */
   private upTime = 0;
+  /** Has the player moved the camera themselves (drag, pinch, wheel, +/−)? Then the guided start no longer glides (M8). */
+  private movedByHand = false;
 
   constructor(
     private readonly scene: Phaser.Scene,
@@ -73,14 +77,23 @@ export class WorldCameraController {
           this.rig.stop();
           return wasGliding;
         },
-        pan: (dx, dy) => this.rig.pan(dx, dy),
-        pinch: (from, to, scale) => this.rig.pinch(from, to, scale),
+        pan: (dx, dy) => {
+          if (dx !== 0 || dy !== 0) {
+            this.movedByHand = true;
+          }
+          this.rig.pan(dx, dy);
+        },
+        pinch: (from, to, scale) => {
+          this.movedByHand = true;
+          this.rig.pinch(from, to, scale);
+        },
         tap: (at) => options.onTap(this.toWorld(at), at, this.upTime),
         fling: (vx, vy) => this.rig.fling(vx, vy),
         grab: (at) => options.onGrab?.(this.toWorld(at), at) === true,
         carry: (at) => options.onCarry?.(this.toWorld(at), at),
         drop: (at) => options.onDrop?.(this.toWorld(at), at, this.upTime),
         cancelCarry: () => options.onCancelCarry?.(),
+        mayCarry: () => options.mayCarry?.() !== false,
         panStart: (at) => options.onPanStart?.(this.toWorld(at), at),
       },
       { tapMaxMovePx: options.tapMaxMovePx },
@@ -107,6 +120,11 @@ export class WorldCameraController {
 
   get view(): CameraRig['view'] {
     return this.rig.view;
+  }
+
+  /** Lets go of a resident that is held or carried (the evening, M8): the rest of the touch does nothing. */
+  letGo(): void {
+    this.tracker.letGo();
   }
 
   /**
@@ -137,8 +155,17 @@ export class WorldCameraController {
     this.apply();
   }
 
+  /**
+   * True once the player has moved the camera themselves since the scene started (dragging, pinching, the mouse wheel,
+   * the +/− buttons) – a glide, a fling after a drag and a tap do not count on their own (M8, Korrekturrunde 2).
+   */
+  get movedByPlayer(): boolean {
+    return this.movedByHand;
+  }
+
   /** Zooms smoothly by `factor` around the middle of the screen (for the +/− buttons). */
   zoomBy(factor: number): void {
+    this.movedByHand = true;
     const { width, height } = this.rig.viewSize;
     this.rig.zoomBy(factor, { x: width / 2, y: height / 2 });
   }
@@ -228,6 +255,7 @@ export class WorldCameraController {
       return;
     }
     const delta = Math.max(-MAX_WHEEL_DELTA, Math.min(MAX_WHEEL_DELTA, deltaY));
+    this.movedByHand = true;
     this.rig.zoomBy(Math.exp(-delta * this.options.wheelZoomPerPixel), point);
   };
 

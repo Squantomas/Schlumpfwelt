@@ -105,8 +105,10 @@ export class Simulation {
       return;
     }
     this.current.tick += 1;
-    // How fast each building works follows the mood of its worker (M7).
-    tickProduction(this.current, workPaces(this.current));
+    // How fast each building works follows the mood of its worker (M7). At bedtime (M8) nothing is made.
+    if (!this.current.bedtime) {
+      tickProduction(this.current, workPaces(this.current));
+    }
     // The residents only walk and show what they carry: the store is already settled by the production.
     tickResidents(this.current);
     checkUnlocks(this.current);

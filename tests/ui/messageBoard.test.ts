@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { MessageBoard, newsVisible } from '../../src/ui/messageBoard';
+import { MessageBoard, newsVisible, pickHint } from '../../src/ui/messageBoard';
 
 describe('MessageBoard: Erklärung und Neuigkeit (N3)', () => {
   it('zeigt eine Erklärung, bis sie gelöscht wird – ohne Zeitablauf', () => {
@@ -84,5 +84,107 @@ describe('Neuigkeit nur, wo die Hinweisleiste sie zeigt (Nacharbeit #17)', () =>
     expect(board.current(60_000, newsVisible({ hasPreview: false, shopOpen: false, inspectedId: undefined }))).toBe('Neu im Shop: Bank!');
     expect(board.current(66_999)).toBe('Neu im Shop: Bank!');
     expect(board.current(67_000)).toBeUndefined();
+  });
+});
+
+describe('Vorrang in der Hinweisleiste: das Tutorial verdrängt nichts und wird nie für immer verdrängt (M8)', () => {
+  const base = { shopOpen: false, cardOpen: false, tutorial: 'Tippe auf einen Bewohner.' };
+
+  it('ohne andere Meldung steht der Satz des Tutorials da', () => {
+    expect(pickHint(base)).toEqual({ text: 'Tippe auf einen Bewohner.', source: 'tutorial' });
+  });
+
+  it('Neu im Shop, Fehler, Tragen und Werkzeug-Hinweise gehen vor', () => {
+    expect(pickHint({ ...base, message: 'Neu im Shop: Bank!' })).toEqual({ text: 'Neu im Shop: Bank!', source: 'message' });
+    expect(pickHint({ ...base, message: 'Hier geht das nicht.', toolHint: 'Tippe auf die Wiese.' })?.source).toBe('message');
+    expect(pickHint({ ...base, toolHint: 'Zieh Lumo auf ein Haus.' })).toEqual({ text: 'Zieh Lumo auf ein Haus.', source: 'tool' });
+    expect(pickHint({ ...base, message: 'Bald wird es Abend …' })?.source).toBe('message');
+  });
+
+  it('Shop und Karten zeigen nichts daneben', () => {
+    expect(pickHint({ ...base, shopOpen: true, message: 'x' })).toBeUndefined();
+    expect(pickHint({ ...base, cardOpen: true })).toBeUndefined();
+    expect(pickHint({ ...base, cardOpen: true, cardFallback: 'Arbeitet.' })).toEqual({ text: 'Arbeitet.', source: 'card' });
+  });
+
+  it('nach der Neuigkeit, der Erklärung und dem Werkzeug ist der Satz wieder da', () => {
+    const board = new MessageBoard();
+    board.explain('Hier geht das nicht.');
+    board.announce('Neu im Shop: Bank!', 7000);
+    const at = (now: number, toolHint?: string) => pickHint({ ...base, message: board.current(now), toolHint });
+    expect(at(0)?.text).toBe('Neu im Shop: Bank!');
+    expect(at(7000)?.text).toBe('Hier geht das nicht.');
+    board.clearExplanation();
+    expect(at(7001, 'Tippe auf den Anfang vom Weg.')?.source).toBe('tool');
+    expect(at(7002)).toEqual({ text: 'Tippe auf einen Bewohner.', source: 'tutorial' });
+    expect(pickHint({ shopOpen: false, cardOpen: false })).toBeUndefined();
+  });
+});
+
+describe('Gehaltene Meldung: „Bald wird es Abend …“ geht nicht ungesehen verloren (M8, Korrekturrunde 1)', () => {
+  const warn = 'Bald wird es Abend …';
+
+  it('bleibt, bis die Hinweisleiste sie gezeigt hat; erst ein Tipp danach nimmt sie weg', () => {
+    const board = new MessageBoard();
+    board.hold(warn);
+    expect(board.current(0)).toBe(warn);
+    // The shop covered the hint bar: a tap closes it – the sentence was never seen, so it stays.
+    expect(board.hasExplanation).toBe(false);
+    board.clearExplanation();
+    expect(board.current(1)).toBe(warn);
+    board.shown(warn);
+    expect(board.hasExplanation).toBe(true);
+    board.clearExplanation();
+    expect(board.current(2)).toBeUndefined();
+  });
+
+  it('eine neue Erklärung geht vor; danach kommt die gehaltene Meldung wieder', () => {
+    const board = new MessageBoard();
+    board.hold(warn);
+    board.explain('Hier geht das nicht.');
+    expect(board.current(0)).toBe('Hier geht das nicht.');
+    board.shown('Hier geht das nicht.');
+    board.clearExplanation();
+    expect(board.current(1)).toBe(warn);
+  });
+
+  it('eine Neuigkeit geht vor, zählt aber nicht als Zeigen', () => {
+    const board = new MessageBoard();
+    board.hold(warn);
+    board.announce('Neu im Shop: Bank!', 7000);
+    expect(board.current(0)).toBe('Neu im Shop: Bank!');
+    board.shown(board.current(0));
+    board.clearExplanation();
+    expect(board.current(7000)).toBe(warn);
+  });
+
+  it('die Nacht nimmt alles weg, auch eine nie gezeigte', () => {
+    const board = new MessageBoard();
+    board.hold(warn);
+    board.clearAll();
+    expect(board.current(0)).toBeUndefined();
+  });
+});
+
+describe('Satz des Tutorials vor dem Werkzeug, wenn er woandershin führt (M8, Korrekturrunde 1)', () => {
+  it('geht vor den Hinweis des Werkzeugs, aber nie vor eine Meldung', () => {
+    const sources = { shopOpen: false, cardOpen: false, toolHint: 'Tippe auf die Wiese.', tutorial: 'Tippe auf den blauen Pfeil.', tutorialFirst: true };
+    expect(pickHint(sources)).toEqual({ text: 'Tippe auf den blauen Pfeil.', source: 'tutorial' });
+    expect(pickHint({ ...sources, tutorialFirst: false })?.source).toBe('tool');
+    expect(pickHint({ ...sources, message: 'Neu im Shop: Bank!' })?.source).toBe('message');
+    expect(pickHint({ ...sources, shopOpen: true })).toBeUndefined();
+  });
+});
+
+describe('Dringende Hinweise des Werkzeugs vor jedem Satz des Tutorials (M8, Korrekturrunde 2)', () => {
+  it('ein Grund, eine Erstattung oder Tragen geht auch vor einen festen Satz, aber nie vor eine Meldung', () => {
+    const sources = { shopOpen: false, cardOpen: false, toolHint: 'Da ist Wasser.', toolProblem: true, tutorial: 'Schau oben: Der Markt bringt Taler!', tutorialFirst: true };
+    expect(pickHint(sources)).toEqual({ text: 'Da ist Wasser.', source: 'tool' });
+    expect(pickHint({ ...sources, toolProblem: false })?.source).toBe('tutorial');
+    expect(pickHint({ ...sources, tutorialFirst: false })?.source).toBe('tool');
+    expect(pickHint({ ...sources, message: 'Neu im Shop: Bank!' })?.source).toBe('message');
+    expect(pickHint({ ...sources, cardOpen: true })).toBeUndefined();
+    // Without a hint of the tool the flag means nothing.
+    expect(pickHint({ ...sources, toolHint: undefined })?.source).toBe('tutorial');
   });
 });

@@ -9,7 +9,7 @@ import { CANCEL_DIAMETER, CONFIRM_DIAMETER } from '../../ui/confirmLayout';
 import { createLabel, setLabelSize } from '../../ui/label';
 import { cardStatus, productionInfo } from '../../ui/productionInfo';
 import { RoundButton } from '../../ui/RoundButton';
-import { MessageBoard, newsVisible } from '../../ui/messageBoard';
+import { MessageBoard, newsVisible, pickHint, type HintSource } from '../../ui/messageBoard';
 import { residentInfo, residentSentence } from '../../ui/residentInfo';
 import { newItemsText } from '../../ui/shopModel';
 import { SquareButton } from '../../ui/SquareButton';
@@ -88,6 +88,15 @@ export class BuildUI {
   private readonly hintPanel: Phaser.GameObjects.Graphics;
   private readonly hintLabel: Phaser.GameObjects.Text;
   private readonly exitButton: RoundButton;
+  /** M8: ✕ beside the sentence of the guided start – skips it for good. */
+  private readonly skipButton: RoundButton;
+  /** The sentence of the guided start (M8), shown only when nothing else has something to say (`pickHint`). */
+  private tutorialText: string | undefined;
+  private tutorialFirm = false;
+  /** Where the hint bar's sentence comes from now. */
+  private hintSource: HintSource | undefined;
+  /** "Skip the tutorial" was tapped. */
+  onSkipTutorial: (() => void) | undefined;
   private readonly confirmButton: RoundButton;
   private readonly cancelButton: RoundButton;
   private readonly toolButtons = new Map<ToolbarToolId, SquareButton>();
@@ -114,6 +123,7 @@ export class BuildUI {
   private lastTool: ToolId = 'view';
   private hintAtBottom = false;
   private lastUiTap = Number.NEGATIVE_INFINITY;
+  private touches = 0;
   /** The text of the hint bar as last set (the hint is only worked out when something changed). */
   private currentHint = '';
   private cardTick = -1;
@@ -121,6 +131,7 @@ export class BuildUI {
   private cardFallback: string | undefined;
   private zoomSpots: Record<string, UiSpot> = {};
   private spotsJson = '{}';
+  private spotsMap: Record<string, UiSpot> = {};
   private spotsDirty = true;
   private shownShop = '';
 
@@ -180,6 +191,17 @@ export class BuildUI {
         this.refresh();
       },
     });
+
+    this.skipButton = new RoundButton(scene, 0, 0, {
+      radius: EXIT_RADIUS,
+      icon: 'cross',
+      onTap: (time) => {
+        this.touched(time);
+        this.onSkipTutorial?.();
+        this.refresh();
+      },
+    });
+    this.skipButton.setVisible(false);
 
     this.shopStar = addGraphics(scene).setVisible(false);
     drawStar(this.shopStar, 13);
@@ -282,7 +304,7 @@ export class BuildUI {
       object.setVisible(false);
     }
 
-    uiLayer.add([...this.toolButtons.values(), ...this.chipButtons.values(), this.menuButton, this.hintLabel, this.exitButton, this.confirmButton, this.cancelButton]);
+    uiLayer.add([...this.toolButtons.values(), ...this.chipButtons.values(), this.menuButton, this.hintLabel, this.exitButton, this.skipButton, this.confirmButton, this.cancelButton]);
   }
 
   /** The small button "back to the shop" for one item: its picture and name. */
@@ -308,6 +330,63 @@ export class BuildUI {
   /** A control was tapped: for a moment the world ignores taps (double taps on ✓ / ✕ must not fall through). */
   touched(eventTime: number): void {
     this.lastUiTap = eventTime;
+    this.touches += 1;
+  }
+
+  /** How many taps on controls there were so far (the guided start counts any tap, M8). */
+  get touchCount(): number {
+    return this.touches;
+  }
+
+  /**
+   * The sentence of the guided start (M8), `undefined` for none. It goes where the child looks (Korrekturrunde 1): in
+   * the hint bar when nothing else has something to say there (`firm`: also before the hint of the open tool – the
+   * sentence leads away from it), in the fixed line of the open shop (unless a locked card's sentence stands there),
+   * or in the tip's row of an open resident card. The hint bar has a ✕ beside it to skip the guided start.
+   */
+  setTutorial(text: string | undefined, firm = false): void {
+    if (text !== this.tutorialText || firm !== this.tutorialFirm) {
+      this.tutorialText = text;
+      this.tutorialFirm = firm;
+      this.seenVersion = -1;
+    }
+    this.shop.setGuide(this.tool.shopOpen ? text : undefined);
+    this.residentCard.setGuide(text);
+  }
+
+  /** Does the hint bar show the sentence of the guided start now? */
+  get showsTutorial(): boolean {
+    return this.hintSource === 'tutorial';
+  }
+
+  /** Where the sentence of the guided start is to be seen now – the hint bar, the shop's line, a resident's card – if anywhere. */
+  get tutorialShownAt(): 'hint' | 'shop' | 'card' | undefined {
+    if (this.tool.shopOpen) {
+      return this.shop.showsGuide ? 'shop' : undefined;
+    }
+    if (this.residentCard.isOpen) {
+      return this.residentCard.showsGuide ? 'card' : undefined;
+    }
+    return this.hintSource === 'tutorial' ? 'hint' : undefined;
+  }
+
+  /** Does the hint bar show a message (news, an explanation) now? The hand of the guided start waits then. */
+  get showsMessage(): boolean {
+    return this.hintSource === 'message';
+  }
+
+  /** The sentence of the guided start where it is to be seen now (`''` if nowhere), for tests. */
+  get tutorialSaid(): string {
+    switch (this.tutorialShownAt) {
+      case 'hint':
+        return this.currentHint;
+      case 'shop':
+        return this.shop.shownLine;
+      case 'card':
+        return this.residentCard.tipShown;
+      case undefined:
+        return '';
+    }
   }
 
   /**
@@ -325,6 +404,21 @@ export class BuildUI {
    */
   showNotice(key: TextKey, params?: TextParams): void {
     this.board.explain(t(key, params));
+    this.seenVersion = -1;
+  }
+
+  /**
+   * A message that is said only once ("Bald wird es Abend …", M8): it waits until the hint bar has shown it (not while
+   * the shop or a card covers it, not behind a fresh explanation); only a tap after that takes it away.
+   */
+  holdNotice(key: TextKey, params?: TextParams): void {
+    this.board.hold(t(key, params));
+    this.seenVersion = -1;
+  }
+
+  /** The night: every message goes, also a held one. */
+  clearAllNotices(): void {
+    this.board.clearAll();
     this.seenVersion = -1;
   }
 
@@ -390,7 +484,7 @@ export class BuildUI {
     if (text === undefined) {
       return 0;
     }
-    const inTool = this.tool.tool !== 'view';
+    const inTool = this.tool.tool !== 'view' || this.hintSource === 'tutorial';
     const exitSpace = inTool ? 2 * EXIT_RADIUS + 10 : 0;
     let fontSize = clamp(Math.min(width, height) * 0.04, 16, 26);
     // The text never runs under the ✕ button: wrap narrower than the free space and shrink if it is still too wide.
@@ -457,13 +551,17 @@ export class BuildUI {
     this.hintAtBottom = this.tool.tool === 'view';
     this.hintRect = layout.hint ?? EMPTY;
     this.exitButton.setVisible(layout.hint !== undefined && this.tool.tool !== 'view');
+    // The ✕ of the guided start sits where the ✕ of a tool would (there is never both: the tutorial speaks only while looking or when the tool says nothing).
+    const skip = layout.hint !== undefined && this.hintSource === 'tutorial' && this.tool.tool === 'view';
+    this.skipButton.setVisible(skip);
     if (layout.hint) {
       const hint = layout.hint;
-      const exitSpace = this.tool.tool !== 'view' ? 2 * EXIT_RADIUS + 10 : 0;
+      const exitSpace = this.tool.tool !== 'view' || skip ? 2 * EXIT_RADIUS + 10 : 0;
       const textMax = Math.max(100, hint.width - exitSpace - 40);
       drawPanel(this.hintPanel, hint);
       this.hintLabel.setPosition(hint.x + 20 + textMax / 2, hint.y + hint.height / 2);
       this.exitButton.setPosition(hint.x + hint.width - 8 - EXIT_RADIUS, hint.y + 4 + EXIT_RADIUS);
+      this.skipButton.setPosition(hint.x + hint.width - 8 - EXIT_RADIUS, hint.y + hint.height / 2);
     }
 
     this.applyShop(layout);
@@ -534,21 +632,31 @@ export class BuildUI {
     }
   }
 
+  /**
+   * The sentence of the hint bar, by the rule of precedence (`pickHint`, M8): nothing over the shop, beside a card only
+   * its own sentence when it does not fit, then news and explanations, then the tool's hint, and last the guided start.
+   */
   private hintText(): string | undefined {
-    // The shop explains itself (cards, locks): no hint bar over it.
-    if (this.tool.shopOpen) {
-      return undefined;
+    const shopOpen = this.tool.shopOpen;
+    const cardOpen = this.tool.cardOpen;
+    const covered = shopOpen || cardOpen;
+    const hint = covered ? undefined : this.tool.hint;
+    const picked = pickHint({
+      shopOpen,
+      cardOpen,
+      cardFallback: this.cardFallback,
+      message: covered ? undefined : this.board.current(this.scene.time.now, this.newsAllowed()),
+      toolHint: hint ? t(hint, this.tool.hintParams) : undefined,
+      toolProblem: !covered && this.tool.hintUrgent,
+      tutorial: this.tutorialText,
+      tutorialFirst: this.tutorialFirm,
+    });
+    this.hintSource = picked?.source;
+    // A held message ("Bald wird es Abend …") may go with a tap only once it was really to be seen.
+    if (picked?.source === 'message') {
+      this.board.shown(picked.text);
     }
-    // The info card says everything itself: no extra note beside it (and if it does not fit, its sentence is the hint).
-    if (this.tool.cardOpen) {
-      return this.cardFallback;
-    }
-    const message = this.board.current(this.scene.time.now, this.newsAllowed());
-    if (message !== undefined) {
-      return message;
-    }
-    const hint = this.tool.hint;
-    return hint ? t(hint, this.tool.hintParams) : undefined;
+    return picked?.text;
   }
 
   /** May news ("Neu im Shop") be shown now? Only where the hint bar really shows it – otherwise its 7 seconds would run out unseen. */
@@ -698,13 +806,23 @@ export class BuildUI {
       if (this.exitButton.visible) {
         spots['exit'] = { x: this.exitButton.x, y: this.exitButton.y, enabled: true };
       }
+      if (this.skipButton.visible) {
+        spots['tutorial-skip'] = { x: this.skipButton.x, y: this.skipButton.y, enabled: true, w: 2 * EXIT_RADIUS, h: 2 * EXIT_RADIUS };
+      }
       if (this.confirmButton.visible) {
         spots['confirm'] = { x: this.confirmButton.x, y: this.confirmButton.y, enabled: this.tool.canConfirm };
         spots['cancel'] = { x: this.cancelButton.x, y: this.cancelButton.y, enabled: true };
       }
       this.spotsJson = JSON.stringify(spots);
+      this.spotsMap = spots;
     }
     return this.spotsJson;
+  }
+
+  /** The same places as {@link spots}, as an object (the hand of the guided start points at them, M8). */
+  get spotMap(): Readonly<Record<string, UiSpot>> {
+    void this.spots;
+    return this.spotsMap;
   }
 
   /** The shop for the test marker: `closed`, or `<tab>:<page>/<pages>`. */

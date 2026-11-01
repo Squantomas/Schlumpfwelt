@@ -166,6 +166,18 @@ export const COLORS = {
   moodCloudShade: 0x7f95a8,
   moodDrop: 0x5aa9e6,
   moodRim: 0xffffff,
+  // M8: the evening and the night – a warm orange glow, then a deep blue over the island; moon, stars and the "z" of sleep.
+  duskWarm: 0xff8a3d,
+  nightSky: 0x1b2350,
+  moon: 0xfff4c2,
+  moonShade: 0xe8d58a,
+  star: 0xfffbe6,
+  sleepZ: 0xe9f1ff,
+  sleepZRim: 0x3a4a8a,
+  // M8: the guided start – the pointing hand and the soft glow around its target.
+  handFill: 0xffffff,
+  handRim: 0x3a4a5a,
+  handGlow: 0xfff0a0,
 } as const;
 
 /** The colours of the residents' pointed hats, by the ids of `residents.json` (`hats`). */

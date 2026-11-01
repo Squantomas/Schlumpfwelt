@@ -1,21 +1,44 @@
 import Phaser from 'phaser';
 import { CAMERA_CONFIG } from '../data/camera';
 import { buildingType } from '../data/buildings';
-import { buildingAt, isConnected } from '../sim/buildings';
-import { activityOf } from '../sim/residents';
+import { buildingAt, isConnected, type Tile } from '../sim/buildings';
+import { activityOf, allAsleep } from '../sim/residents';
+import { t, type TextKey } from '../data/texts';
+import { DAY_CLOCK_OPTIONS, localDayKey, type DayEvent } from '../parent/dayClock';
+import type { ParentSession } from '../parent/parentSession';
 import { moodOf, workPaces } from '../sim/mood';
 import { hash2 } from '../sim/random';
 import type { GameSession } from '../save/session';
 import type { Simulation } from '../sim/simulation';
 import { isLand, landBounds, terrainAt, type Terrain } from '../sim/world';
-import { BuildTool, type Preview } from '../ui/buildTool';
-import { zoomLayout } from '../ui/buildLayout';
+import { BuildTool, TOOLS, type Preview } from '../ui/buildTool';
+import { toolbarPanel, zoomLayout } from '../ui/buildLayout';
 import { growRect, tileAtWorld, visibleRect, type CameraBounds, type Point, type Rect } from '../ui/cameraMath';
 import { landRegions } from '../ui/cameraRegions';
 import { FrameStats } from '../ui/frameStats';
 import { simulationDelta } from '../ui/frameTime';
-import { glideAllowed, landingGlide, rectGlide } from '../ui/boatCamera';
+import { bandGlide, glideAllowed, landingGlide, rectGlide } from '../ui/boatCamera';
 import { RESIDENT_BODY_Y, residentAt } from '../ui/residentHit';
+import {
+  TUTORIAL_DONE,
+  advanceTutorial,
+  currentStep,
+  pathTargets,
+  pickTutorialResident,
+  readTutorial,
+  skipTutorial,
+  startTutorial,
+  storeTutorial,
+  inFreeBand,
+  placeCandidates,
+  pickPlace,
+  tutorialGlideDue,
+  tutorialHint,
+  villageCounts,
+  type TutorialHint,
+  type TutorialRecord,
+  type TutorialSentence,
+} from '../ui/tutorial';
 import { moodReason } from '../ui/residentInfo';
 import { RoundButton } from '../ui/RoundButton';
 import { COLORS, TILE_SIZE, rgb } from '../ui/style';
@@ -34,13 +57,16 @@ import {
   registerIslandTextures,
 } from './island/objectTextures';
 import { LostOverlay } from './island/LostOverlay';
+import { NightLayer } from './island/NightLayer';
+import { ParentPanel } from './island/ParentPanel';
+import { TutorialGuide } from './island/TutorialGuide';
 import { registerResidentTextures } from './island/residentTextures';
 import { ResidentView } from './island/ResidentView';
 import { VillageMenu } from './island/VillageMenu';
 import { VillageView } from './island/VillageView';
 import { WorldCameraController } from './island/WorldCameraController';
 import { ISLAND_EVENTS, SCENES, type TileTapEvent } from './keys';
-import { markActiveScene, markCamera, markPerf, markSave, markTap, markVillage } from './sceneMarker';
+import { markActiveScene, markCamera, markParent, markPerf, markSave, markTap, markVillage } from './sceneMarker';
 
 /** Tap ring: how long it takes to grow and fade away (ms). */
 const RING_MS = 900;
@@ -59,6 +85,23 @@ const PERF_FRAMES = 300;
 const GRAB_MIN_ZOOM = 0.5;
 /** Room over the roof of a house for its "0/2" (world px), when the camera glides to a house chosen as a new home. */
 const HOUSE_LABEL_ROOM = 44;
+/** The local date is looked at this often (ms): a new day (also at midnight while playing) starts a new account. */
+const DAY_KEY_EVERY = 1000;
+
+/** The sentence of each step of the guided start (M8), and of the ways back to it (Korrekturrunde 1). */
+const TUTORIAL_TEXTS: Readonly<Record<TutorialSentence, TextKey>> = {
+  closeCard: 'tutorial.closeCard',
+  closeShop: 'tutorial.closeShop',
+  exit: 'tutorial.exit',
+  chip: 'tutorial.chip',
+  resident: 'tutorial.resident',
+  shop: 'tutorial.shop',
+  deco: 'tutorial.deco',
+  coins: 'tutorial.coins',
+  house: 'tutorial.house',
+  path: 'tutorial.path',
+  praise: 'tutorial.praise',
+};
 
 /** What a frame cost on the main thread (ms): the whole frame, the simulation in it, and drawing. */
 interface PerfMeter {
@@ -123,7 +166,7 @@ export class IslandScene extends Phaser.Scene {
   /** The boats the camera already knows (a new one with a guest may make it glide to the landing place). */
   private seenBoats = new Set<number>();
   /** What the running camera glide is for: a boat (only while looking) or the house tapped while choosing a home. */
-  private glideFor: 'boat' | 'house' | undefined;
+  private glideFor: 'boat' | 'house' | 'place' | undefined;
   /** A house was tapped while choosing a home: glide to it once the controls are laid out (next frame). */
   private houseGlidePending = false;
   private buildUI!: BuildUI;
@@ -139,8 +182,36 @@ export class IslandScene extends Phaser.Scene {
   private previewText = 'none';
   private producers = '[]';
   private producersTick = -1;
+  /** M8: the parents' menu, the evening and the night, the hand of the guided start. */
+  private parentPanel!: ParentPanel;
+  private night!: NightLayer;
+  private guide!: TutorialGuide;
+  private tutorial: TutorialRecord = TUTORIAL_DONE;
+  /** Decoration, houses and houses without a path, counted once per change of the village. */
+  private tutorialCounts: { revision: number; counts: ReturnType<typeof villageCounts> } | undefined;
+  /**
+   * Where the hand may suggest to put the item (worked out once per change of the village or item): places near the
+   * first house, and – when none of them is to be seen – near the middle of the picture (`around`).
+   */
+  private tutorialPlace: { key: string; tiles: readonly Tile[] } | undefined;
+  private tutorialPlaceAround: { key: string; tiles: readonly Tile[] } | undefined;
+  /** The place the hand points at (kept while it is to be seen, so the hand does not jump about). */
+  private tutorialPlaceShown: Tile | undefined;
+  private tutorialPath: { revision: number; targets: ReturnType<typeof pathTargets> } | undefined;
+  /** The resident the hand points at (kept while they stay in the picture, so the hand does not jump about). */
+  private tutorialResident: number | undefined;
+  /** Nothing to point at in the picture since `since` (a resident, a place): the camera glides there (last at `glidedAt`). */
+  private tutorialSearch: { kind: 'resident' | 'place'; since: number; glidedAt: number } | undefined;
+  private tutorialHint: TutorialHint | undefined;
+  private tutorialTouches = 0;
+  private worldTapped = false;
+  private dayKey = { at: Number.NEGATIVE_INFINITY, key: '' };
+  private dayPublished = '';
 
-  constructor(private readonly session: GameSession) {
+  constructor(
+    private readonly session: GameSession,
+    private readonly parent: ParentSession,
+  ) {
     super(SCENES.island);
     this.simulation = session.simulation;
   }
@@ -177,6 +248,19 @@ export class IslandScene extends Phaser.Scene {
     this.drawnTerrain = [...world.tiles];
     this.terrainRevision = this.simulation.state.revision;
     this.repaint = { count: 0, last: 0, max: 0, blocks: 0, uploaded: 0, blocksTotal: 0 };
+    this.tutorial = readTutorial(this.parent.tutorial) ?? TUTORIAL_DONE;
+    this.tutorialCounts = undefined;
+    this.tutorialPlace = undefined;
+    this.tutorialPlaceAround = undefined;
+    this.tutorialPlaceShown = undefined;
+    this.tutorialPath = undefined;
+    this.tutorialResident = undefined;
+    this.tutorialSearch = undefined;
+    this.tutorialHint = undefined;
+    this.tutorialTouches = 0;
+    this.worldTapped = false;
+    this.dayKey = { at: Number.NEGATIVE_INFINITY, key: '' };
+    this.dayPublished = '';
 
     this.worldLayer = this.add.layer();
     this.uiLayer = this.add.layer();
@@ -244,9 +328,9 @@ export class IslandScene extends Phaser.Scene {
       tapMaxMovePx: CAMERA_CONFIG.tapMaxMovePx,
       wheelZoomPerPixel: CAMERA_CONFIG.wheelZoomPerPixel,
       blocksCamera: (object) => object.displayList === this.uiLayer,
-      blocksPoint: (x, y) => this.lost.isOpen || this.menu.isOpen || this.buildUI.coversPoint(x, y),
+      blocksPoint: (x, y) => this.covered || this.buildUI.coversPoint(x, y),
       // The wheel is for the island only: not over panels, not while the menu or the shop covers it.
-      blocksWheel: (x, y) => this.lost.isOpen || this.menu.isOpen || this.buildUI.shopOpen || this.buildUI.coversPoint(x, y) || this.buildUI.overMenuButton(x, y),
+      blocksWheel: (x, y) => this.covered || this.buildUI.shopOpen || this.buildUI.coversPoint(x, y) || this.buildUI.overMenuButton(x, y),
       onTap: (point, _screen, time) => this.handleTap(point, time),
       // M7: a press on a resident while looking carries them to a house.
       onGrab: (point) => this.grabResident(point),
@@ -268,6 +352,8 @@ export class IslandScene extends Phaser.Scene {
         }
         this.buildTool.cancelCarry();
       },
+      // The evening covers the island: a press held from before must not start carrying (Korrekturrunde 1).
+      mayCarry: () => !this.covered,
       onPanStart: (point) => {
         this.explainNoGrab(point);
       },
@@ -298,19 +384,52 @@ export class IslandScene extends Phaser.Scene {
       },
       () => this.menu.isOpen,
     );
+    this.buildUI.onSkipTutorial = () => {
+      this.setTutorial(skipTutorial(this.tutorial));
+      this.buildUI.showNotice('tutorial.skipped');
+    };
+    // The hand of the guided start points at controls too: above them, below the menu.
+    this.guide = new TutorialGuide(this, this.uiLayer);
     this.menu = new VillageMenu(this, this.uiLayer, this.session, {
       touched: (time) => {
         this.buildUI.touched(time);
       },
       onReplaced: () => {
-        // A new village from a file: the scene starts again and builds everything from the new state.
+        // A village from a file has its own start: the guided start is over (M8). The scene starts again and builds everything from the new state.
+        if (this.tutorial.status === 'active') {
+          this.setTutorial({ ...TUTORIAL_DONE });
+        }
         this.scene.restart();
       },
+      onParent: () => {
+        this.parentPanel.open();
+      },
+    });
+    // Evening and night over everything (M8), below the parents' menu (the way out of the night) and the "other window" layer.
+    this.night = new NightLayer(this, this.uiLayer, (time) => {
+      this.buildUI.touched(time);
+      this.parentPanel.open();
+    });
+    this.parentPanel = new ParentPanel(this, this.uiLayer, this.parent, {
+      touched: (time) => {
+        this.buildUI.touched(time);
+      },
+      onTutorialAgain: () => {
+        this.setTutorial(startTutorial({ ...this.countsForTutorial(), earned: this.simulation.state.earnedCoins }));
+      },
+      onClose: () => undefined,
     });
     // Last in the UI layer, so it covers everything: after another window took over the saving nothing may be built here.
     this.lost = new LostOverlay(this, this.uiLayer, () => {
       window.location.reload();
     });
+    if (this.parent.clock.phase === 'night') {
+      // A reload in the night (M8): it is night at once – everybody is in bed, nothing moves.
+      this.simulation.send({ type: 'setBedtime', bedtime: true, instant: true });
+      this.simulation.send({ type: 'setPaused', paused: true });
+      this.simulation.applyPending();
+      this.night.showNightNow();
+    }
     const startNotice = this.session.takeNotice();
     if (startNotice) {
       this.buildUI.showNotice(startNotice);
@@ -331,6 +450,8 @@ export class IslandScene extends Phaser.Scene {
         },
       );
       this.menu.layout({ width, height });
+      this.night.layout({ width, height }, toolbarPanel(width, height, TOOLS.length).rect);
+      this.parentPanel.layout({ width, height });
       this.lost.layout({ width, height });
     });
 
@@ -424,6 +545,7 @@ export class IslandScene extends Phaser.Scene {
 
     this.session.autosave?.update(time);
     this.lost.setOpen(this.session.autosave?.isLost === true);
+    this.updateDay(time);
     this.followNewBoats();
     // A carried resident who stayed over a house with room a moment turns it green (one clock: the frame time).
     this.buildTool.updateCarry(time);
@@ -437,6 +559,286 @@ export class IslandScene extends Phaser.Scene {
       const wave = 0.5 + 0.5 * Math.sin(seconds * 1.6 + phase);
       sprite.setAlpha(0.15 + 0.45 * wave).setScale((0.8 + 0.3 * wave) / TEXTURE_SCALE);
     }
+    this.updateTutorial(time);
+  }
+
+  /** Is the island covered (another window, the menu, the parents' menu, the evening or the night)? Then it takes no touch. */
+  private get covered(): boolean {
+    return this.lost.isOpen || this.menu.isOpen || this.parentPanel.isOpen || this.night.blocks;
+  }
+
+  /**
+   * The daily limit (M8): counts this frame's visible play (the raw frame time, capped like the simulation – never the
+   * difference of two wall-clock times), looks at the local date once a second, and follows the turns of the day:
+   * a gentle sentence a few minutes before the end, then the evening (everybody walks home to bed, nothing is made),
+   * the night (the game stands still and is saved) and the morning (it gets light, everybody wakes up).
+   */
+  private updateDay(time: number): void {
+    const state = this.simulation.state;
+    if (time - this.dayKey.at >= DAY_KEY_EVERY || time < this.dayKey.at) {
+      this.dayKey = { at: time, key: localDayKey(new Date()) };
+    }
+    const frameMs = this.game.loop.rawDelta;
+    const clock = this.parent.clock;
+    const events = this.parent.update({
+      frameMs,
+      dayKey: this.dayKey.key,
+      // Only visible, running play: not in the background, not with the parents' menu or the "other window" layer open.
+      counting: document.visibilityState === 'visible' && !this.lost.isOpen && !this.parentPanel.isOpen,
+      allAsleep: clock.phase === 'dusk' && allAsleep(state),
+    });
+    for (const event of events) {
+      this.dayEvent(event);
+    }
+    this.night.update(clock.phase, clock.phaseTime, frameMs, DAY_CLOCK_OPTIONS.duskMinMs, DAY_CLOCK_OPTIONS.dawnMs);
+  }
+
+  private dayEvent(event: DayEvent): void {
+    switch (event) {
+      case 'warn':
+        // Said only once, no countdown: it waits until the hint bar has really shown it (not under the shop or a
+        // card), and then stays until the next tap (Korrekturrunde 1).
+        this.buildUI.holdNotice('limit.warn');
+        return;
+      case 'dusk': {
+        // The evening: everything closes, everybody walks home.
+        this.menu.close();
+        // A finger held on a resident (not moved yet) or carrying one: let go – the rest of that touch does nothing.
+        this.controller.letGo();
+        const carried = this.buildTool.carried;
+        if (carried) {
+          this.residentView.letGo(carried.residentId, this.residentView.positionOf(carried.residentId) ?? carried.at);
+        }
+        this.buildTool.cancelCarry();
+        if (this.buildTool.shopOpen) {
+          this.buildTool.closeShop();
+        }
+        if (this.buildTool.tool !== 'view') {
+          this.buildTool.exitTool();
+        }
+        this.buildTool.closeInfo();
+        this.controller.stopGlide();
+        this.simulation.send({ type: 'setBedtime', bedtime: true });
+        return;
+      }
+      case 'night':
+        // The night: the game stands still and is saved – nothing is made, nothing is lost. The evening's sentence has said its piece.
+        this.buildUI.clearAllNotices();
+        this.simulation.send({ type: 'setPaused', paused: true });
+        this.simulation.applyPending();
+        void this.session.autosave?.flush();
+        return;
+      case 'wake':
+        this.simulation.send({ type: 'setBedtime', bedtime: false });
+        this.simulation.send({ type: 'setPaused', paused: false });
+        return;
+      case 'newDay':
+        return;
+    }
+  }
+
+  private countsForTutorial(): ReturnType<typeof villageCounts> {
+    const state = this.simulation.state;
+    if (this.tutorialCounts?.revision !== state.revision) {
+      this.tutorialCounts = { revision: state.revision, counts: villageCounts(state) };
+    }
+    return this.tutorialCounts.counts;
+  }
+
+  private setTutorial(record: TutorialRecord): void {
+    this.tutorial = record;
+    this.parent.setTutorial(storeTutorial(record));
+  }
+
+  /**
+   * The guided start (M8): moves on when a goal is reached (from the village and the controls, `advanceTutorial`), puts
+   * the sentence of the step into the hint bar and lets the hand point at the next tap.
+   */
+  private updateTutorial(time: number): void {
+    if (this.tutorial.status !== 'active') {
+      this.buildUI.setTutorial(undefined);
+      this.guide.update(undefined, this.controller.viewSize, time);
+      return;
+    }
+    const state = this.simulation.state;
+    const touches = this.buildUI.touchCount;
+    // The praise ends with a tap only once it was really to be seen (a tool hint or a message goes before it).
+    const praising = currentStep(this.tutorial)?.id === 'praise';
+    // (Shown in the last frame: the praise itself, not a sentence that leads to it, like "Tippe auf ✕" on an open card.)
+    const praiseShown = this.tutorialHint?.sentence === 'praise' && this.buildUI.tutorialShownAt !== undefined;
+    const tapped = (this.worldTapped || touches !== this.tutorialTouches) && (!praising || praiseShown);
+    this.worldTapped = false;
+    this.tutorialTouches = touches;
+    const next = advanceTutorial(this.tutorial, {
+      ...this.countsForTutorial(),
+      earned: state.earnedCoins,
+      residentCard: this.buildTool.inspectedResidentId !== undefined,
+      shopOpen: this.buildTool.shopOpen,
+      tapped,
+    });
+    if (next !== this.tutorial) {
+      this.setTutorial(next);
+    }
+    const step = currentStep(this.tutorial);
+    const tool = this.buildTool;
+    const card = tool.inspectedResidentId !== undefined ? 'resident' : tool.inspectedId !== undefined ? 'info' : undefined;
+    const hint = tutorialHint(step, { tool: tool.tool, shopTab: tool.shopTab, item: tool.item, preview: tool.preview(), canConfirm: tool.canConfirm, card });
+    this.tutorialHint = hint;
+    // While a resident is carried, the bar says only where to let go (Korrekturrunde 2): no sentence of the tutorial.
+    const said = hint && tool.carried === undefined ? hint : undefined;
+    this.buildUI.setTutorial(said ? t(TUTORIAL_TEXTS[said.sentence]) : undefined, said?.firm ?? false);
+    // The hand waits while something else is said in the hint bar (news, an explanation): sentence and hand go together.
+    const hidden = this.covered || tool.carried !== undefined || this.buildUI.showsMessage;
+    this.guide.update(hint && !hidden ? this.tutorialPoint(hint) : undefined, this.controller.viewSize, time, this.buildUI.freeBand);
+  }
+
+  /** Where the hand of the guided start points now (CSS px), if anywhere. */
+  private tutorialPoint(hint: TutorialHint): { x: number; y: number; radius: number } | undefined {
+    const target = hint.target;
+    const state = this.simulation.state;
+    const view = this.controller.view;
+    const size = this.controller.viewSize;
+    const toScreen = (x: number, y: number): { x: number; y: number } => ({ x: (x - view.centerX) * view.zoom + size.width / 2, y: (y - view.centerY) * view.zoom + size.height / 2 });
+    const tileTarget = (tile: Tile | undefined): { x: number; y: number; radius: number } | undefined =>
+      tile ? { ...toScreen((tile.x + 0.5) * TILE_SIZE, (tile.y + 0.5) * TILE_SIZE), radius: Math.max(28, (TILE_SIZE * view.zoom) / 1.6) } : undefined;
+    if (target.kind === 'none' || target.kind === 'spot') {
+      this.tutorialSearch = undefined;
+    }
+    switch (target.kind) {
+      case 'none':
+        return undefined;
+      case 'spot': {
+        const spots = this.buildUI.spotMap;
+        // A card on another page of the shop: the hand shows the arrow to it.
+        const spot = spots[target.name] ?? (target.name.startsWith('item-') ? (spots['page-next'] ?? spots['page-prev']) : undefined);
+        if (!spot) {
+          return undefined;
+        }
+        return { x: spot.x, y: spot.y, radius: Math.max(spot.w ?? 64, spot.h ?? 64) / 2 + 4 };
+      }
+      case 'resident':
+        return this.tutorialResidentPoint(toScreen);
+      case 'place':
+        return this.tutorialPlacePoint(target.typeId, toScreen, tileTarget);
+      case 'pathStart':
+      case 'pathEnd': {
+        if (this.tutorialPath?.revision !== state.revision) {
+          this.tutorialPath = { revision: state.revision, targets: pathTargets(state) };
+        }
+        const targets = this.tutorialPath.targets;
+        const tile = target.kind === 'pathStart' ? targets?.start : targets?.end;
+        // Only where a tap reaches the island (Korrekturrunde 2); else the camera glides there gently.
+        const point = tileTarget(tile);
+        const covers = (x: number, y: number): boolean => this.buildUI.coversPoint(x, y) || this.buildUI.overMenuButton(x, y);
+        if (point && inFreeBand(this.controller.viewSize, this.buildUI.freeBand, covers)(point.x, point.y)) {
+          this.tutorialSearch = undefined;
+          return point;
+        }
+        this.tutorialGlide('place', tile ? { x: (tile.x + 0.5) * TILE_SIZE, y: (tile.y + 0.5) * TILE_SIZE } : undefined);
+        return undefined;
+      }
+    }
+  }
+
+  /**
+   * The resident the hand points at (`pickTutorialResident`): one in the free band, else one on the screen that a tap
+   * reaches. When nobody can be tapped (a phone held sideways, everybody under the bars) the camera glides gently to
+   * the nearest one after a moment – only while just looking, with nothing open and no finger on the island; a touch
+   * stops it, and it is not tried again for a few seconds.
+   */
+  private tutorialResidentPoint(toScreen: (x: number, y: number) => { x: number; y: number }): { x: number; y: number; radius: number } | undefined {
+    const size = this.controller.viewSize;
+    const residents = this.residentView.spots.map((spot) => ({ id: spot.id, ...toScreen(spot.x, spot.y - RESIDENT_BODY_Y), world: { x: spot.x, y: spot.y - RESIDENT_BODY_Y } }));
+    const band = this.buildUI.freeBand;
+    const covers = (x: number, y: number): boolean => this.buildUI.coversPoint(x, y) || this.buildUI.overMenuButton(x, y);
+    const choice = pickTutorialResident(residents, size, band, this.tutorialResident, covers);
+    this.tutorialResident = choice?.id;
+    if (choice?.onScreen === true) {
+      this.tutorialSearch = undefined;
+      return { x: choice.x, y: choice.y, radius: 30 };
+    }
+    this.tutorialGlide('resident', residents.find((r) => r.id === choice?.id)?.world);
+    return undefined;
+  }
+
+  /**
+   * The place the hand suggests for the item (Korrekturrunde 2): the best free place near the first house that is to
+   * be seen in the free band and not under a button (`pickPlace`); if none is, the best one near the middle of the
+   * picture; if there is none either, the camera glides gently to the best place near the house (as for a resident).
+   */
+  private tutorialPlacePoint(
+    typeId: string,
+    toScreen: (x: number, y: number) => { x: number; y: number },
+    tileTarget: (tile: Tile | undefined) => { x: number; y: number; radius: number } | undefined,
+  ): { x: number; y: number; radius: number } | undefined {
+    const state = this.simulation.state;
+    const size = this.controller.viewSize;
+    const view = this.controller.view;
+    const band = this.buildUI.freeBand;
+    const covers = (x: number, y: number): boolean => this.buildUI.coversPoint(x, y) || this.buildUI.overMenuButton(x, y);
+    const onScreen = (tiles: readonly Tile[]) => tiles.map((tile) => ({ tile, ...toScreen((tile.x + 0.5) * TILE_SIZE, (tile.y + 0.5) * TILE_SIZE) }));
+    const house = state.buildings.find((b) => buildingType(b.type)?.category === 'house');
+    const near = house ? { x: house.x, y: house.y } : { x: Math.floor(state.world.width / 2), y: Math.floor(state.world.height / 2) };
+    const key = `${typeId}|${String(state.revision)}|${String(near.x)},${String(near.y)}`;
+    if (this.tutorialPlace?.key !== key) {
+      this.tutorialPlace = { key, tiles: placeCandidates(state, typeId, near) };
+    }
+    let place = pickPlace(onScreen(this.tutorialPlace.tiles), size, band, this.tutorialPlaceShown, covers);
+    if (!place) {
+      // Nothing near the house is to be seen: look around the middle of the band (the child may be somewhere else).
+      const middle = {
+        x: Math.floor(view.centerX / TILE_SIZE),
+        y: Math.floor((view.centerY + ((band.top + band.bottom) / 2 - size.height / 2) / view.zoom) / TILE_SIZE),
+      };
+      const aroundKey = `${typeId}|${String(state.revision)}|${String(middle.x)},${String(middle.y)}`;
+      if (this.tutorialPlaceAround?.key !== aroundKey) {
+        this.tutorialPlaceAround = { key: aroundKey, tiles: placeCandidates(state, typeId, middle) };
+      }
+      place = pickPlace(onScreen(this.tutorialPlaceAround.tiles), size, band, this.tutorialPlaceShown, covers);
+    }
+    this.tutorialPlaceShown = place?.tile;
+    if (place) {
+      this.tutorialSearch = undefined;
+      return tileTarget(place.tile);
+    }
+    const best = this.tutorialPlace.tiles[0];
+    this.tutorialGlide('place', best ? { x: (best.x + 0.5) * TILE_SIZE, y: (best.y + 0.5) * TILE_SIZE } : undefined);
+    return undefined;
+  }
+
+  /**
+   * Nothing to point at is to be seen: after a moment the camera glides gently to `world` – for a resident only while
+   * just looking (`glideAllowed`), for a place only while placing (`placeGlideAllowed`), never with something open or a
+   * finger on the island, and never once the child has moved the camera themselves (`tutorialGlideDue`, Korrektur-
+   * runde 2); a touch stops it.
+   */
+  private tutorialGlide(kind: 'resident' | 'place', world: { x: number; y: number } | undefined): void {
+    const now = this.time.now;
+    if (this.tutorialSearch?.kind !== kind) {
+      this.tutorialSearch = { kind, since: now, glidedAt: Number.NEGATIVE_INFINITY };
+    }
+    const search = this.tutorialSearch;
+    const gestureActive = this.controller.gestureActive;
+    const may =
+      kind === 'place'
+        ? this.placeGlideAllowed(gestureActive)
+        : glideAllowed({ tool: this.buildTool.tool, shopOpen: this.buildUI.shopOpen, menuOpen: this.covered, lostOpen: this.lost.isOpen, cardOpen: this.buildTool.cardOpen, gestureActive });
+    if (world === undefined || this.controller.glidingTo || !may || !tutorialGlideDue(search, now, this.controller.movedByPlayer)) {
+      return;
+    }
+    // Into the middle of the band (not just inside it, as for a house: the hand wants a little room around its target).
+    this.controller.glideTo(bandGlide(this.controller.view, this.controller.viewSize, this.buildUI.freeBand, world));
+    this.glideFor = kind === 'place' ? 'place' : 'boat';
+    search.glidedAt = now;
+  }
+
+  /**
+   * May the camera glide to a place of the guided start (for the item being placed, the start or the end of the path)?
+   * Only with that tool on and nothing open over it.
+   */
+  private placeGlideAllowed(gestureActive: boolean): boolean {
+    const tool = this.buildTool.tool;
+    return (tool === 'place' || tool === 'path') && !gestureActive && !this.buildUI.shopOpen && !this.covered && !this.lost.isOpen;
   }
 
   /**
@@ -450,14 +852,14 @@ export class IslandScene extends Phaser.Scene {
     const allowed = glideAllowed({
       tool: this.buildTool.tool,
       shopOpen: this.buildUI.shopOpen,
-      menuOpen: this.menu.isOpen,
+      menuOpen: this.menu.isOpen || this.parentPanel.isOpen || this.night.blocks,
       lostOpen: this.lost.isOpen,
       cardOpen: this.buildTool.cardOpen,
       gestureActive,
     });
     if (this.controller.glidingTo) {
       // A glide to the chosen house goes on while choosing (and stops with any touch or another tool).
-      const keep = this.glideFor === 'house' ? this.houseGlideAllowed(gestureActive) : allowed;
+      const keep = this.glideFor === 'house' ? this.houseGlideAllowed(gestureActive) : this.glideFor === 'place' ? this.placeGlideAllowed(gestureActive) : allowed;
       if (!keep) {
         this.controller.stopGlide();
       }
@@ -495,7 +897,7 @@ export class IslandScene extends Phaser.Scene {
 
   /** While choosing a new home with "Umziehen" – nothing covering the island, no finger on it. */
   private houseGlideAllowed(gestureActive: boolean): boolean {
-    return this.buildTool.tool === 'home' && !gestureActive && !this.buildUI.shopOpen && !this.menu.isOpen && !this.lost.isOpen;
+    return this.buildTool.tool === 'home' && !gestureActive && !this.buildUI.shopOpen && !this.covered;
   }
 
   /**
@@ -717,9 +1119,10 @@ export class IslandScene extends Phaser.Scene {
   /** A short touch on the world: announce the tile and show a soft ring on it. */
   private handleTap(world: Point, eventTime: number): void {
     // Right after ✓ or ✕ (double taps) a tap on the world must not start a new preview.
-    if (this.lost.isOpen || this.menu.isOpen || this.buildUI.worldTapsPaused(eventTime)) {
+    if (this.covered || this.buildUI.worldTapsPaused(eventTime)) {
       return;
     }
+    this.worldTapped = true;
     // The open shop covers the island: a tap beside the panel closes it and does nothing else (no building, no ring).
     if (this.buildUI.shopOpen) {
       this.buildTool.closeShop();
@@ -775,7 +1178,7 @@ export class IslandScene extends Phaser.Scene {
    * the island and from {@link GRAB_MIN_ZOOM} on. Moving the finger then carries them; without moving it stays a tap.
    */
   private grabResident(world: Point): boolean {
-    if (this.lost.isOpen || this.menu.isOpen || this.buildUI.shopOpen || this.buildTool.tool !== 'view' || this.controller.view.zoom < GRAB_MIN_ZOOM) {
+    if (this.covered || this.buildUI.shopOpen || this.buildTool.tool !== 'view' || this.controller.view.zoom < GRAB_MIN_ZOOM) {
       return false;
     }
     const residentId = this.residentAtTap(world);
@@ -787,7 +1190,7 @@ export class IslandScene extends Phaser.Scene {
    * island is too far away ({@link GRAB_MIN_ZOOM}), the hint bar says so – the camera moves as always, nothing is silent.
    */
   private explainNoGrab(world: Point): void {
-    if (this.controller.view.zoom >= GRAB_MIN_ZOOM || this.buildTool.tool !== 'view' || this.lost.isOpen || this.menu.isOpen || this.buildUI.shopOpen) {
+    if (this.controller.view.zoom >= GRAB_MIN_ZOOM || this.buildTool.tool !== 'view' || this.covered || this.buildUI.shopOpen) {
       return;
     }
     // Only a press right on the figure: dragging the village from afar must not bring up the sentence all the time.
@@ -901,7 +1304,7 @@ export class IslandScene extends Phaser.Scene {
       planted: String(state.planted.length),
       repaint: JSON.stringify(this.repaint),
       menu: this.lost.isOpen ? 'lost' : this.menu.shownState,
-      menuSpots: JSON.stringify(this.lost.isOpen ? this.lost.spots : this.menu.spots),
+      menuSpots: JSON.stringify(this.lost.isOpen ? this.lost.spots : { ...this.menu.spots, ...this.night.spots, ...this.parentPanel.spots }),
       residents: this.residentsText,
       boats: this.boatsText,
       residentCard: this.buildTool.inspectedResidentId === undefined ? '' : String(this.buildTool.inspectedResidentId),
@@ -913,6 +1316,31 @@ export class IslandScene extends Phaser.Scene {
     if (saveInfo !== this.savePublished) {
       this.savePublished = saveInfo;
       markSave(saveInfo);
+    }
+    this.publishParent();
+  }
+
+  /** The guided start, the parents' menu and the day (M8), for tests: `<html data-tutorial data-parent data-limit>`. */
+  private publishParent(): void {
+    const step = currentStep(this.tutorial);
+    const hand = this.guide.pointsAt;
+    const tutorial = JSON.stringify({
+      status: this.tutorial.status,
+      step: step?.id ?? '',
+      index: this.tutorial.step,
+      shown: this.buildUI.showsTutorial,
+      ...(this.tutorialHint && this.tutorial.status === 'active'
+        ? { target: describeTarget(this.tutorialHint), sentence: this.tutorialHint.sentence, at: this.buildUI.tutorialShownAt ?? '', said: this.buildUI.tutorialSaid }
+        : {}),
+      ...(hand ? { hx: Math.round(hand.x), hy: Math.round(hand.y), below: hand.fromBelow } : {}),
+    });
+    const limit = this.parent.describe();
+    const night = JSON.stringify(this.night.shown);
+    const bedtime = this.simulation.state.bedtime ? '1' : '0';
+    const key = `${tutorial}|${limit}|${night}|${this.parentPanel.shownState}|${bedtime}`;
+    if (key !== this.dayPublished) {
+      this.dayPublished = key;
+      markParent({ tutorial, parent: this.parentPanel.shownState, parentText: this.parentPanel.shownSentence, limit, night, bedtime });
     }
   }
 
@@ -962,7 +1390,7 @@ export class IslandScene extends Phaser.Scene {
           hat: resident.hat,
           job: typeOf(resident.job),
           home: typeOf(resident.home),
-          activity: activityOf(resident),
+          activity: activityOf(resident, state),
           carrying: resident.carrying ?? '',
           timer: resident.timer,
           mood: factors.mood,
@@ -1069,5 +1497,21 @@ function describePreview(preview: Preview): string {
       return `invite:${preview.result}`;
     case 'home':
       return `home:${preview.result}:${String(preview.used)}/${String(preview.capacity)}${preview.carried ? ':carried' : ''}${preview.waiting ? ':wait' : ''}`;
+  }
+}
+
+/** The hand's target for the page marker: `spot:<name>`, `resident`, `place:<type>`, `pathStart`, `pathEnd` or `none`. */
+function describeTarget(hint: TutorialHint): string {
+  const target = hint.target;
+  switch (target.kind) {
+    case 'spot':
+      return `spot:${target.name}`;
+    case 'place':
+      return `place:${target.typeId}`;
+    case 'resident':
+    case 'pathStart':
+    case 'pathEnd':
+    case 'none':
+      return target.kind;
   }
 }

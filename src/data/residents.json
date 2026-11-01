@@ -38,5 +38,9 @@
     "mealTicks": 1800,
     "mealGapTicks": 100,
     "retryTicks": 50
+  },
+  "bedtime": {
+    "wakeTicks": 15,
+    "wakeSpreadTicks": 45
   }
 }

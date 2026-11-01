@@ -43,6 +43,10 @@ export function moodTextureKey(mood: Mood): string {
   return `mood-${mood}`;
 }
 
+/** Sleep (M8): three little "z" over a house where somebody sleeps, or over a resident asleep outside. */
+export const SLEEP_KEY = 'resident-sleep';
+export const SLEEP_SIZE = 48;
+
 const css = cssColor;
 
 /** Creates the textures (once; later scenes reuse them). */
@@ -66,6 +70,9 @@ export function registerResidentTextures(scene: Phaser.Scene): void {
   });
   make(scene, moodTextureKey('sad'), MOOD_SIZE, MOOD_SIZE, (ctx) => {
     drawCloud(ctx, MOOD_SIZE / 2, MOOD_SIZE / 2 - 3, MOOD_SIZE * 0.4);
+  });
+  make(scene, SLEEP_KEY, SLEEP_SIZE, SLEEP_SIZE, (ctx) => {
+    drawSleep(ctx, SLEEP_SIZE);
   });
   make(scene, RESIDENT_RING_KEY, 64, 32, (ctx) => {
     ctx.strokeStyle = cssRgba(COLORS.residentRing, 0.95);
@@ -297,5 +304,31 @@ function drawCloud(ctx: CanvasRenderingContext2D, x: number, y: number, r: numbe
   ellipse(ctx, x + r * 0.1, y + r * 0.45, r * 0.8, r * 0.22, css(COLORS.moodCloudShade));
   for (const [dx, dy, pr] of puffs.slice(0, 3)) {
     circle(ctx, x + dx * r, y + dy * r - pr * r * 0.12, pr * r * 0.86, css(COLORS.moodCloud));
+  }
+}
+
+/** Three "z" of growing size, drawn as zigzag lines (a picture, not text), white with a dark rim. */
+function drawSleep(ctx: CanvasRenderingContext2D, size: number): void {
+  const zs: readonly [number, number, number][] = [
+    [0.22, 0.74, 0.16],
+    [0.47, 0.5, 0.21],
+    [0.74, 0.24, 0.26],
+  ];
+  ctx.lineJoin = 'round';
+  ctx.lineCap = 'round';
+  for (const [stroke, width] of [[css(COLORS.sleepZRim), 0.11], [css(COLORS.sleepZ), 0.055]] as const) {
+    ctx.strokeStyle = stroke;
+    ctx.lineWidth = size * width;
+    for (const [fx, fy, fs] of zs) {
+      const x = fx * size;
+      const y = fy * size;
+      const h = (fs * size) / 2;
+      ctx.beginPath();
+      ctx.moveTo(x - h, y - h);
+      ctx.lineTo(x + h, y - h);
+      ctx.lineTo(x - h, y + h);
+      ctx.lineTo(x + h, y + h);
+      ctx.stroke();
+    }
   }
 }

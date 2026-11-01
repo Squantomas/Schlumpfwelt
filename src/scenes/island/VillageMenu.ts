@@ -11,7 +11,7 @@ import { MenuFlow, rejectionText } from '../../ui/menuFlow';
 import { MENU_CLOSE, menuLayout, menuTitleCenterX, type MenuLayout } from '../../ui/menuLayout';
 import { RoundButton } from '../../ui/RoundButton';
 import { COLORS } from '../../ui/style';
-import { drawFileIcon } from '../../ui/toolIcons';
+import { drawFileIcon, drawPadlock } from '../../ui/toolIcons';
 import type { ViewSize } from '../../ui/viewport';
 import { addGraphics } from '../../ui/FastGraphics';
 
@@ -23,6 +23,8 @@ export interface VillageMenuHooks {
   readonly touched: (eventTime: number) => void;
   /** The village from a file replaced the one in the game: the scene has to start again. */
   readonly onReplaced: () => void;
+  /** "Für Eltern" (M8): the menu closes and the parents' menu opens. */
+  readonly onParent: () => void;
 }
 
 export interface MenuSpot {
@@ -30,6 +32,8 @@ export interface MenuSpot {
   readonly y: number;
   readonly w: number;
   readonly h: number;
+  /** The chosen one of several (M8: the limit of the parents' menu). */
+  readonly active?: boolean;
 }
 
 /** A wide button with a picture on the left and a word: "Als Datei sichern". */
@@ -43,7 +47,7 @@ class MenuButton extends Phaser.GameObjects.Container {
 
   constructor(
     scene: Phaser.Scene,
-    private readonly kind: 'save' | 'load',
+    private readonly kind: 'save' | 'load' | 'parent',
     text: string,
     onTap: (eventTime: number) => void,
   ) {
@@ -85,7 +89,11 @@ class MenuButton extends Phaser.GameObjects.Container {
     }
     const icon = Math.min(rect.height * 0.7, 52);
     this.picture.setPosition(-rect.width / 2 + 16 + icon / 2, 0);
-    drawFileIcon(this.picture, this.kind, icon);
+    if (this.kind === 'parent') {
+      drawPadlock(this.picture, icon);
+    } else {
+      drawFileIcon(this.picture, this.kind, icon);
+    }
     const room = rect.width - 16 - icon - 16 - 14;
     setLabelSize(this.caption, Math.min(24, rect.height * 0.34), room);
     this.caption.setPosition(-rect.width / 2 + 16 + icon + 10 + room / 2, 0);
@@ -122,6 +130,7 @@ export class VillageMenu {
   private readonly sentence: Phaser.GameObjects.Text;
   private readonly saveButton: MenuButton;
   private readonly loadButton: MenuButton;
+  private readonly parentButton: MenuButton;
   private readonly closeButton: RoundButton;
   private readonly confirmButton: RoundButton;
   private readonly cancelButton: RoundButton;
@@ -149,6 +158,11 @@ export class VillageMenu {
     this.loadButton = new MenuButton(scene, 'load', t('menu.load'), (time) => {
       hooks.touched(time);
       this.chooseFile();
+    });
+    this.parentButton = new MenuButton(scene, 'parent', t('menu.parent'), (time) => {
+      hooks.touched(time);
+      this.close();
+      hooks.onParent();
     });
     this.closeButton = new RoundButton(scene, 0, 0, {
       radius: MENU_CLOSE / 2,
@@ -178,7 +192,7 @@ export class VillageMenu {
         this.refresh();
       },
     });
-    uiLayer.add([this.veil, this.dim, this.panel, this.title, this.sentence, this.saveButton, this.loadButton, this.closeButton, this.confirmButton, this.cancelButton]);
+    uiLayer.add([this.veil, this.dim, this.panel, this.title, this.sentence, this.saveButton, this.loadButton, this.parentButton, this.closeButton, this.confirmButton, this.cancelButton]);
     this.refresh();
   }
 
@@ -229,6 +243,9 @@ export class VillageMenu {
     if (layout.save && layout.load) {
       spots['menu-save'] = center(layout.save);
       spots['menu-load'] = center(layout.load);
+    }
+    if (layout.parent) {
+      spots['menu-parent'] = center(layout.parent);
     }
     if (layout.confirm && layout.cancel) {
       spots['menu-confirm'] = center(layout.confirm);
@@ -314,6 +331,7 @@ export class VillageMenu {
     this.closeButton.setVisible(layout?.close !== undefined);
     this.saveButton.setVisible(layout?.save !== undefined);
     this.loadButton.setVisible(layout?.load !== undefined);
+    this.parentButton.setVisible(layout?.parent !== undefined);
     this.confirmButton.setVisible(layout?.confirm !== undefined);
     this.cancelButton.setVisible(layout?.cancel !== undefined);
     if (!layout) {
@@ -351,6 +369,9 @@ export class VillageMenu {
     if (layout.save && layout.load) {
       this.saveButton.place(layout.save);
       this.loadButton.place(layout.load);
+    }
+    if (layout.parent) {
+      this.parentButton.place(layout.parent);
     }
     if (layout.confirm && layout.cancel) {
       this.confirmButton.setRadius(layout.confirm.width / 2).setPosition(centerOf(layout.confirm).x, centerOf(layout.confirm).y);

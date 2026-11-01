@@ -1,0 +1,11 @@
+{
+  "limitChoices": [0, 15, 30, 45, 60, 90],
+  "defaultLimit": 0,
+  "extraMinutes": 10,
+  "warnMinutes": 5,
+  "saveEverySeconds": 5,
+  "dusk": { "minSeconds": 6, "maxSeconds": 18 },
+  "dawnSeconds": 3,
+  "pinLength": 4,
+  "question": { "min": 12, "max": 29 }
+}

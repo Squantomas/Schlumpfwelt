@@ -77,6 +77,17 @@ export function rectGlide(view: CameraView, size: Size, band: FreeBand, rect: Re
   return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 - (bandMiddle - size.height / 2) / view.zoom };
 }
 
+/**
+ * The new middle of the camera (world px) that puts the world point `point` in the middle of the free band – for the
+ * guided start, whose target must be well inside the band (`inFreeBand` asks for more room than `rectGlide`, M8).
+ */
+export function bandGlide(view: CameraView, size: Size, band: FreeBand, point: Point): Point {
+  const top = Math.max(0, Math.min(band.top, size.height));
+  const bottom = Math.max(top, Math.min(band.bottom, size.height));
+  const zoom = view.zoom > 0 ? view.zoom : 1;
+  return { x: point.x, y: point.y - ((top + bottom) / 2 - size.height / 2) / zoom };
+}
+
 /** What is open on the screen while a boat comes (see {@link glideAllowed}). */
 export interface GlideContext {
   /** The tool of the build controls (`view` = just looking). */

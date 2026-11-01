@@ -280,6 +280,8 @@ function stateFromCurrent(data: Readonly<SaveRecord>): SimState | undefined {
     world,
     tick: wholeNumber(data['tick'], 0),
     paused: false,
+    // Bedtime is not part of the village (M8): the game sets it again from the parents' daily time.
+    bedtime: false,
     buildings: [],
     nextBuildingId: 1,
     paths: [],

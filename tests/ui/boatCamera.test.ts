@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { LANDING_MARGIN, RECT_MARGIN, glideAllowed, landingGlide, rectGlide } from '../../src/ui/boatCamera';
+import { bandGlide, LANDING_MARGIN, RECT_MARGIN, glideAllowed, landingGlide, rectGlide } from '../../src/ui/boatCamera';
 
 const TABLET = { width: 1024, height: 768 };
 const PHONE = { width: 320, height: 568 };
@@ -134,5 +134,21 @@ describe('rectGlide: ein angetipptes Haus unter der Hinweisleiste kommt ins Bild
     }
     expect(rectGlide({ centerX: 0, centerY: 0, zoom: 0 }, TABLET, BAND, rect)).toBeUndefined();
     expect(rectGlide(view, { width: 0, height: 0 }, BAND, rect)).toBeUndefined();
+  });
+});
+
+describe('bandGlide: das Ziel des geführten Starts in die Mitte des freien Bands (M8, Korrekturrunde 2)', () => {
+  it('setzt den Punkt genau in die Mitte des Bands, auch wenn er schon knapp darin liegt', () => {
+    const size = { width: 568, height: 320 };
+    const band = { top: 48, bottom: 146 };
+    const view = { centerX: 1000, centerY: 1000, zoom: 0.5 };
+    const point = { x: 1100, y: 1040 };
+    const center = bandGlide(view, size, band, point);
+    // Where the point lands with the new middle (CSS px): the middle of the band, horizontally the middle of the screen.
+    const screenX = (point.x - center.x) * view.zoom + size.width / 2;
+    const screenY = (point.y - center.y) * view.zoom + size.height / 2;
+    expect(screenX).toBeCloseTo(284);
+    expect(screenY).toBeCloseTo(97);
+    expect(bandGlide({ ...view, zoom: 2 }, size, { top: 0, bottom: 320 }, point)).toEqual(point);
   });
 });

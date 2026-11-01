@@ -104,13 +104,18 @@ export interface BuildLayout {
 /** The card of a resident is at most this high (CSS px): six rows, the picture and the button "Umziehen" (M7). */
 export const RESIDENT_CARD_HEIGHT = 330;
 
+/** The toolbar at the bottom: its buttons and the panel around them (also for the good-night layer, M8). */
+export function toolbarPanel(width: number, height: number, toolCount: number): ToolbarLayout & { readonly rect: Rect } {
+  const tools = toolbarLayout(width, toolCount, height);
+  const panelW = tools.cols * tools.size + (tools.cols - 1) * TOOLBAR_GAP + 2 * TOOLBAR_PAD;
+  const panelH = tools.rows * tools.size + (tools.rows - 1) * TOOLBAR_GAP + 2 * TOOLBAR_PAD;
+  return { ...tools, rect: { x: (width - panelW) / 2, y: height - TOOLBAR_EDGE - panelH, width: panelW, height: panelH } };
+}
+
 export function layoutBuildUi(input: BuildLayoutInput): BuildLayout {
   const { width, height } = input;
   const zoom = zoomLayout(width, height);
-  const tools = toolbarLayout(width, input.toolCount, height);
-  const panelW = tools.cols * tools.size + (tools.cols - 1) * TOOLBAR_GAP + 2 * TOOLBAR_PAD;
-  const panelH = tools.rows * tools.size + (tools.rows - 1) * TOOLBAR_GAP + 2 * TOOLBAR_PAD;
-  const toolbar = { ...tools, rect: { x: (width - panelW) / 2, y: height - TOOLBAR_EDGE - panelH, width: panelW, height: panelH } };
+  const toolbar = toolbarPanel(width, height, input.toolCount);
 
   // The store bar sits at the top left, left of the zoom column; the hint bar goes below it while a tool is on.
   const stock = stockLayout(width, height, input.stockCount, zoom.rect.x - GAP);

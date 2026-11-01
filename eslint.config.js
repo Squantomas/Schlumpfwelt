@@ -4,7 +4,10 @@ import globals from 'globals';
 import tseslint from 'typescript-eslint';
 
 const SIM_IMPORT_MESSAGE =
-  'src/sim/ ist reines TypeScript: kein Phaser und keine Imports aus scenes/, ui/, save/ oder main (siehe CLAUDE.md).';
+  'src/sim/ ist reines TypeScript: kein Phaser und keine Imports aus scenes/, ui/, save/, parent/ oder main (siehe CLAUDE.md).';
+
+const PARENT_IMPORT_MESSAGE =
+  'src/parent/ (Eltern, Tageslimit) ist Phaser-frei: kein Phaser und keine Imports aus scenes/, ui/ oder main (siehe CLAUDE.md).';
 
 const SIM_DETERMINISM_MESSAGE =
   'src/sim/ ist deterministisch: keine Wanduhr, kein Math.random – Zeit kommt über die Ticks, Zufall nur über einen eigenen Seed-RNG in src/sim/.';
@@ -113,7 +116,7 @@ export default defineConfig(
           paths: [{ name: 'phaser', message: SIM_IMPORT_MESSAGE }],
           patterns: [
             {
-              group: ['phaser/*', '**/scenes', '**/scenes/**', '**/ui', '**/ui/**', '**/save', '**/save/**', '**/main'],
+              group: ['phaser/*', '**/scenes', '**/scenes/**', '**/ui', '**/ui/**', '**/save', '**/save/**', '**/parent', '**/parent/**', '**/main'],
               message: SIM_IMPORT_MESSAGE,
             },
           ],
@@ -137,6 +140,28 @@ export default defineConfig(
         { selector: "NewExpression[callee.name='Date'][arguments.length=0]", message: SIM_DETERMINISM_MESSAGE },
         { selector: "CallExpression[callee.name='Date']", message: SIM_DETERMINISM_MESSAGE },
       ],
+    },
+  },
+
+  // The parents' layer (PIN, settings, the daily limit) keeps wall clock, date and storage out of the simulation, and
+  // stays free of Phaser and the display, so it can be tested with made-up days and a memory store.
+  {
+    files: ['src/parent/**/*.ts'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          paths: [{ name: 'phaser', message: PARENT_IMPORT_MESSAGE }],
+          patterns: [
+            {
+              group: ['phaser/*', '**/scenes', '**/scenes/**', '**/ui', '**/ui/**', '**/main'],
+              message: PARENT_IMPORT_MESSAGE,
+            },
+          ],
+        },
+      ],
+      'no-restricted-globals': ['error', { name: 'Phaser', message: PARENT_IMPORT_MESSAGE }],
+      'no-restricted-syntax': ['error', { selector: 'ImportExpression', message: 'Keine dynamischen Imports in src/parent/.' }],
     },
   },
 );

@@ -35,6 +35,7 @@ function children(layout: MenuLayout): [string, Rect][] {
     ['Satz', layout.text],
     ['Sichern', layout.save],
     ['Laden', layout.load],
+    ['Für Eltern', layout.parent],
     ['✓', layout.confirm],
     ['✕ Frage', layout.cancel],
   ];
@@ -84,6 +85,16 @@ describe('menuLayout: nichts überlappt, nichts ragt über den Rand, alles groß
     const ask = menuLayout(800, 600, 'confirm');
     expect(ask.confirm && ask.cancel).toBeTruthy();
     expect(ask.save ?? ask.load).toBeUndefined();
+  });
+
+  it('M8: „Für Eltern“ unter den beiden Knöpfen (auf niedrigen Schirmen daneben), nicht bei der Frage', () => {
+    const tall = menuLayout(360, 640, 'menu');
+    expect(tall.parent?.x).toBe(tall.load?.x);
+    expect((tall.parent?.y ?? 0) > (tall.load?.y ?? 0)).toBe(true);
+    const low = menuLayout(568, 320, 'menu');
+    expect(low.parent?.y).toBe(low.load?.y);
+    expect((low.parent?.x ?? 0) > (low.load?.x ?? 0)).toBe(true);
+    expect(menuLayout(800, 600, 'confirm').parent).toBeUndefined();
   });
 
   it('stellt die Knöpfe auf niedrigen Schirmen nebeneinander, sonst untereinander', () => {
