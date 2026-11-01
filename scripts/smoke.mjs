@@ -1493,7 +1493,8 @@ async function testEconomy({ page, check, shot, size, input, name }) {
   await tapUi('tab-houses');
   await waitForVillage(page, (v) => v.shop.startsWith('houses:') && 'item-house-red' in v.ui, 'der Häuser-Reiter');
   await tapUi('item-house-red');
-  village = await waitForVillage(page, (v) => v.variant === 'house-red' && /fehl/.test(v.hint), 'den Hinweis „Dir fehlen …“ schon beim Wählen');
+  // Eine Freischaltung kann gerade „Neu im Shop“ melden (geht vor, höchstens 7 s) – danach steht der Hinweis da.
+  village = await waitForVillage(page, (v) => v.variant === 'house-red' && /fehl/.test(v.hint), 'den Hinweis „Dir fehlen …“ schon beim Wählen', 12_000);
   check(/Taler|Holz/.test(village.hint), `Haus: Hinweis „${village.hint}“ nennt nicht, was fehlt`);
   village = await readVillage(page);
   cam = await cameraAtRest();
@@ -4791,7 +4792,10 @@ async function testKidFriendly({ browser, profile, check, problems, name }) {
       step(`M8: ${small.width}×${small.height}`);
       await page.setViewportSize(smallSize);
       await sleep(1200);
-      v = await waitForVillage(page, (x) => 'night-parent' in x.ui && x.ui['night-parent'].x < small.width, `den Eltern-Knopf bei ${small.width}×${small.height}`);
+      // Erst wenn die Knöpfe zur neuen Größe gehören (die Lage wird nach dem Drehen neu veröffentlicht).
+      v = await waitForVillage(page, (x) => spotFits(x.ui['night-parent'], smallSize, 64), `den Eltern-Knopf der Nacht ganz im Bild bei ${small.width}×${small.height}`).catch(async (error) => {
+        throw new Error(`${error.message}; Knopf ${JSON.stringify((await readVillage(page)).ui['night-parent'])}`);
+      });
       check(spotFits(v.ui['night-parent'], smallSize, 64), `${small.width}×${small.height}: Eltern-Knopf der Nacht ${JSON.stringify(v.ui['night-parent'])}`);
       if (small.at === 'night') await shot(small.shotName);
       await tapUi('night-parent');
