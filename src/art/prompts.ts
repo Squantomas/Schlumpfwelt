@@ -76,9 +76,16 @@ export function promptOf(asset: AssetEntry, colours: readonly string[]): string 
   return `${STYLE_PREAMBLE} Subject: ${asset.subject}. ${frame} Main colours: ${colours.join(', ')}.`;
 }
 
+/** The colours a template names: the ones the picture must have (`colours`, e.g. the theme's figure) first, then the most used. */
+export function assetColours(asset: AssetEntry, count = 5): string[] {
+  const fixed = (asset.colours ?? []).map((colour) => hex(colour));
+  const rest = mainColours(assetSvg(asset), count + fixed.length).filter((colour) => !fixed.includes(colour));
+  return [...new Set(fixed), ...rest].slice(0, Math.max(count, new Set(fixed).size));
+}
+
 /** One section of a template file. */
 export function promptSection(asset: AssetEntry): string {
-  const colours = mainColours(assetSvg(asset));
+  const colours = assetColours(asset);
   return [
     `## \`${asset.key}\``,
     '',

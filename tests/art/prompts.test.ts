@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { ASSETS, assetSvg } from '../../src/art/catalog';
+import { HAT_IDS } from '../../src/data/residents';
+import theme from '../../src/data/theme.json';
 import { mainColours, PROMPT_FILES, promptDocs, promptOf, promptSection, STYLE_PREAMBLE } from '../../src/art/prompts';
 
 /** The template files as they are in the repository. */
@@ -65,6 +67,23 @@ describe('Prompt-Vorlagen: eine Vorlage für jeden Schlüssel (M9)', () => {
     for (const { file } of Object.values(PROMPT_FILES)) {
       expect(readme, file).toContain(`(${file})`);
     }
+  });
+
+  it('die Bewohner-Vorlagen nennen die Farben aus dem Theme als Hexwerte, nicht „colours of the theme“ (Korrekturrunde 1)', () => {
+    const figure = theme.figure;
+    const residents = ASSETS.filter((asset) => HAT_IDS.some((hat) => asset.key === `resident-${hat}`));
+    expect(residents.length).toBeGreaterThanOrEqual(8);
+    for (const asset of residents) {
+      const section = promptSection(asset);
+      expect(section, asset.key).not.toContain('colours of the theme');
+      for (const colour of [figure.skin, figure.cheek, figure.clothes, figure.shoes]) {
+        expect(section.toLowerCase(), `${asset.key}: ${colour}`).toContain(colour.toLowerCase());
+      }
+      // Under "Hauptfarben" (the list) the skin comes first.
+      const list = /\*\*Hauptfarben:\*\* (.*)/.exec(section)?.[1] ?? '';
+      expect(list.toLowerCase().indexOf(figure.skin.toLowerCase()), asset.key).toBeGreaterThanOrEqual(0);
+    }
+    expect(docs[PROMPT_FILES.figure.file]).toContain(theme.figure.skin);
   });
 
   it('die Hauptfarben sind Flächenfarben, ohne die Farbe des weichen Schattens, die häufigste zuerst', () => {

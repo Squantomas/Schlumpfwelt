@@ -287,6 +287,18 @@ describe('Architektur: Ton (src/audio/) und Bilder (src/art/) (M9)', { timeout: 
     expect(await architectureViolations(ART_FILE, code)).toContain('no-restricted-imports');
   });
 
+  it.each([
+    ['Date.now()', 'export const t = Date.now();\n', 'no-restricted-properties'],
+    ['new Date() ohne Argument', 'export const d = new Date();\n', 'no-restricted-syntax'],
+    ['Date() als Funktion', 'export const d = Date();\n', 'no-restricted-syntax'],
+  ])('src/art/ hat keine Wanduhr: %s (Korrekturrunde 1)', async (_name, code, rule) => {
+    expect(await architectureViolations(ART_FILE, code)).toEqual([rule]);
+  });
+
+  it('src/art/ darf ein festes Datum benutzen (new Date mit Argument)', async () => {
+    expect(await architectureViolations(ART_FILE, 'export const d = new Date(0);\n')).toEqual([]);
+  });
+
   it('src/art/ ist rein: kein Browser, kein Zufall; die Farben aus ui/style und die Daten sind erlaubt', async () => {
     expect(await architectureViolations(ART_FILE, 'export const w = window.innerWidth;\n')).toEqual(['no-restricted-globals']);
     expect(await architectureViolations(ART_FILE, 'export const r = Math.random();\n')).toEqual(['no-restricted-properties']);

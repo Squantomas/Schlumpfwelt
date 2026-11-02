@@ -17,6 +17,9 @@ const ART_IMPORT_MESSAGE =
 
 const WEB_AUDIO_MESSAGE = 'Web Audio gibt es nur in src/audio/ (siehe CLAUDE.md, Regel 17).';
 
+/** The pictures look the same every time: no chance and no wall clock in src/art/ (M9, Korrekturrunde 1). */
+const ART_PURE_MESSAGE = 'Bilder sehen jedes Mal gleich aus: kein Math.random und keine Wanduhr (Date.now, new Date(), Date()) in src/art/.';
+
 /** Web Audio: only the sound layer may make an audio context. */
 const WEB_AUDIO_GLOBALS = ['AudioContext', 'webkitAudioContext', 'OfflineAudioContext'];
 
@@ -280,8 +283,17 @@ export default defineConfig(
         ...SIM_RESTRICTED_GLOBALS.map((name) => ({ name, message: ART_IMPORT_MESSAGE })),
         ...WEB_AUDIO_GLOBALS.map((name) => ({ name, message: WEB_AUDIO_MESSAGE })),
       ],
-      'no-restricted-properties': ['error', { object: 'Math', property: 'random', message: 'Bilder sehen jedes Mal gleich aus: kein Math.random in src/art/.' }],
-      'no-restricted-syntax': ['error', { selector: 'ImportExpression', message: 'Keine dynamischen Imports in src/art/.' }],
+      'no-restricted-properties': [
+        'error',
+        { object: 'Math', property: 'random', message: ART_PURE_MESSAGE },
+        { object: 'Date', property: 'now', message: ART_PURE_MESSAGE },
+      ],
+      'no-restricted-syntax': [
+        'error',
+        { selector: 'ImportExpression', message: 'Keine dynamischen Imports in src/art/.' },
+        { selector: "NewExpression[callee.name='Date'][arguments.length=0]", message: ART_PURE_MESSAGE },
+        { selector: "CallExpression[callee.name='Date']", message: ART_PURE_MESSAGE },
+      ],
     },
   },
 );
