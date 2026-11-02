@@ -145,6 +145,21 @@ describe('Ton-Maschine ohne echtes AudioContext (M9)', () => {
     expect(describeOf(engine)).toMatchObject({ state: 'silenced', musicPlaying: false });
   });
 
+  it('ein still geschaltetes Fenster bleibt still, auch wenn die Seite versteckt und wieder gezeigt wird (Korrekturrunde 2)', () => {
+    const fake = fakeContext();
+    const engine = new AudioEngine(SOUND_BOOK, () => fake.context);
+    engine.unlock();
+    engine.update();
+    engine.silence();
+    const before = fake.calls.length;
+    engine.setHidden(true);
+    engine.setHidden(false);
+    expect(fake.calls.slice(before)).not.toContain('resume');
+    expect(fake.calls.at(-1)).toBe('suspend');
+    expect(fake.gains[0]?.gain.value).toBe(0);
+    expect(describeOf(engine)).toMatchObject({ state: 'silenced', musicPlaying: false });
+  });
+
   it('eine versteckte Seite ist sofort still und spielt nichts nach', () => {
     const fake = fakeContext();
     const engine = new AudioEngine(SOUND_BOOK, () => fake.context);

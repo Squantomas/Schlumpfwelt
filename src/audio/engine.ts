@@ -140,7 +140,8 @@ export class AudioEngine {
     try {
       if (hidden) {
         void ctx.suspend().catch(() => undefined);
-      } else if (this.unlocked) {
+      } else if (this.unlocked && !this.silenced) {
+        // A silenced window (another window took over) stays still, also when it is shown again.
         void ctx.resume().catch(() => undefined);
         // Start the music again from now, not from where it stopped (nothing is caught up).
         this.nextStepAt = 0;
