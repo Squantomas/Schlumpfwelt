@@ -111,8 +111,10 @@ mehrere Sekunden.
 - **Nur Systemschriften** (zuerst gerundete wie „Arial Rounded MT Bold“), weiß mit blauem Rand, nie kleiner als 12 px.
   Lange Namen (etwa auf den Karten des Shops) brechen an einer sinnvollen Stelle um („Holzfäller-/hütte“), statt
   kleiner zu werden.
+- Das Schloss einer gesperrten Karte sitzt oben rechts auf dem Bild und berührt nie Name oder Bedingung; das Bild
+  einer Karte bleibt mindestens 32 px hoch (auf niedrigen Karten 40 % der Höhe), wo die Karte das hergibt.
 - Startschirm: sofort der Spielname, der Satz „Die Insel wird gemalt …“ und fünf ruhige Punkte, die sich füllen,
-  während die Bilder in kleinen Scheiben gemalt werden; dann das Titelbild (kleine Insel mit Pilzhäusern, Bäumen, Bewohnern und Boot) auf der Farbe des Wassers, quer
+  während die Bilder gemalt werden (jedes, sobald es gelesen ist); dann das Titelbild (kleine Insel mit Pilzhäusern, Bäumen, Bewohnern und Boot) auf der Farbe des Wassers, quer
   rechts daneben der Spielname aus dem Theme und der Knopf „Tippen zum Spielen“, hochkant der Name darüber und der
   Knopf darunter.
 - Neue Bilder erst in den Katalog (`src/art/catalog.ts`, fester Schlüssel, Größe, Fußpunkt, Beschreibung), dann
