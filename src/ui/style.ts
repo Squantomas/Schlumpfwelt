@@ -187,8 +187,10 @@ export const COLORS = {
   moon: 0xfff4c2,
   moonShade: 0xe8d58a,
   star: 0xfffbe6,
-  sleepZ: 0xe9f1ff,
-  sleepZRim: 0x3a4a8a,
+  // The "z" of sleep (M9, Korrekturrunde 1): warm white with a dark blue rim and a soft light glow, drawn above the dark.
+  sleepZ: 0xfffbe8,
+  sleepZRim: 0x2c3a78,
+  sleepZGlow: 0xfff1a8,
   // M8: the guided start – the pointing hand and the soft glow around its target.
   handFill: 0xffffff,
   handRim: 0x3a4a5a,

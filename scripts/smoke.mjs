@@ -890,6 +890,8 @@ function checkShopFits({ village: v, w, h, tab, check }) {
   for (const [spot, c] of cards) {
     check(c.x - c.w / 2 >= panel.x - panel.w / 2 && c.x + c.w / 2 <= panel.x + panel.w / 2 && c.y - c.h / 2 >= panel.y - panel.h / 2 && c.y + c.h / 2 <= panel.y + panel.h / 2, `${where}: „${spot}“ liegt nicht im Shop-Feld`);
     check(c.h >= 72 && c.w >= 88, `${where}: „${spot}“ nur ${c.w}×${c.h} px`);
+    // Der Name steht immer in mindestens 12 px (lange Namen brechen um, Korrekturrunde 1 von M9).
+    check(c.font >= 12, `${where}: Name auf „${spot}“ nur ${c.font} px`);
   }
   for (const [a, ca] of cards) {
     for (const [b, cb] of cards) {
@@ -1778,6 +1780,8 @@ async function testShop({ page, check, shot, size, input, name, waitLong }) {
   for (const tab of Object.keys(SHOP_ITEMS)) {
     village = await openTab(tab);
     for (const id of SHOP_ITEMS[tab]) check(`item-${id}` in village.ui, `Reiter ${tab}: Karte ${id} fehlt`);
+    // Die Namen der Karten sind überall mindestens 12 px groß (lange brechen um, Korrekturrunde 1 von M9).
+    for (const id of SHOP_ITEMS[tab]) check(village.ui[`item-${id}`]?.font >= 12, `Reiter ${tab}: Name der Karte ${id} nur ${village.ui[`item-${id}`]?.font} px`);
     check(Object.keys(village.ui).filter((spot) => spot.startsWith('item-')).length === SHOP_ITEMS[tab].length, `Reiter ${tab}: ${Object.keys(village.ui).filter((spot) => spot.startsWith('item-')).length} Karten, erwartet ${SHOP_ITEMS[tab].length}`);
     for (const id of SHOP_ITEMS[tab]) {
       // Einladen (M6) braucht ein freies Haus: im Startdorf sind beide Plätze des roten Hauses belegt.
@@ -4357,13 +4361,15 @@ const TUTORIAL_SKIPPED = { format: 'village-tutorial', status: 'skipped' };
 const TUTORIAL_STEPS = ['resident', 'shop', 'deco', 'coins', 'house', 'path', 'praise'];
 const TEST_PIN = '2468';
 
-/** Die sichtbaren Texte des Spiels (wie `t()` in `src/data/texts.ts`: Platzhalter aus dem Theme und aus `params`). */
+/** Die sichtbaren Texte des Spiels (wie `t()` in `src/data/texts.ts`: Platzhalter aus dem Theme und aus `params`, ohne weiche Trennstriche). */
 const DATA_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'src', 'data');
 const GAME_TEXTS = JSON.parse(readFileSync(path.join(DATA_DIR, 'texts.de.json'), 'utf8'));
 const GAME_THEME = JSON.parse(readFileSync(path.join(DATA_DIR, 'theme.json'), 'utf8'));
 function gameText(key, params = {}) {
   const values = { gameName: GAME_THEME.gameName, ...GAME_THEME.terms, ...params };
-  return String(GAME_TEXTS[key] ?? `?${key}?`).replace(/\{(\w+)\}/g, (all, name) => (name in values ? String(values[name]) : all));
+  return String(GAME_TEXTS[key] ?? `?${key}?`)
+    .replace(/\{(\w+)\}/g, (all, name) => (name in values ? String(values[name]) : all))
+    .replaceAll('\u00ad', '');
 }
 
 /**
@@ -5275,6 +5281,8 @@ async function checkRasterProbe({ context, check, problems, name, keys }) {
   check(replaced.keys?.['title-scene'] === 'raster', `Raster: Titelbild ${replaced.keys?.['title-scene']}, erwartet „raster“`);
   check(replaced.keys?.['ui-star'] === 'svg', `Raster: der kaputte Stern ist ${replaced.keys?.['ui-star']}, erwartet „svg“ (Rückfall)`);
   check(replaced.raster === 1 && replaced.svg === keys.length - 1 && replaced.failed.length === 0, `Raster: data-assets ${JSON.stringify({ svg: replaced.svg, raster: replaced.raster, failed: replaced.failed })}`);
+  // Die kaputte Datei steht in `rasterFailed` (das Bild selbst ist da, als SVG); `unused` nennt Dateien ohne Schlüssel.
+  check(JSON.stringify(replaced.rasterFailed) === JSON.stringify([RASTER_PROBE.broken]) && Array.isArray(replaced.unused) && replaced.unused.length === 0, `Raster: rasterFailed ${JSON.stringify(replaced.rasterFailed)}, unused ${JSON.stringify(replaced.unused)}`);
   const fetched = probeAssets.map(([file]) => file).sort();
   check(JSON.stringify(fetched) === JSON.stringify([RASTER_PROBE.good, RASTER_PROBE.broken].sort()) && probeAssets.every(([, status]) => status === 200), `Raster: angefragt ${JSON.stringify(probeAssets)}`);
   const worker = await (await fetch(`${RASTER_URL}sw.js`)).text();
@@ -5337,6 +5345,7 @@ async function testLookAndSound({ browser, profile, check, problems, name, raste
     const loadedKeys = Object.keys(assets.keys ?? {}).sort();
     check(JSON.stringify(loadedKeys) === JSON.stringify(keys), `Bilder: ${loadedKeys.length} Schlüssel geladen, ${keys.length} im Katalog (fehlen: ${keys.filter((k) => !loadedKeys.includes(k)).join(', ')})`);
     check(assets.svg === keys.length && assets.raster === 0 && Array.isArray(assets.failed) && assets.failed.length === 0, `Bilder: data-assets ${JSON.stringify({ svg: assets.svg, raster: assets.raster, failed: assets.failed })}`);
+    check(JSON.stringify(assets.rasterFailed) === '[]' && JSON.stringify(assets.unused) === '[]', `Bilder: rasterFailed ${JSON.stringify(assets.rasterFailed)}, unused ${JSON.stringify(assets.unused)}`);
     check(assetRequests.length === 0, `Bilder: Anfragen nach Rasterdateien ohne Datei: ${assetRequests.join(', ')}`);
     console.log(`  [${name}] ${assets.svg} Bilder als SVG in ${assets.ms} ms`);
     // Der zweite Build mit Rasterdateien (solange diese Seite ruhig auf dem Startschirm steht).
@@ -5442,12 +5451,31 @@ async function testLookAndSound({ browser, profile, check, problems, name, raste
     step('M9: Abend – Musik wird leiser, Nacht – Musik aus, „Gute Nacht“');
     await setSettingsFromOutside(page, settingsEntry({ day, limitMinutes: 15, usedMs: 15 * 60_000 - 5_000, tutorial: TUTORIAL_SKIPPED, sound: { on: true, music: true, sfx: true } }));
     await enterIsland(page, profile, waitForScene);
-    await waitForAudio(page, (a) => a.musicPlaying === true, 'Musik vor dem Abend');
+    const dayAudio = await waitForAudio(page, (a) => a.musicPlaying === true && a.musicGain > 0, 'Musik vor dem Abend');
     await waitForParent(page, (p) => p.limit.phase === 'dusk', 'den Abend', 20_000);
-    audio = await waitForAudio(page, (a) => a.mode === 'dusk' && a.musicPlaying === false, 'Abend-Ton');
+    // Der Abend blendet die Musik über 5 s aus (Korrekturrunde 1): es kommen noch Noten dazu, der Bus wird leiser –
+    // erst in der Nacht ist sie still. `data-audio` wird höchstens alle 500 ms neu geschrieben.
+    const evening = [];
+    for (const until = Date.now() + 40_000; Date.now() < until; ) {
+      const a = await readAudio(page);
+      evening.push({ mode: a.mode, notes: a.musicNotes, gain: a.musicGain, playing: a.musicPlaying });
+      if (a.mode === 'night') break;
+      await sleep(250);
+    }
+    const dusk = evening.filter((sample) => sample.mode === 'dusk');
+    const firstDusk = dusk[0];
+    check(dusk.length >= 3, `Abend: nur ${dusk.length} Messungen im Abend`);
+    check(firstDusk !== undefined && dusk.some((sample) => sample.notes > firstDusk.notes), `Abend: keine neuen Noten beim Ausblenden ${JSON.stringify(dusk)}`);
+    check(dusk.some((sample) => sample.gain > 0 && sample.gain < dayAudio.musicGain * 0.9), `Abend: der Musik-Bus wird nicht leiser (Tag ${dayAudio.musicGain}, Abend ${JSON.stringify(dusk.map((sample) => sample.gain))})`);
+    check(dusk.some((sample) => sample.playing) && !dusk.at(-1)?.playing, `Abend: Musik spielt nicht weiter und endet nicht ${JSON.stringify(dusk.map((sample) => sample.playing))}`);
+    console.log(`  [${name}] Abend: Bus ${dayAudio.musicGain} → ${dusk.map((sample) => sample.gain).join(' → ')}, Noten ${firstDusk?.notes} → ${dusk.at(-1)?.notes}`);
     await waitForParent(page, (p) => p.limit.phase === 'night', 'die Nacht', 30_000);
-    audio = await waitForAudio(page, (a) => a.mode === 'night' && a.musicPlaying === false && a.played.goodNight >= 1, 'Nacht-Ton mit „Gute Nacht“');
+    audio = await waitForAudio(page, (a) => a.mode === 'night' && a.musicPlaying === false && a.musicGain === 0 && a.played.goodNight >= 1, 'Nacht-Ton mit „Gute Nacht“');
     await sleep(1500);
+    // Das „z“ der Schlafenden liegt über dem Dunkel der Nacht, mindestens 56 CSS-px groß (Korrekturrunde 1).
+    const night = (await waitForParent(page, (p) => p.night.sky === 1 && p.night.z >= 1, 'das „z“ über der Nacht')).night;
+    check(night.zSize >= 56, `Nacht: das „z“ ist nur ${night.zSize} CSS-px groß`);
+    console.log(`  [${name}] Nacht: ${night.z} „z“ zu ${night.zSize} CSS-px`);
     await shot(`${name}-m9-nacht`);
     const notes = audio.musicNotes;
     await sleep(2500);

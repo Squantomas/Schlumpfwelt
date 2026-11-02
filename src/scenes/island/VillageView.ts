@@ -1,3 +1,4 @@
+import { inSwayView, swayAngle, swayOn, type SwayView } from '../../ui/sway';
 import Phaser from 'phaser';
 import { buildingType } from '../../data/buildings';
 import { t } from '../../data/texts';
@@ -354,7 +355,7 @@ export class VillageView {
    * `minWorldY` the top edge (world px) they must stay below, `carried` the box of a carried resident that the "2/2"
    * over a house keeps clear of.
    */
-  update(seconds: number, deltaMs: number, zoom: number, minWorldY = Number.NEGATIVE_INFINITY, carried?: AvoidBox): void {
+  update(seconds: number, deltaMs: number, zoom: number, minWorldY = Number.NEGATIVE_INFINITY, carried?: AvoidBox, view?: SwayView): void {
     const step = Math.min(deltaMs, 100) / 1000;
     // Whether a building waits for wood or has no path can change with every tick, not only with the revision.
     if (this.simulation.state.tick !== this.signTick) {
@@ -363,7 +364,9 @@ export class VillageView {
     }
     this.updateProduction(seconds, zoom);
     this.updateSmoke(seconds);
-    this.updateSway(seconds);
+    if (view && swayOn(zoom)) {
+      this.updateSway(seconds, view);
+    }
     this.updatePreviewSign(seconds, zoom, minWorldY);
     for (const [id, marker] of this.markers) {
       marker.appear = marker.leaving ? marker.appear - step * 5 : Math.min(1, marker.appear + step * 4);
@@ -530,14 +533,15 @@ export class VillageView {
     }
   }
 
-  /** Flowers, bushes and young trees sway a little in the wind (only the picture). */
-  private updateSway(seconds: number): void {
+  /** Flowers, bushes and young trees sway a little in the wind – the same rule as the trees (`ui/sway.ts`). */
+  private updateSway(seconds: number, view: SwayView): void {
     for (const [id, sprite] of this.sprites) {
-      if (id === this.liftedId) {
+      if (id === this.liftedId || !sprite.sways) {
         continue;
       }
-      if (sprite.sways) {
-        sprite.image.setAngle(Math.sin(seconds * 1.4 + id * 1.7) * 2.2);
+      const image = sprite.image;
+      if (inSwayView(image.x, image.y, view, TILE_SIZE)) {
+        image.setAngle(swayAngle(seconds, id * 1.7, 1.4));
       }
     }
   }

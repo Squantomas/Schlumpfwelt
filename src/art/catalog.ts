@@ -1,7 +1,7 @@
 import { BUILDING_TYPES, type BuildingType } from '../data/buildings';
 import { ITEM_IDS } from '../data/goods';
 import { HAT_IDS } from '../data/residents';
-import { TILE_SIZE } from '../ui/style';
+import { COLORS, TILE_SIZE } from '../ui/style';
 import {
   BOAT_SIZE,
   BOAT_WATER,
@@ -46,7 +46,7 @@ import {
   drawSmoke,
   drawWaterPattern,
 } from './nature';
-import { Svg } from './svg';
+import { Svg, hex } from './svg';
 import { TITLE_SIZE, drawTitle } from './title';
 import { BUILDING_DRAWERS, BUILDING_PAD, type BuildingLook, SIGN_SIZE, drawNeedSign, drawPathSign, drawPathTile } from './village';
 
@@ -73,6 +73,8 @@ export interface AssetEntry {
   readonly tiles?: boolean;
   /** What the picture shows (English, for the prompt of an image generator). */
   readonly subject: string;
+  /** Colours the prompt must name first (the residents: skin, cheeks, clothes, shoes and hat from the theme). */
+  readonly colours?: readonly number[];
   readonly draw: (s: Svg) => void;
 }
 
@@ -305,9 +307,9 @@ function buildEntries(): AssetEntry[] {
         'figure',
         RESIDENT_SIZE.width,
         RESIDENT_SIZE.height,
-        `a small round friendly gnome standing, front view: big eyes, rosy cheeks, a soft pointed hat whose tip falls to the side with a pompom (hat colour: ${hat}), a simple tunic, round shoes; skin and clothes in the colours of the theme`,
+        `a small round friendly gnome standing, front view: big eyes, cheeks ${hex(COLORS.cheek)}, a soft pointed hat whose tip falls to the side with a pompom (hat colour: ${hat}, ${hex(hatColors(hat).hat)}), a simple tunic and trousers ${hex(COLORS.tunic)}, round shoes ${hex(COLORS.shoe)}; skin ${hex(COLORS.skin)} with shading ${hex(COLORS.skinShade)}`,
         (s) => drawResident(s, hatColors(hat)),
-        { anchor: RESIDENT_FOOT },
+        { anchor: RESIDENT_FOOT, colours: [COLORS.skin, COLORS.skinShade, COLORS.cheek, COLORS.tunic, COLORS.shoe, hatColors(hat).hat] },
       ),
     );
   }
@@ -318,7 +320,7 @@ function buildEntries(): AssetEntry[] {
     entry(moodKey('happy'), 'mood', MOOD_SIZE, MOOD_SIZE, 'a red heart with a white rim (happy)', drawHeart),
     entry(moodKey('normal'), 'mood', MOOD_SIZE, MOOD_SIZE, 'a round yellow face with a straight mouth and a white rim (all right)', drawFace),
     entry(moodKey('sad'), 'mood', MOOD_SIZE, MOOD_SIZE, 'a small grey-blue cloud with one blue drop and a white rim (sad)', drawCloud),
-    entry(SLEEP_KEY, 'mood', SLEEP_SIZE, SLEEP_SIZE, 'three white letters z of growing size with a dark rim, rising to the top right (sleeping)', drawSleep),
+    entry(SLEEP_KEY, 'mood', SLEEP_SIZE, SLEEP_SIZE, 'three warm white letters z of growing size with a dark blue rim and a soft warm glow, rising to the top right (sleeping, seen over a dark night sky)', drawSleep),
   );
 
   for (const [name, draw] of Object.entries(UI_ICONS)) {

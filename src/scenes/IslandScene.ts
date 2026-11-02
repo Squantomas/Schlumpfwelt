@@ -1,6 +1,8 @@
+import { inSwayView, swayAngle, swayOn } from '../ui/sway';
 import Phaser from 'phaser';
 import { CAMERA_CONFIG } from '../data/camera';
 import { buildingType } from '../data/buildings';
+import { ITEM_IDS } from '../data/goods';
 import { buildingAt, isConnected, type Tile } from '../sim/buildings';
 import { activityOf, allAsleep } from '../sim/residents';
 import { t, type TextKey } from '../data/texts';
@@ -15,7 +17,8 @@ import type { SoundSettings } from '../parent/settings';
 import type { Simulation } from '../sim/simulation';
 import { isLand, landBounds, terrainAt, type Terrain } from '../sim/world';
 import { BuildTool, TOOLS, type Preview } from '../ui/buildTool';
-import { toolbarPanel, zoomLayout } from '../ui/buildLayout';
+import { topControls, toolbarPanel, zoomLayout } from '../ui/buildLayout';
+import { sleepSignSize } from '../ui/nightLayout';
 import { growRect, tileAtWorld, visibleRect, type CameraBounds, type Point, type Rect } from '../ui/cameraMath';
 import { landRegions } from '../ui/cameraRegions';
 import { FrameStats } from '../ui/frameStats';
@@ -149,8 +152,6 @@ interface Wave {
 const WAVE_SECONDS = 4.2;
 const WAVE_RUN = 16;
 /** Trees sway a little (degrees) – only those in view, and not when they are tiny far out. */
-const TREE_SWAY_DEG = 1.3;
-const TREE_SWAY_MIN_ZOOM = 0.4;
 
 /**
  * The island: ground baked into one texture, trees and rocks as sprites
@@ -261,6 +262,13 @@ export class IslandScene extends Phaser.Scene {
 
   create(): void {
     markActiveScene(SCENES.island);
+    // Every touch (a user gesture: pointerup for fingers, pointerdown for the mouse) wakes a context the tablet has
+    // suspended or interrupted – after a call or the lock screen (Korrekturrunde 1). Cheap while it runs.
+    const wakeAudio = (): void => {
+      this.audio.resumeIfNeeded();
+    };
+    this.input.on(Phaser.Input.Events.POINTER_DOWN, wakeAudio);
+    this.input.on(Phaser.Input.Events.POINTER_UP, wakeAudio);
 
     const { seed, world } = this.simulation.state;
     // A restarted scene starts clean (the instance is reused).
@@ -510,7 +518,7 @@ export class IslandScene extends Phaser.Scene {
         },
       );
       this.menu.layout({ width, height });
-      this.night.layout({ width, height }, toolbarPanel(width, height, TOOLS.length).rect);
+      this.night.layout({ width, height }, toolbarPanel(width, height, TOOLS.length).rect, topControls(width, height, ITEM_IDS.length));
       this.parentPanel.layout({ width, height });
       this.lost.layout({ width, height });
     });
@@ -605,6 +613,10 @@ export class IslandScene extends Phaser.Scene {
 
     this.session.autosave?.update(time);
     this.lost.setOpen(this.session.autosave?.isLost === true);
+    if (this.lost.isOpen) {
+      // The old window ("Hier weiterspielen"): no more music or noises (Korrekturrunde 1).
+      this.audio.silence();
+    }
     this.updateDay(time);
     this.followNewBoats();
     // A carried resident who stayed over a house with room a moment turns it green (one clock: the frame time).
@@ -613,6 +625,7 @@ export class IslandScene extends Phaser.Scene {
     this.controller.update(delta, simulationDelta(this.game.loop.rawDelta, delta));
     this.publishCamera();
     this.residentView.update(alpha, seconds, this.controller.view.zoom, this.buildTool.inspectedResidentId, this.buildTool.carried);
+    this.showSleepers();
     this.updateVillage(seconds, delta);
 
     for (const { sprite, phase } of this.glints) {
@@ -627,6 +640,25 @@ export class IslandScene extends Phaser.Scene {
       markAudio(this.audio.describe());
     }
     this.updateTutorial(time);
+  }
+
+  /**
+   * The "z" of the sleeping (M9, Korrekturrunde 1): drawn by the night layer above its dark blue, at a size on the
+   * screen that reads from afar (`sleepSignSize`), from the points the residents' view found (world px → CSS px).
+   */
+  private showSleepers(): void {
+    const signs = this.residentView.sleepSigns;
+    if (signs.length === 0) {
+      this.night.showSleepers([], 0);
+      return;
+    }
+    const view = this.controller.view;
+    const size = this.controller.viewSize;
+    const css = sleepSignSize(view.zoom);
+    this.night.showSleepers(
+      signs.map((sign) => ({ x: (sign.x - view.centerX) * view.zoom + size.width / 2, y: (sign.y - view.centerY) * view.zoom + size.height / 2 - css / 2 })),
+      css,
+    );
   }
 
   /** Is the island covered (another window, the menu, the parents' menu, the evening or the night)? Then it takes no touch. */
@@ -1290,17 +1322,13 @@ export class IslandScene extends Phaser.Scene {
     if (this.swayingTrees.some(({ sprite }) => !sprite.active)) {
       this.swayingTrees = this.swayingTrees.filter(({ sprite }) => sprite.active);
     }
-    if (this.controller.view.zoom < TREE_SWAY_MIN_ZOOM) {
+    if (!swayOn(this.controller.view.zoom)) {
       return;
     }
     const view = this.worldCamera.worldView;
-    const left = view.x - TILE_SIZE;
-    const right = view.right + TILE_SIZE;
-    const top = view.y - TILE_SIZE;
-    const bottom = view.bottom + TILE_SIZE * 2;
     for (const { sprite, phase } of this.swayingTrees) {
-      if (sprite.x >= left && sprite.x <= right && sprite.y >= top && sprite.y <= bottom) {
-        sprite.setAngle(Math.sin(seconds * 0.9 + phase) * TREE_SWAY_DEG);
+      if (inSwayView(sprite.x, sprite.y, view, TILE_SIZE)) {
+        sprite.setAngle(swayAngle(seconds, phase, 0.9));
       }
     }
   }
@@ -1448,7 +1476,7 @@ export class IslandScene extends Phaser.Scene {
     const view = this.controller.view;
     // The top of the visible world below the hint bar: house signs do not slide under the bar.
     const topEdge = view.centerY - this.controller.viewSize.height / (2 * view.zoom) + this.buildUI.topInset / view.zoom;
-    this.village.update(seconds, deltaMs, view.zoom, topEdge, this.residentView.carriedBox);
+    this.village.update(seconds, deltaMs, view.zoom, topEdge, this.residentView.carriedBox, this.worldCamera.worldView);
     this.publishVillage(revision);
   }
 

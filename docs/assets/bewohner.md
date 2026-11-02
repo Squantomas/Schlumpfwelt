@@ -9,10 +9,10 @@
 - **Datei:** `public/assets/resident-red.png` (oder `.webp`)
 - **Größe:** 80 × 136 px, transparenter Hintergrund
 - **Anker:** Fußpunkt (40, 126) px von links oben – dort steht das Ding auf dem Boden
-- **Hauptfarben:** `#62acdc`, `#fffaf0`, `#3b2a20`, `#b8322b`, `#dcd6c8`
+- **Hauptfarben:** `#8fcdf2`, `#62acdc`, `#f2a6c0`, `#fffaf0`, `#e2483f`
 
 ```text
-Game asset for a cosy island building game for children aged 6 to 10. Soft, friendly hand-painted cartoon look with round chunky shapes and no sharp corners; a soft outline in a darker shade of each fill colour (never black); light from the top left, a soft shadow towards the bottom right; bright warm colours with high contrast; slight top-down view (the ground seen from above, objects seen a little from the front); clean edges; an original design; no text, no letters, no numbers, no logo, no watermark, no frame. Subject: a small round friendly gnome standing, front view: big eyes, rosy cheeks, a soft pointed hat whose tip falls to the side with a pompom (hat colour: red), a simple tunic, round shoes; skin and clothes in the colours of the theme. Canvas 80 x 136 px; the object stands on the ground at 50 % from the left and 93 % from the top, the rest of the canvas is transparent (PNG or WebP with alpha); nothing is cut off. Main colours: #62acdc, #fffaf0, #3b2a20, #b8322b, #dcd6c8.
+Game asset for a cosy island building game for children aged 6 to 10. Soft, friendly hand-painted cartoon look with round chunky shapes and no sharp corners; a soft outline in a darker shade of each fill colour (never black); light from the top left, a soft shadow towards the bottom right; bright warm colours with high contrast; slight top-down view (the ground seen from above, objects seen a little from the front); clean edges; an original design; no text, no letters, no numbers, no logo, no watermark, no frame. Subject: a small round friendly gnome standing, front view: big eyes, cheeks #f2a6c0, a soft pointed hat whose tip falls to the side with a pompom (hat colour: red, #e2483f), a simple tunic and trousers #fffaf0, round shoes #fffaf0; skin #8fcdf2 with shading #62acdc. Canvas 80 x 136 px; the object stands on the ground at 50 % from the left and 93 % from the top, the rest of the canvas is transparent (PNG or WebP with alpha); nothing is cut off. Main colours: #8fcdf2, #62acdc, #f2a6c0, #fffaf0, #e2483f.
 ```
 
 ## `resident-blue`
@@ -20,10 +20,10 @@ Game asset for a cosy island building game for children aged 6 to 10. Soft, frie
 - **Datei:** `public/assets/resident-blue.png` (oder `.webp`)
 - **Größe:** 80 × 136 px, transparenter Hintergrund
 - **Anker:** Fußpunkt (40, 126) px von links oben – dort steht das Ding auf dem Boden
-- **Hauptfarben:** `#62acdc`, `#fffaf0`, `#2c5cad`, `#3b2a20`, `#dcd6c8`
+- **Hauptfarben:** `#8fcdf2`, `#62acdc`, `#f2a6c0`, `#fffaf0`, `#3f7ee0`
 
 ```text
-Game asset for a cosy island building game for children aged 6 to 10. Soft, friendly hand-painted cartoon look with round chunky shapes and no sharp corners; a soft outline in a darker shade of each fill colour (never black); light from the top left, a soft shadow towards the bottom right; bright warm colours with high contrast; slight top-down view (the ground seen from above, objects seen a little from the front); clean edges; an original design; no text, no letters, no numbers, no logo, no watermark, no frame. Subject: a small round friendly gnome standing, front view: big eyes, rosy cheeks, a soft pointed hat whose tip falls to the side with a pompom (hat colour: blue), a simple tunic, round shoes; skin and clothes in the colours of the theme. Canvas 80 x 136 px; the object stands on the ground at 50 % from the left and 93 % from the top, the rest of the canvas is transparent (PNG or WebP with alpha); nothing is cut off. Main colours: #62acdc, #fffaf0, #2c5cad, #3b2a20, #dcd6c8.
+Game asset for a cosy island building game for children aged 6 to 10. Soft, friendly hand-painted cartoon look with round chunky shapes and no sharp corners; a soft outline in a darker shade of each fill colour (never black); light from the top left, a soft shadow towards the bottom right; bright warm colours with high contrast; slight top-down view (the ground seen from above, objects seen a little from the front); clean edges; an original design; no text, no letters, no numbers, no logo, no watermark, no frame. Subject: a small round friendly gnome standing, front view: big eyes, cheeks #f2a6c0, a soft pointed hat whose tip falls to the side with a pompom (hat colour: blue, #3f7ee0), a simple tunic and trousers #fffaf0, round shoes #fffaf0; skin #8fcdf2 with shading #62acdc. Canvas 80 x 136 px; the object stands on the ground at 50 % from the left and 93 % from the top, the rest of the canvas is transparent (PNG or WebP with alpha); nothing is cut off. Main colours: #8fcdf2, #62acdc, #f2a6c0, #fffaf0, #3f7ee0.
 ```
 
 ## `resident-yellow`
@@ -31,10 +31,10 @@ Game asset for a cosy island building game for children aged 6 to 10. Soft, frie
 - **Datei:** `public/assets/resident-yellow.png` (oder `.webp`)
 - **Größe:** 80 × 136 px, transparenter Hintergrund
 - **Anker:** Fußpunkt (40, 126) px von links oben – dort steht das Ding auf dem Boden
-- **Hauptfarben:** `#62acdc`, `#fffaf0`, `#3b2a20`, `#cf9d16`, `#dcd6c8`
+- **Hauptfarben:** `#8fcdf2`, `#62acdc`, `#f2a6c0`, `#fffaf0`, `#f5c638`
 
 ```text
-Game asset for a cosy island building game for children aged 6 to 10. Soft, friendly hand-painted cartoon look with round chunky shapes and no sharp corners; a soft outline in a darker shade of each fill colour (never black); light from the top left, a soft shadow towards the bottom right; bright warm colours with high contrast; slight top-down view (the ground seen from above, objects seen a little from the front); clean edges; an original design; no text, no letters, no numbers, no logo, no watermark, no frame. Subject: a small round friendly gnome standing, front view: big eyes, rosy cheeks, a soft pointed hat whose tip falls to the side with a pompom (hat colour: yellow), a simple tunic, round shoes; skin and clothes in the colours of the theme. Canvas 80 x 136 px; the object stands on the ground at 50 % from the left and 93 % from the top, the rest of the canvas is transparent (PNG or WebP with alpha); nothing is cut off. Main colours: #62acdc, #fffaf0, #3b2a20, #cf9d16, #dcd6c8.
+Game asset for a cosy island building game for children aged 6 to 10. Soft, friendly hand-painted cartoon look with round chunky shapes and no sharp corners; a soft outline in a darker shade of each fill colour (never black); light from the top left, a soft shadow towards the bottom right; bright warm colours with high contrast; slight top-down view (the ground seen from above, objects seen a little from the front); clean edges; an original design; no text, no letters, no numbers, no logo, no watermark, no frame. Subject: a small round friendly gnome standing, front view: big eyes, cheeks #f2a6c0, a soft pointed hat whose tip falls to the side with a pompom (hat colour: yellow, #f5c638), a simple tunic and trousers #fffaf0, round shoes #fffaf0; skin #8fcdf2 with shading #62acdc. Canvas 80 x 136 px; the object stands on the ground at 50 % from the left and 93 % from the top, the rest of the canvas is transparent (PNG or WebP with alpha); nothing is cut off. Main colours: #8fcdf2, #62acdc, #f2a6c0, #fffaf0, #f5c638.
 ```
 
 ## `resident-green`
@@ -42,10 +42,10 @@ Game asset for a cosy island building game for children aged 6 to 10. Soft, frie
 - **Datei:** `public/assets/resident-green.png` (oder `.webp`)
 - **Größe:** 80 × 136 px, transparenter Hintergrund
 - **Anker:** Fußpunkt (40, 126) px von links oben – dort steht das Ding auf dem Boden
-- **Hauptfarben:** `#62acdc`, `#fffaf0`, `#2f7d40`, `#3b2a20`, `#dcd6c8`
+- **Hauptfarben:** `#8fcdf2`, `#62acdc`, `#f2a6c0`, `#fffaf0`, `#45a85a`
 
 ```text
-Game asset for a cosy island building game for children aged 6 to 10. Soft, friendly hand-painted cartoon look with round chunky shapes and no sharp corners; a soft outline in a darker shade of each fill colour (never black); light from the top left, a soft shadow towards the bottom right; bright warm colours with high contrast; slight top-down view (the ground seen from above, objects seen a little from the front); clean edges; an original design; no text, no letters, no numbers, no logo, no watermark, no frame. Subject: a small round friendly gnome standing, front view: big eyes, rosy cheeks, a soft pointed hat whose tip falls to the side with a pompom (hat colour: green), a simple tunic, round shoes; skin and clothes in the colours of the theme. Canvas 80 x 136 px; the object stands on the ground at 50 % from the left and 93 % from the top, the rest of the canvas is transparent (PNG or WebP with alpha); nothing is cut off. Main colours: #62acdc, #fffaf0, #2f7d40, #3b2a20, #dcd6c8.
+Game asset for a cosy island building game for children aged 6 to 10. Soft, friendly hand-painted cartoon look with round chunky shapes and no sharp corners; a soft outline in a darker shade of each fill colour (never black); light from the top left, a soft shadow towards the bottom right; bright warm colours with high contrast; slight top-down view (the ground seen from above, objects seen a little from the front); clean edges; an original design; no text, no letters, no numbers, no logo, no watermark, no frame. Subject: a small round friendly gnome standing, front view: big eyes, cheeks #f2a6c0, a soft pointed hat whose tip falls to the side with a pompom (hat colour: green, #45a85a), a simple tunic and trousers #fffaf0, round shoes #fffaf0; skin #8fcdf2 with shading #62acdc. Canvas 80 x 136 px; the object stands on the ground at 50 % from the left and 93 % from the top, the rest of the canvas is transparent (PNG or WebP with alpha); nothing is cut off. Main colours: #8fcdf2, #62acdc, #f2a6c0, #fffaf0, #45a85a.
 ```
 
 ## `resident-orange`
@@ -53,10 +53,10 @@ Game asset for a cosy island building game for children aged 6 to 10. Soft, frie
 - **Datei:** `public/assets/resident-orange.png` (oder `.webp`)
 - **Größe:** 80 × 136 px, transparenter Hintergrund
 - **Anker:** Fußpunkt (40, 126) px von links oben – dort steht das Ding auf dem Boden
-- **Hauptfarben:** `#62acdc`, `#fffaf0`, `#3b2a20`, `#c9661a`, `#dcd6c8`
+- **Hauptfarben:** `#8fcdf2`, `#62acdc`, `#f2a6c0`, `#fffaf0`, `#f28a2e`
 
 ```text
-Game asset for a cosy island building game for children aged 6 to 10. Soft, friendly hand-painted cartoon look with round chunky shapes and no sharp corners; a soft outline in a darker shade of each fill colour (never black); light from the top left, a soft shadow towards the bottom right; bright warm colours with high contrast; slight top-down view (the ground seen from above, objects seen a little from the front); clean edges; an original design; no text, no letters, no numbers, no logo, no watermark, no frame. Subject: a small round friendly gnome standing, front view: big eyes, rosy cheeks, a soft pointed hat whose tip falls to the side with a pompom (hat colour: orange), a simple tunic, round shoes; skin and clothes in the colours of the theme. Canvas 80 x 136 px; the object stands on the ground at 50 % from the left and 93 % from the top, the rest of the canvas is transparent (PNG or WebP with alpha); nothing is cut off. Main colours: #62acdc, #fffaf0, #3b2a20, #c9661a, #dcd6c8.
+Game asset for a cosy island building game for children aged 6 to 10. Soft, friendly hand-painted cartoon look with round chunky shapes and no sharp corners; a soft outline in a darker shade of each fill colour (never black); light from the top left, a soft shadow towards the bottom right; bright warm colours with high contrast; slight top-down view (the ground seen from above, objects seen a little from the front); clean edges; an original design; no text, no letters, no numbers, no logo, no watermark, no frame. Subject: a small round friendly gnome standing, front view: big eyes, cheeks #f2a6c0, a soft pointed hat whose tip falls to the side with a pompom (hat colour: orange, #f28a2e), a simple tunic and trousers #fffaf0, round shoes #fffaf0; skin #8fcdf2 with shading #62acdc. Canvas 80 x 136 px; the object stands on the ground at 50 % from the left and 93 % from the top, the rest of the canvas is transparent (PNG or WebP with alpha); nothing is cut off. Main colours: #8fcdf2, #62acdc, #f2a6c0, #fffaf0, #f28a2e.
 ```
 
 ## `resident-purple`
@@ -64,10 +64,10 @@ Game asset for a cosy island building game for children aged 6 to 10. Soft, frie
 - **Datei:** `public/assets/resident-purple.png` (oder `.webp`)
 - **Größe:** 80 × 136 px, transparenter Hintergrund
 - **Anker:** Fußpunkt (40, 126) px von links oben – dort steht das Ding auf dem Boden
-- **Hauptfarben:** `#62acdc`, `#fffaf0`, `#3b2a20`, `#7340a3`, `#dcd6c8`
+- **Hauptfarben:** `#8fcdf2`, `#62acdc`, `#f2a6c0`, `#fffaf0`, `#9a5cd0`
 
 ```text
-Game asset for a cosy island building game for children aged 6 to 10. Soft, friendly hand-painted cartoon look with round chunky shapes and no sharp corners; a soft outline in a darker shade of each fill colour (never black); light from the top left, a soft shadow towards the bottom right; bright warm colours with high contrast; slight top-down view (the ground seen from above, objects seen a little from the front); clean edges; an original design; no text, no letters, no numbers, no logo, no watermark, no frame. Subject: a small round friendly gnome standing, front view: big eyes, rosy cheeks, a soft pointed hat whose tip falls to the side with a pompom (hat colour: purple), a simple tunic, round shoes; skin and clothes in the colours of the theme. Canvas 80 x 136 px; the object stands on the ground at 50 % from the left and 93 % from the top, the rest of the canvas is transparent (PNG or WebP with alpha); nothing is cut off. Main colours: #62acdc, #fffaf0, #3b2a20, #7340a3, #dcd6c8.
+Game asset for a cosy island building game for children aged 6 to 10. Soft, friendly hand-painted cartoon look with round chunky shapes and no sharp corners; a soft outline in a darker shade of each fill colour (never black); light from the top left, a soft shadow towards the bottom right; bright warm colours with high contrast; slight top-down view (the ground seen from above, objects seen a little from the front); clean edges; an original design; no text, no letters, no numbers, no logo, no watermark, no frame. Subject: a small round friendly gnome standing, front view: big eyes, cheeks #f2a6c0, a soft pointed hat whose tip falls to the side with a pompom (hat colour: purple, #9a5cd0), a simple tunic and trousers #fffaf0, round shoes #fffaf0; skin #8fcdf2 with shading #62acdc. Canvas 80 x 136 px; the object stands on the ground at 50 % from the left and 93 % from the top, the rest of the canvas is transparent (PNG or WebP with alpha); nothing is cut off. Main colours: #8fcdf2, #62acdc, #f2a6c0, #fffaf0, #9a5cd0.
 ```
 
 ## `resident-pink`
@@ -75,10 +75,10 @@ Game asset for a cosy island building game for children aged 6 to 10. Soft, frie
 - **Datei:** `public/assets/resident-pink.png` (oder `.webp`)
 - **Größe:** 80 × 136 px, transparenter Hintergrund
 - **Anker:** Fußpunkt (40, 126) px von links oben – dort steht das Ding auf dem Boden
-- **Hauptfarben:** `#62acdc`, `#fffaf0`, `#3b2a20`, `#c95690`, `#dcd6c8`
+- **Hauptfarben:** `#8fcdf2`, `#62acdc`, `#f2a6c0`, `#fffaf0`, `#f07ab4`
 
 ```text
-Game asset for a cosy island building game for children aged 6 to 10. Soft, friendly hand-painted cartoon look with round chunky shapes and no sharp corners; a soft outline in a darker shade of each fill colour (never black); light from the top left, a soft shadow towards the bottom right; bright warm colours with high contrast; slight top-down view (the ground seen from above, objects seen a little from the front); clean edges; an original design; no text, no letters, no numbers, no logo, no watermark, no frame. Subject: a small round friendly gnome standing, front view: big eyes, rosy cheeks, a soft pointed hat whose tip falls to the side with a pompom (hat colour: pink), a simple tunic, round shoes; skin and clothes in the colours of the theme. Canvas 80 x 136 px; the object stands on the ground at 50 % from the left and 93 % from the top, the rest of the canvas is transparent (PNG or WebP with alpha); nothing is cut off. Main colours: #62acdc, #fffaf0, #3b2a20, #c95690, #dcd6c8.
+Game asset for a cosy island building game for children aged 6 to 10. Soft, friendly hand-painted cartoon look with round chunky shapes and no sharp corners; a soft outline in a darker shade of each fill colour (never black); light from the top left, a soft shadow towards the bottom right; bright warm colours with high contrast; slight top-down view (the ground seen from above, objects seen a little from the front); clean edges; an original design; no text, no letters, no numbers, no logo, no watermark, no frame. Subject: a small round friendly gnome standing, front view: big eyes, cheeks #f2a6c0, a soft pointed hat whose tip falls to the side with a pompom (hat colour: pink, #f07ab4), a simple tunic and trousers #fffaf0, round shoes #fffaf0; skin #8fcdf2 with shading #62acdc. Canvas 80 x 136 px; the object stands on the ground at 50 % from the left and 93 % from the top, the rest of the canvas is transparent (PNG or WebP with alpha); nothing is cut off. Main colours: #8fcdf2, #62acdc, #f2a6c0, #fffaf0, #f07ab4.
 ```
 
 ## `resident-teal`
@@ -86,10 +86,10 @@ Game asset for a cosy island building game for children aged 6 to 10. Soft, frie
 - **Datei:** `public/assets/resident-teal.png` (oder `.webp`)
 - **Größe:** 80 × 136 px, transparenter Hintergrund
 - **Anker:** Fußpunkt (40, 126) px von links oben – dort steht das Ding auf dem Boden
-- **Hauptfarben:** `#62acdc`, `#fffaf0`, `#1f8780`, `#3b2a20`, `#dcd6c8`
+- **Hauptfarben:** `#8fcdf2`, `#62acdc`, `#f2a6c0`, `#fffaf0`, `#2fb5ad`
 
 ```text
-Game asset for a cosy island building game for children aged 6 to 10. Soft, friendly hand-painted cartoon look with round chunky shapes and no sharp corners; a soft outline in a darker shade of each fill colour (never black); light from the top left, a soft shadow towards the bottom right; bright warm colours with high contrast; slight top-down view (the ground seen from above, objects seen a little from the front); clean edges; an original design; no text, no letters, no numbers, no logo, no watermark, no frame. Subject: a small round friendly gnome standing, front view: big eyes, rosy cheeks, a soft pointed hat whose tip falls to the side with a pompom (hat colour: teal), a simple tunic, round shoes; skin and clothes in the colours of the theme. Canvas 80 x 136 px; the object stands on the ground at 50 % from the left and 93 % from the top, the rest of the canvas is transparent (PNG or WebP with alpha); nothing is cut off. Main colours: #62acdc, #fffaf0, #1f8780, #3b2a20, #dcd6c8.
+Game asset for a cosy island building game for children aged 6 to 10. Soft, friendly hand-painted cartoon look with round chunky shapes and no sharp corners; a soft outline in a darker shade of each fill colour (never black); light from the top left, a soft shadow towards the bottom right; bright warm colours with high contrast; slight top-down view (the ground seen from above, objects seen a little from the front); clean edges; an original design; no text, no letters, no numbers, no logo, no watermark, no frame. Subject: a small round friendly gnome standing, front view: big eyes, cheeks #f2a6c0, a soft pointed hat whose tip falls to the side with a pompom (hat colour: teal, #2fb5ad), a simple tunic and trousers #fffaf0, round shoes #fffaf0; skin #8fcdf2 with shading #62acdc. Canvas 80 x 136 px; the object stands on the ground at 50 % from the left and 93 % from the top, the rest of the canvas is transparent (PNG or WebP with alpha); nothing is cut off. Main colours: #8fcdf2, #62acdc, #f2a6c0, #fffaf0, #2fb5ad.
 ```
 
 ## `resident-boat-back`
