@@ -17,7 +17,7 @@ import type { Simulation } from '../sim/simulation';
 import { isLand, landBounds, terrainAt, type Terrain } from '../sim/world';
 import { BuildTool, TOOLS, type Preview } from '../ui/buildTool';
 import { topControls, toolbarPanel, zoomLayout } from '../ui/buildLayout';
-import { sleepSignSize, spreadSleepSigns } from '../ui/nightLayout';
+import { placeSleepSigns, sleepSignSize } from '../ui/nightLayout';
 import { inSwayView, swayAngle, swayOn } from '../ui/sway';
 import { growRect, tileAtWorld, visibleRect, type CameraBounds, type Point, type Rect } from '../ui/cameraMath';
 import { landRegions } from '../ui/cameraRegions';
@@ -240,7 +240,7 @@ export class IslandScene extends Phaser.Scene {
   /** Nothing to point at in the picture since `since` (a resident, a place): the camera glides there (last at `glidedAt`). */
   private tutorialSearch: { kind: 'resident' | 'place'; since: number; glidedAt: number } | undefined;
   /** Which "z" of the night are shown, and for which camera, screen and village (see `showSleepers`). */
-  private sleepChoice: { readonly key: string; readonly ids: readonly number[] } | undefined;
+  private sleepChoice: { readonly key: string; readonly signs: ReadonlyMap<number, { readonly dx: number; readonly dy: number; readonly size: number }> } | undefined;
   private tutorialHint: TutorialHint | undefined;
   private tutorialTouches = 0;
   private worldTapped = false;
@@ -647,41 +647,44 @@ export class IslandScene extends Phaser.Scene {
   /**
    * The "z" of the sleeping (M9, Korrekturrunde 1): drawn by the night layer above its dark blue, at a size on the
    * screen that reads from afar (`sleepSignSize`), from the points the residents' view found (world px → CSS px).
-   * Which of them are shown (`spreadSleepSigns`: not over bars, moon or sentence, close ones only once) is chosen
-   * again only when the camera, the screen, the layer or the village changed (Korrekturrunde 2); in between only
-   * their gentle bob moves them.
+   * Which of them are shown, where and how big (`placeSleepSigns`: not over bars, moon or sentence, also while they
+   * bob; moved aside or smaller where their place is taken; close ones only once) is chosen again only when the camera,
+   * the screen, the layer or the village changed (Korrekturrunde 2); in between only their gentle bob moves them.
    */
   private showSleepers(seconds: number): void {
     const signs = this.residentView.sleepSigns;
     if (signs.length === 0) {
       this.sleepChoice = undefined;
-      this.night.showSleepers([], 0);
+      this.night.showSleepers([]);
       return;
     }
     const view = this.controller.view;
     const size = this.controller.viewSize;
     const css = sleepSignSize(view.zoom);
+    const bob = 3 * view.zoom;
     const room = this.night.sleepRoom;
     const state = this.simulation.state;
     const key = `${String(view.zoom)}|${String(view.centerX)}|${String(view.centerY)}|${String(size.width)}|${String(size.height)}|${String(room.version)}|${String(state.tick)}|${String(state.revision)}|${String(signs.length)}`;
+    // The middle of the lower edge of a "z" over its house (world px → CSS px).
     const toScreen = (sign: { readonly x: number; readonly y: number }): { x: number; y: number } => ({
       x: (sign.x - view.centerX) * view.zoom + size.width / 2,
-      y: (sign.y - view.centerY) * view.zoom + size.height / 2 - css / 2,
+      y: (sign.y - view.centerY) * view.zoom + size.height / 2,
     });
     if (this.sleepChoice?.key !== key) {
-      const points = signs.map(toScreen);
-      const kept = spreadSleepSigns(points, css, room.keepOut, room.screen);
-      const chosen = new Set(kept);
-      this.sleepChoice = { key, ids: points.flatMap((point, index) => (chosen.has(point) ? [signs[index]?.id ?? -1] : [])) };
+      const anchors = signs.map((sign) => ({ ...toScreen(sign), id: sign.id }));
+      const placed = placeSleepSigns(anchors, css, room.keepOut, room.screen, bob);
+      this.sleepChoice = { key, signs: new Map(placed.map((sign) => [sign.anchor.id, { dx: sign.x - sign.anchor.x, dy: sign.y - sign.anchor.y, size: sign.size }])) };
     }
-    const ids = new Set(this.sleepChoice.ids);
-    const bob = 3 * view.zoom;
+    const chosen = this.sleepChoice.signs;
     this.night.showSleepers(
-      signs.filter((sign) => ids.has(sign.id)).map((sign) => {
-        const point = toScreen(sign);
-        return { x: point.x, y: point.y + Math.sin(seconds * 2 + sign.id) * bob };
+      signs.flatMap((sign) => {
+        const place = chosen.get(sign.id);
+        if (!place) {
+          return [];
+        }
+        const anchor = toScreen(sign);
+        return [{ x: anchor.x + place.dx, y: anchor.y + place.dy + Math.sin(seconds * 2 + sign.id) * bob, size: place.size }];
       }),
-      css,
     );
   }
 

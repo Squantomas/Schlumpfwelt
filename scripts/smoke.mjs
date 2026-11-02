@@ -5482,6 +5482,16 @@ async function testLookAndSound({ browser, profile, check, problems, name, raste
     check(night.zSize >= 64, `Nacht: das „z“ ist nur ${night.zSize} CSS-px groß`);
     console.log(`  [${name}] Nacht: ${night.z} „z“ zu ${night.zSize} CSS-px`);
     await shot(`${name}-m9-nacht`);
+    // Auch auf dem Handy hochkant sieht man, dass jemand schläft (Korrekturrunde 3): wo Lagerleiste, Mond und Satz den
+    // Platz über dem Haus nehmen, rückt das „z“ zur Seite oder wird kleiner, nie unter 30 CSS-px.
+    await page.setViewportSize({ width: 320, height: 568 });
+    await sleep(1500);
+    const phoneNight = (await waitForParent(page, (p) => p.night.sky === 1 && p.night.z >= 1 && p.night.zSize >= 30, 'das „z“ über der Nacht auf 320×568', 10_000)).night;
+    check(phoneNight.z >= 1 && phoneNight.zSize >= 30, `Nacht 320×568: ${phoneNight.z} „z“ zu ${phoneNight.zSize} CSS-px`);
+    console.log(`  [${name}] Nacht 320×568: ${phoneNight.z} „z“ zu ${phoneNight.zSize} CSS-px`);
+    await shot(`${name}-m9-nacht-handy`);
+    await page.setViewportSize(profile.context.viewport);
+    await sleep(1200);
     const notes = audio.musicNotes;
     await sleep(2500);
     audio = await readAudio(page);

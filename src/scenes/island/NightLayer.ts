@@ -20,7 +20,7 @@ import type { MenuSpot } from './VillageMenu';
  * Moon, stars and sentence are drawn once per screen size.
  *
  * The "z" over the houses of the sleeping (M9, Korrekturrunde 1) lies above the dark blue and below moon, sentence and
- * button: under the dark it could hardly be seen. The scene chooses which (`spreadSleepSigns` with `sleepKeepOut`,
+ * button: under the dark it could hardly be seen. The scene chooses which (`placeSleepSigns` with `nightKeepOut`,
  * only when the camera, the screen or the village changed) and hands over where they are each frame (`showSleepers`).
  */
 export class NightLayer {
@@ -134,8 +134,8 @@ export class NightLayer {
     }
   }
 
-  /** Once per frame: where the chosen "z" of the sleeping are (centres in CSS px) and how big (CSS px). */
-  showSleepers(kept: readonly { readonly x: number; readonly y: number }[], size: number): void {
+  /** Once per frame: where the chosen "z" of the sleeping are (centres in CSS px) and how big each is (CSS px). */
+  showSleepers(kept: readonly { readonly x: number; readonly y: number; readonly size: number }[]): void {
     const scene = this.sleepers.scene;
     while (this.sleepSigns.length < kept.length) {
       const image = scene.add.image(0, 0, SLEEP_KEY);
@@ -143,13 +143,14 @@ export class NightLayer {
       this.sleepSigns.push(image);
     }
     for (const [index, image] of this.sleepSigns.entries()) {
-      const point = kept[index];
-      image.setVisible(point !== undefined);
-      if (point) {
-        image.setPosition(point.x, point.y).setDisplaySize(size, size);
+      const sign = kept[index];
+      image.setVisible(sign !== undefined);
+      if (sign) {
+        image.setPosition(sign.x, sign.y).setDisplaySize(sign.size, sign.size);
       }
     }
-    this.sleepShown = { count: kept.length, size: kept.length > 0 ? Math.round(size) : 0 };
+    // The smallest "z" shown (it may have given way to a bar, the moon or the sentence).
+    this.sleepShown = { count: kept.length, size: kept.length > 0 ? Math.round(Math.min(...kept.map((sign) => sign.size))) : 0 };
   }
 
   /** A reload in the night: the night is there at once, without fading in. */

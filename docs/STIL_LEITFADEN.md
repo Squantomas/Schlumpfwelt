@@ -88,7 +88,7 @@ Animationen sind **ruhig und nur Anzeige** – die Simulation weiß nichts von i
 | Neues Gebäude | hüpft einmal kurz (140 ms) |
 | Abreißen | eine kleine Staubwolke |
 | Bewohner | gehen, tragen Waren, zeigen ab und zu ein Herz oder eine Wolke; schlafen nachts mit einem großen „z“ |
-| „z“ der Schlafenden | warmes Weiß mit dunkelblauem Rand und hellem Schein, **über** dem Blau der Nacht gezeichnet (nicht darunter), auf dem Schirm 64–112 CSS-px; eines je Haus, nahe beieinander nur eines, nie über einer Leiste; wippt sanft |
+| „z“ der Schlafenden | warmes Weiß mit dunkelblauem Rand und hellem Schein, **über** dem Blau der Nacht gezeichnet (nicht darunter), auf dem Schirm 64–112 CSS-px, wo der Platz fehlt kleiner (nie unter 30 CSS-px) oder etwas neben dem Haus; eines je Haus, nahe beieinander nur eines, nie über einer Leiste, dem Mond oder dem Satz, auch nicht beim Wippen; wippt sanft |
 
 Nichts blinkt schneller als einmal pro Sekunde, nichts springt, nichts wackelt hektisch. Abend und Nacht blenden über
 mehrere Sekunden.

@@ -194,31 +194,89 @@ export function nightKeepOut(layout: NightLayout, sentence: Rect, controls: read
   return [...controls, moonGlow(layout.moon), sentence, layout.button, layout.caption];
 }
 
+/** The least size of a "z" that has to give way (CSS px, `docs/STIL_LEITFADEN.md`: the big "z" at least 30 CSS px). */
+export const SLEEP_SIGN_LEAST_CSS = 30;
+/** Each step down makes the "z" this much smaller, until {@link SLEEP_SIGN_LEAST_CSS}. */
+const SLEEP_SIGN_STEP = 0.85;
 /**
- * Which "z" are drawn (centres in CSS px): none over a bar or a button that stays under the layer (`keepOut`), none
- * whose middle is off the screen, and of several close together (neighbouring houses, residents sleeping outside next
- * to each other) only the first – the others would sit on top of it. The kept points are the given objects.
+ * Where a "z" may move to when its place is taken, as shares of its size (from its place over the house): first a bit
+ * aside or up, then a little further aside, last a little lower – it stays next to the house.
  */
-export function spreadSleepSigns<P extends { readonly x: number; readonly y: number }>(
-  points: readonly P[],
+const SLEEP_SIGN_SHIFTS: readonly (readonly [number, number])[] = [
+  [0, 0],
+  [-0.6, 0],
+  [0.6, 0],
+  [0, -0.5],
+  [-0.6, -0.5],
+  [0.6, -0.5],
+  [-1.1, 0],
+  [1.1, 0],
+  [-1.1, -0.5],
+  [1.1, -0.5],
+  [0, 0.35],
+];
+
+export interface SleepSign<P> {
+  /** The given anchor (the same object). */
+  readonly anchor: P;
+  /** Centre of the "z" (CSS px), without its bob. */
+  readonly x: number;
+  readonly y: number;
+  /** Its size (CSS px). */
+  readonly size: number;
+}
+
+/**
+ * Which "z" are drawn, where and how big (Korrekturrunde 3 of M9). `anchors` are the middles of their lower edge over
+ * the houses and the residents asleep outside (CSS px). A "z" stays clear of every bar, button, the moon and the
+ * sentence (`keepOut`), also while it bobs up and down by `bob` CSS px, and stays on the screen. Where its place is
+ * taken it moves a little aside or up (`SLEEP_SIGN_SHIFTS`), and if no place near the house is free it gets smaller,
+ * step by step down to {@link SLEEP_SIGN_LEAST_CSS} – so on every screen a child sees that somebody sleeps. Only a
+ * house that is itself off the screen or under a bar, the moon or the sentence has no "z". Of several anchors close
+ * together (neighbouring houses, residents sleeping outside next to each other) only the first gets one.
+ */
+export function placeSleepSigns<P extends { readonly x: number; readonly y: number }>(
+  anchors: readonly P[],
   size: number,
   keepOut: readonly Rect[],
   screen: { readonly width: number; readonly height: number },
-): P[] {
-  const kept: P[] = [];
+  bob = 0,
+): SleepSign<P>[] {
+  const kept: SleepSign<P>[] = [];
   const near = size * 0.7;
-  for (const point of points) {
-    if (point.x < 0 || point.y < 0 || point.x > screen.width || point.y > screen.height) {
+  const sizes: number[] = [];
+  for (let next = size; next > SLEEP_SIGN_LEAST_CSS; next *= SLEEP_SIGN_STEP) {
+    sizes.push(next);
+  }
+  sizes.push(Math.min(size, SLEEP_SIGN_LEAST_CSS));
+  const fits = (x: number, y: number, edge: number): boolean => {
+    const box: Rect = { x: x - edge / 2, y: y - edge / 2 - bob, width: edge, height: edge + 2 * bob };
+    const onScreen = box.x >= 0 && box.y >= 0 && box.x + box.width <= screen.width && box.y + box.height <= screen.height;
+    return onScreen && keepOut.every((rect) => apart(box, rect)) && kept.every((other) => apart(box, { x: other.x - other.size / 2, y: other.y - other.size / 2, width: other.size, height: other.size }));
+  };
+  for (const anchor of anchors) {
+    const offScreen = anchor.x < 0 || anchor.y < 0 || anchor.x > screen.width || anchor.y > screen.height;
+    const covered = keepOut.some((rect) => anchor.x >= rect.x && anchor.x <= rect.x + rect.width && anchor.y >= rect.y && anchor.y <= rect.y + rect.height);
+    if (offScreen || covered || kept.some((other) => Math.hypot(other.anchor.x - anchor.x, other.anchor.y - anchor.y) < near)) {
       continue;
     }
-    const box: Rect = { x: point.x - size / 2, y: point.y - size / 2, width: size, height: size };
-    if (keepOut.some((rect) => !apart(box, rect))) {
-      continue;
+    let placed: SleepSign<P> | undefined;
+    for (const edge of sizes) {
+      for (const [dx, dy] of SLEEP_SIGN_SHIFTS) {
+        const x = anchor.x + dx * edge;
+        const y = anchor.y - edge / 2 + dy * edge;
+        if (fits(x, y, edge)) {
+          placed = { anchor, x, y, size: edge };
+          break;
+        }
+      }
+      if (placed) {
+        break;
+      }
     }
-    if (kept.some((other) => Math.hypot(other.x - point.x, other.y - point.y) < near)) {
-      continue;
+    if (placed) {
+      kept.push(placed);
     }
-    kept.push(point);
   }
   return kept;
 }
