@@ -3,9 +3,9 @@
 Gedächtnis des Orchestrators. Bei Neustart: „Setze laut `docs/FORTSCHRITT.md` fort“.
 
 ## Aktueller Stand
-- **Aktueller Meilenstein:** M9 – Look & Sound (Issue #10, Branch `m9-look-sound`, Builder `opus`/`high`)
-- **Status:** M8 gemergt (PR #24, 2 Korrekturrunden); Reste in #25 (`nacharbeit`)
-- **Nächster Schritt:** Branch `m9-look-sound` von `main` anlegen, Builder M9 starten; danach `docs/ABSCHLUSSBERICHT_M9.md`
+- **Aktueller Meilenstein:** Abschluss – alle Meilensteine M0–M9 fertig
+- **Status:** M9 gemergt (PR #26, 3 Korrekturrunden); Reste in #27 (`nacharbeit`)
+- **Nächster Schritt:** `docs/ABSCHLUSSBERICHT_M9.md` schreiben und mergen (Branch `abschlussbericht-m9`), dann Schlusszusammenfassung
 
 ## Meilensteine
 | # | Issue | Branch | PR | Status |
@@ -19,7 +19,7 @@ Gedächtnis des Orchestrators. Bei Neustart: „Setze laut `docs/FORTSCHRITT.md`
 | M6 | #7 | m6-schluempfe | #20 | fertig |
 | M7 | #8 | m7-wohnen | #22 | fertig |
 | M8 | #9 | m8-kinderfreundlich | #24 | fertig |
-| M9 | #10 | m9-look-sound | – | offen |
+| M9 | #10 | m9-look-sound | #26 | fertig |
 
 ## Modelle
 - Orchestrator und Subagenten laut Tabelle im Prompt (`opus`/`sonnet`/`haiku`, Effort wie vorgegeben). Bisher war kein Ersatzmodell nötig.
@@ -48,3 +48,5 @@ Gedächtnis des Orchestrators. Bei Neustart: „Setze laut `docs/FORTSCHRITT.md`
 - M8-Einschränkungen (#25): Bildzeit im geführten Start beim Kameraziehen weit weg vom Dorf; Hand fehlt, wenn das Kind die Kamera selbst weit weg gezogen hat; kurze Lücken ohne Hand auf 568×320; Limit umgehbar durch Browserdaten löschen oder Datum vorstellen; wer zuerst „Für Eltern“ öffnet, setzt die PIN.
 - Für M9: Platzhaltergrafik ersetzen (Stil-Leitfaden, SVG, Rasterdatei bevorzugt), Animationen, Ton (prozedurales Web Audio oder CC0 mit `docs/CREDITS.md`), Ton-Schalter (sinnvoll im Eltern-Menü oder Zahnrad), Bild-Prompt-Vorlagen in `docs/assets/`. Das „z“ über schlafenden Häusern ist klein; Felsboden/Sand ähnlich hell. Bildzeit-Grenze 16/25 ms (40 Bewohner, 4× Drosselung) einhalten.
 - `npm run smoke` dauert headless voll etwa 75 min; `--m8-only` etwa 13 min je Gerät.
+- M9 erledigt (PR #26): Alle 113 Bilder als eigene SVGs nach `docs/STIL_LEITFADEN.md`, Rasterersatz aus `public/assets/` (Liste beim Bauen, keine 404), Prompt-Vorlage je Bild in `docs/assets/`, ruhige Animationen (Wellen, Wiegen, Rauch, Hüpfen, Staub, „z“ über der Nacht), Ton mit Web Audio (Geräusche, leise Musik, am Abend 5 s Ausblenden, nachts still), Ton-Schalter hinter dem Zahnrad und Musik/Geräusche im Eltern-Menü (Eltern-Einstellungen v2), Startschirm mit sofortigem Ladebild. Dorf-Format unverändert.
+- M9-Einschränkungen (#27): Nacht-„z“ fehlt in schmalen Streifen unter Satz/Lagerleiste und neben dem Mond; 18-px-Bild auf 568×320-Shop-Karten mit zweizeiligem Namen; Mond auf fast quadratischen schmalen Schirmen; Ton nur über `data-audio` geprüft, nicht hörbar; kein echtes iPad. Aussehen der Bewohner (blau, weiß, Pilzhäuser) bewusst von der Projektleitung zu entscheiden – Farben in `theme.json`.
