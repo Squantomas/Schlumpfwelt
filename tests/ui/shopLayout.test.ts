@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { SHOP_CATEGORIES, shopItems } from '../../src/data/buildings';
 import type { Rect } from '../../src/ui/cameraMath';
 import { layoutBuildUi } from '../../src/ui/buildLayout';
-import { SHOP_ARROW, SHOP_CELL_HEIGHTS, shopCellRects, shopLayout, shopPages } from '../../src/ui/shopLayout';
+import { t, tBreakable } from '../../src/data/texts';
+import { SHOP_ARROW, SHOP_CARD_MIN_FONT, SHOP_CARD_TEXT_INSET, SHOP_CELL_HEIGHTS, SHOP_CELL_WIDTHS, shopCardParts, shopCardText, shopCellRects, shopLayout, shopPages } from '../../src/ui/shopLayout';
 import { MIN_TAP_SIZE } from '../../src/ui/style';
 
 const SCREENS: readonly (readonly [number, number])[] = [
@@ -193,7 +194,7 @@ describe('Shop-Layout: Größe der Karten', () => {
   it('nimmt auf dem Tablet die breiten, hohen Karten und alle in einer Seite', () => {
     const shop = open(1024, 768).shop;
     expect(shop?.paged).toBe(false);
-    expect(shop?.cellW).toBe(104);
+    expect(shop?.cellW).toBe(SHOP_CELL_WIDTHS[0]);
     expect(shop?.cellH).toBe(SHOP_CELL_HEIGHTS[0]);
   });
 
@@ -245,5 +246,63 @@ describe('Shop-Layout: Größe der Karten', () => {
     const tablet = open(1024, 768).shop;
     expect(tablet?.rows).toBe(1);
     expect(tablet?.rect.height).toBeLessThan(768 / 2.5);
+  });
+});
+
+/** Breite eines Worts in fetter Systemschrift, eher zu breit geschätzt (im Spiel misst der Browser selbst). */
+function estimate(text: string, font: number): number {
+  return text.length * font * 0.58 + Math.max(2, Math.round(font * 0.14));
+}
+
+describe('Shop-Karten: der Name ist mindestens 12 px groß, lange Namen brechen um (M9, Korrekturrunde 1)', () => {
+  const names = SHOP_CATEGORIES.flatMap((category) => shopItems(category).map((type) => tBreakable(type.nameKey)));
+  const plain = (name: string): string => name.replaceAll('\u00ad', '');
+
+  it('die längsten Namen sind dabei', () => {
+    expect(names).toContain(t('build.invite'));
+    expect(names).toContain(t('build.houseGarden'));
+    expect(names).toContain(tBreakable('build.lumberjack'));
+    // Elsewhere the soft hyphen is not part of the name.
+    expect(t('build.lumberjack')).toBe('Holzfällerhütte');
+  });
+
+  for (const [width, height] of SCREENS) {
+    it(`${String(width)}×${String(height)}: jeder Name in höchstens zwei Zeilen, nie unter 12 px, Bild bleibt`, () => {
+      const shop = open(width, height).shop;
+      expect(shop).toBeDefined();
+      if (!shop) {
+        return;
+      }
+      for (const name of names) {
+        const caption = shopCardText(name, shop.cellW, shop.cellH, estimate);
+        expect(caption.font, name).toBeGreaterThanOrEqual(SHOP_CARD_MIN_FONT);
+        expect(caption.lines.length, name).toBeLessThanOrEqual(2);
+        expect(caption.lines.join(' ').replace(/- /g, ''), name).toBe(plain(name));
+        for (const line of caption.lines) {
+          expect(estimate(line, caption.font), `${name}: ${line}`).toBeLessThanOrEqual(shop.cellW - SHOP_CARD_TEXT_INSET);
+        }
+        const parts = shopCardParts(shop.cellH, caption);
+        expect(parts.picture, `${name}: Bild`).toBeGreaterThanOrEqual(14);
+        expect(parts.picture + parts.caption + parts.footer + parts.margins).toBeCloseTo(shop.cellH);
+      }
+    });
+  }
+
+  it('auf dem Tablet quer größer als das Minimum: mindestens 14 px (alle Karten bleiben in einer Reihe)', () => {
+    const shop = open(1024, 768).shop;
+    expect(shop?.rows).toBe(1);
+    for (const name of names) {
+      expect(shopCardText(name, shop?.cellW ?? 0, shop?.cellH ?? 0, estimate).font, name).toBeGreaterThanOrEqual(14);
+    }
+  });
+
+  it('ein langes Wort bricht an seinem weichen Trennstrich, mit Strich am Ende der Zeile', () => {
+    expect(shopCardText(tBreakable('build.lumberjack'), 88, 72, estimate).lines).toEqual(['Holzfäller-', 'hütte']);
+    expect(shopCardText(tBreakable('build.lumberjack'), 400, 120, estimate).lines).toEqual(['Holzfällerhütte']);
+  });
+
+  it('ein Wort, das in eine Zeile passt, bricht nicht um', () => {
+    expect(shopCardText('Blume', 104, 120, estimate).lines).toEqual(['Blume']);
+    expect(shopCardText('Pilzhaus mit Garten', 104, 120, estimate).lines).toHaveLength(2);
   });
 });

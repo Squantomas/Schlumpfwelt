@@ -1,11 +1,11 @@
 import Phaser from 'phaser';
 import { SHOP_CATEGORIES, shopItems, type ShopCategory } from '../../data/buildings';
-import { t } from '../../data/texts';
+import { t, tBreakable } from '../../data/texts';
 import type { Rect } from '../../ui/cameraMath';
-import { createLabel, setLabelSize } from '../../ui/label';
+import { createLabel, measureLabel, setLabelSize } from '../../ui/label';
 import { RoundButton } from '../../ui/RoundButton';
 import { noRoomSentence, progressText, roomPrice, roomText, shopCards, unlockIcons, unlockSentenceText, type ShopCard, type ShopView } from '../../ui/shopModel';
-import { SHOP_ARROW, shopCellRects, shopPages, type ShopLayout } from '../../ui/shopLayout';
+import { SHOP_ARROW, shopCardParts, shopCardText, shopCellRects, shopPages, type ShopLayout } from '../../ui/shopLayout';
 import { SquareButton } from '../../ui/SquareButton';
 import { COLORS, clamp } from '../../ui/style';
 import { fitIcon, iconImage, starImage } from '../art/icon';
@@ -251,9 +251,14 @@ export class ShopUI {
     for (const category of SHOP_CATEGORIES) {
       for (const type of shopItems(category)) {
         const footer = new CardFooter(scene);
+        const name = tBreakable(type.nameKey);
         const button = new SquareButton(scene, {
           label: t(type.nameKey),
           footer,
+          cardText: (width, height) => {
+            const text = shopCardText(name, width, height, measureLabel);
+            return { font: text.font, lines: text.lines, ...shopCardParts(height, text) };
+          },
           content: scene.add.image(0, 0, buildingTextureKey(type.id)),
           fitContent: (content, width, height) => {
             const picture = content as Phaser.GameObjects.Image;
@@ -520,7 +525,8 @@ export class ShopUI {
     spots['shop-close'] = center(layout.close);
     for (const { card, rect } of this.shown.cards) {
       if (rect) {
-        spots[`item-${card.typeId}`] = { ...center(rect), state: card.state, fresh: this.cards.get(card.typeId)?.star.visible === true, active: chosen === card.typeId };
+        const entry = this.cards.get(card.typeId);
+        spots[`item-${card.typeId}`] = { ...center(rect), state: card.state, fresh: entry?.star.visible === true, active: chosen === card.typeId, font: entry?.button.captionFont ?? 0 };
       }
     }
     if (layout.paged && layout.prev && layout.next) {

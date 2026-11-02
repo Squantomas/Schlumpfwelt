@@ -189,3 +189,89 @@ export function shopCellRects(layout: ShopLayout, onPage: number): Rect[] {
   }
   return rects;
 }
+
+/** The name on a card is never smaller than this (CSS px, Korrekturrunde 1): a long name breaks into two lines instead. */
+export const SHOP_CARD_MIN_FONT = 12;
+/** The largest name on a card (CSS px). */
+const SHOP_CARD_MAX_FONT = 16;
+/** Room left and right of the name, together (CSS px). */
+export const SHOP_CARD_TEXT_INSET = 8;
+/** Height of a line of the name, as a share of its font size. */
+const SHOP_CARD_LINE = 1.15;
+/** Shares of the card height: the footer with the cost, and the frame above the picture and below the footer. */
+export const SHOP_CARD_FOOTER_SHARE = 0.3;
+const SHOP_CARD_MARGIN_SHARE = 0.07;
+
+export interface ShopCardText {
+  readonly font: number;
+  readonly lines: readonly string[];
+  /** Height of the name (CSS px). */
+  readonly height: number;
+}
+
+/** The soft hyphen of a name (see `tBreakable` in `src/data/texts.ts`): a long word may break there, with a dash. */
+const SOFT_HYPHEN = '\u00ad';
+
+/**
+ * Words in lines of at most `maxWidth`. A word too wide for a line of its own breaks at its soft hyphens (the line ends
+ * with "-"); a word without one that is still too wide stays alone on its line (the caller then tries a smaller font).
+ */
+function wrapWords(text: string, maxWidth: number, width: (line: string) => number): string[] {
+  const lines: string[] = [];
+  const append = (piece: string, joiner: string): void => {
+    const last = lines[lines.length - 1];
+    if (last !== undefined && width(`${last}${joiner}${piece}`) <= maxWidth) {
+      lines[lines.length - 1] = `${last}${joiner}${piece}`;
+    } else {
+      lines.push(piece);
+    }
+  };
+  for (const word of text.split(/\s+/).filter((part) => part.length > 0)) {
+    const whole = word.replaceAll(SOFT_HYPHEN, '');
+    const last = lines[lines.length - 1];
+    if ((last !== undefined && width(`${last} ${whole}`) <= maxWidth) || width(whole) <= maxWidth || !word.includes(SOFT_HYPHEN)) {
+      append(whole, ' ');
+      continue;
+    }
+    // Break the word: as many syllables per line as fit with the dash.
+    const syllables = word.split(SOFT_HYPHEN);
+    let current = '';
+    for (const [index, syllable] of syllables.entries()) {
+      const rest = index === syllables.length - 1;
+      const next = current + syllable;
+      if (current !== '' && width(rest ? next : `${next}-`) > maxWidth) {
+        lines.push(`${current}-`);
+        current = syllable;
+      } else {
+        current = next;
+      }
+    }
+    lines.push(current);
+  }
+  return lines;
+}
+
+/** How the parts of a card share its height: picture, name, footer (the cost) and the frame. */
+export function shopCardParts(cellH: number, text: ShopCardText): { readonly picture: number; readonly caption: number; readonly footer: number; readonly margins: number } {
+  const footer = cellH * SHOP_CARD_FOOTER_SHARE;
+  const margins = cellH * SHOP_CARD_MARGIN_SHARE;
+  return { picture: cellH - footer - margins - text.height, caption: text.height, footer, margins };
+}
+
+/**
+ * The name of a card: as big as the card allows (up to {@link SHOP_CARD_MAX_FONT}), in one line or – when that does not
+ * fit – two, never below {@link SHOP_CARD_MIN_FONT}; the picture gives way. `measure` is the width of a text at a font
+ * size (the browser measures it in the game, the tests estimate it).
+ */
+export function shopCardText(text: string, cellW: number, cellH: number, measure: (text: string, font: number) => number): ShopCardText {
+  const maxWidth = cellW - SHOP_CARD_TEXT_INSET;
+  const largest = Math.min(SHOP_CARD_MAX_FONT, Math.max(SHOP_CARD_MIN_FONT, Math.round(cellH * 0.125)));
+  const make = (font: number, lines: readonly string[]): ShopCardText => ({ font, lines, height: lines.length * font * SHOP_CARD_LINE + 1 });
+  for (let font = largest; font >= SHOP_CARD_MIN_FONT; font -= 1) {
+    const lines = wrapWords(text, maxWidth, (line) => measure(line, font));
+    if (lines.length <= 2 && lines.every((line) => measure(line, font) <= maxWidth)) {
+      return make(font, lines);
+    }
+  }
+  return make(SHOP_CARD_MIN_FONT, wrapWords(text, maxWidth, (line) => measure(line, SHOP_CARD_MIN_FONT)));
+}
