@@ -1,4 +1,3 @@
-import { inSwayView, swayAngle, swayOn, type SwayView } from '../../ui/sway';
 import Phaser from 'phaser';
 import { buildingType } from '../../data/buildings';
 import { t } from '../../data/texts';
@@ -10,6 +9,7 @@ import { createLabel } from '../../ui/label';
 import { homeLabelY, markerY, type AvoidBox } from '../../ui/markerPosition';
 import { signsFor } from '../../ui/signs';
 import { COLORS, TILE_SIZE } from '../../ui/style';
+import { inSwayView, swayAngle, swayOn, type SwayView } from '../../ui/sway';
 import {
   MARKER_BUBBLE,
   MARKER_SIZE,
