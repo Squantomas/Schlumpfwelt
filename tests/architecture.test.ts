@@ -4,6 +4,7 @@ import indexHtml from '../index.html?raw';
 import texts from '../src/data/texts.de.json';
 import theme from '../src/data/theme.json';
 import { createManifest } from '../scripts/pwaPlugin.mjs';
+import { ASSETS, assetSvg } from '../src/art/catalog';
 
 /**
  * Guards the architecture rules from CLAUDE.md:
@@ -211,5 +212,97 @@ describe('Theme: auch Build-Skripte, Symbole und Manifest kennen keinen Markenna
   it('index.html holt auch die Farbe aus dem Spiel (eine Quelle: COLORS.water)', () => {
     expect(indexHtml).toContain('content="%THEME_COLOR%"');
     expect(indexHtml).not.toMatch(/#[0-9a-f]{6}/i);
+  });
+});
+
+describe('Theme: auch die Bilder, ihre Vorlagen und die Doku zu Bild und Ton kennen keinen Markennamen (M9)', () => {
+  const BRAND_WORDS = /schl[uü]mpf|smurf/i;
+  const docs = import.meta.glob<string>(['/docs/assets/*.md', '/docs/STIL_LEITFADEN.md', '/docs/CREDITS.md'], { query: '?raw', import: 'default', eager: true });
+  const publicFiles = Object.keys(import.meta.glob('/public/**/*', { query: '?url' }));
+
+  it('findet die Vorlagen, den Stil-Leitfaden und die Credits', () => {
+    expect(Object.keys(docs)).toEqual(expect.arrayContaining(['/docs/assets/README.md', '/docs/STIL_LEITFADEN.md', '/docs/CREDITS.md']));
+  });
+
+  it.each(Object.entries(docs))('%s enthält keine Markenbegriffe', (_path, content) => {
+    expect(content).not.toMatch(BRAND_WORDS);
+  });
+
+  it('jedes gezeichnete Bild (SVG) und seine Beschreibung sind markenfrei', () => {
+    for (const asset of ASSETS) {
+      expect(assetSvg(asset), asset.key).not.toMatch(BRAND_WORDS);
+      expect(asset.subject, asset.key).not.toMatch(BRAND_WORDS);
+      expect(asset.key).not.toMatch(BRAND_WORDS);
+    }
+  });
+
+  it('kein Dateiname in public/ nennt eine Marke', () => {
+    for (const path of publicFiles) {
+      expect(path).not.toMatch(BRAND_WORDS);
+    }
+  });
+});
+
+const AUDIO_FILE = 'src/audio/engine.ts';
+const ART_FILE = 'src/art/svg.ts';
+
+describe('Architektur: Ton (src/audio/) und Bilder (src/art/) (M9)', { timeout: 30_000 }, () => {
+  it.each([
+    ['Phaser', "import Phaser from 'phaser';\nexport const game = Phaser.AUTO;\n"],
+    ['Szenen', "import { IslandScene } from '../scenes/IslandScene';\nexport const s = IslandScene;\n"],
+    ['UI', "import { COLORS } from '../ui/style';\nexport const c = COLORS;\n"],
+    ['Simulation', "import { TICK_MS } from '../sim/clock';\nexport const x = TICK_MS;\n"],
+    ['Eltern', "import { DayClock } from '../parent/dayClock';\nexport const c = DayClock;\n"],
+    ['Bilder', "import { Svg } from '../art/svg';\nexport const s = Svg;\n"],
+  ])('src/audio/ verbietet Imports: %s', async (_name, code) => {
+    expect(await architectureViolations(AUDIO_FILE, code)).toContain('no-restricted-imports');
+  });
+
+  it('src/audio/ darf Web Audio, Browser und die Daten benutzen', async () => {
+    const code = "import { SOUND_BOOK } from './recipes';\nimport sounds from '../data/sounds.json';\nexport const x = [SOUND_BOOK, sounds, new AudioContext(), document.hidden];\n";
+    expect(await architectureViolations(AUDIO_FILE, code)).toEqual([]);
+  });
+
+  it.each([
+    ['src/sim/', SIM_FILE],
+    ['src/parent/', PARENT_FILE],
+    ['eine Szene', SCENE_FILE],
+    ['src/art/', ART_FILE],
+  ])('Web Audio nur in src/audio/: nicht in %s', async (_name, file) => {
+    expect(await architectureViolations(file, 'export const ctx = new AudioContext();\n')).toEqual(['no-restricted-globals']);
+  });
+
+  it('src/sim/ importiert weder Ton noch Bilder', async () => {
+    expect(await architectureViolations(SIM_FILE, "import { AudioEngine } from '../audio/engine';\nexport const a = AudioEngine;\n")).toContain('no-restricted-imports');
+    expect(await architectureViolations(SIM_FILE, "import { Svg } from '../art/svg';\nexport const s = Svg;\n")).toContain('no-restricted-imports');
+  });
+
+  it.each([
+    ['Phaser', "import Phaser from 'phaser';\nexport const game = Phaser.AUTO;\n"],
+    ['Szenen', "import { IslandScene } from '../scenes/IslandScene';\nexport const s = IslandScene;\n"],
+    ['UI außer style', "import { BuildTool } from '../ui/buildTool';\nexport const b = BuildTool;\n"],
+    ['Simulation', "import { TICK_MS } from '../sim/clock';\nexport const x = TICK_MS;\n"],
+    ['Ton', "import { AudioEngine } from '../audio/engine';\nexport const a = AudioEngine;\n"],
+  ])('src/art/ verbietet Imports: %s', async (_name, code) => {
+    expect(await architectureViolations(ART_FILE, code)).toContain('no-restricted-imports');
+  });
+
+  it.each([
+    ['Date.now()', 'export const t = Date.now();\n', 'no-restricted-properties'],
+    ['new Date() ohne Argument', 'export const d = new Date();\n', 'no-restricted-syntax'],
+    ['Date() als Funktion', 'export const d = Date();\n', 'no-restricted-syntax'],
+  ])('src/art/ hat keine Wanduhr: %s (Korrekturrunde 1)', async (_name, code, rule) => {
+    expect(await architectureViolations(ART_FILE, code)).toEqual([rule]);
+  });
+
+  it('src/art/ darf ein festes Datum benutzen (new Date mit Argument)', async () => {
+    expect(await architectureViolations(ART_FILE, 'export const d = new Date(0);\n')).toEqual([]);
+  });
+
+  it('src/art/ ist rein: kein Browser, kein Zufall; die Farben aus ui/style und die Daten sind erlaubt', async () => {
+    expect(await architectureViolations(ART_FILE, 'export const w = window.innerWidth;\n')).toEqual(['no-restricted-globals']);
+    expect(await architectureViolations(ART_FILE, 'export const r = Math.random();\n')).toEqual(['no-restricted-properties']);
+    const code = "import { COLORS } from '../ui/style';\nimport { BUILDING_TYPES } from '../data/buildings';\nexport const x = [COLORS, BUILDING_TYPES, Math.round(1.5)];\n";
+    expect(await architectureViolations(ART_FILE, code)).toEqual([]);
   });
 });

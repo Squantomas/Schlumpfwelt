@@ -11,7 +11,8 @@ import { MenuFlow, rejectionText } from '../../ui/menuFlow';
 import { MENU_CLOSE, menuLayout, menuTitleCenterX, type MenuLayout } from '../../ui/menuLayout';
 import { RoundButton } from '../../ui/RoundButton';
 import { COLORS } from '../../ui/style';
-import { drawFileIcon, drawPadlock } from '../../ui/toolIcons';
+import { iconImage } from '../art/icon';
+import { uiKey } from '../../art/catalog';
 import type { ViewSize } from '../../ui/viewport';
 import { addGraphics } from '../../ui/FastGraphics';
 
@@ -25,6 +26,10 @@ export interface VillageMenuHooks {
   readonly onReplaced: () => void;
   /** "Für Eltern" (M8): the menu closes and the parents' menu opens. */
   readonly onParent: () => void;
+  /** Is the sound on (M9)? */
+  readonly soundOn: () => boolean;
+  /** "Ton an/aus" (M9): switches all sound on or off (the parents' settings keep it). */
+  readonly onSound: (on: boolean) => void;
 }
 
 export interface MenuSpot {
@@ -39,7 +44,7 @@ export interface MenuSpot {
 /** A wide button with a picture on the left and a word: "Als Datei sichern". */
 class MenuButton extends Phaser.GameObjects.Container {
   private readonly face: Phaser.GameObjects.Graphics;
-  private readonly picture: Phaser.GameObjects.Graphics;
+  private readonly picture: Phaser.GameObjects.Image;
   private readonly caption: Phaser.GameObjects.Text;
   private buttonWidth = 0;
   private buttonHeight = 0;
@@ -47,13 +52,13 @@ class MenuButton extends Phaser.GameObjects.Container {
 
   constructor(
     scene: Phaser.Scene,
-    private readonly kind: 'save' | 'load' | 'parent',
+    icon: string,
     text: string,
     onTap: (eventTime: number) => void,
   ) {
     super(scene, 0, 0);
     this.face = addGraphics(scene);
-    this.picture = addGraphics(scene);
+    this.picture = iconImage(scene, icon);
     this.caption = createLabel(scene, text, 22);
     this.add([this.face, this.picture, this.caption]);
     this.on(Phaser.Input.Events.GAMEOBJECT_POINTER_DOWN, () => {
@@ -75,6 +80,16 @@ class MenuButton extends Phaser.GameObjects.Container {
     scene.add.existing(this);
   }
 
+  /** A new picture and word (M9: the sound switch shows what it is now). */
+  setContent(icon: string, text: string): this {
+    this.picture.setTexture(uiKey(icon));
+    this.caption.setText(text);
+    if (this.buttonWidth > 0) {
+      this.place({ x: this.x - this.buttonWidth / 2, y: this.y - this.buttonHeight / 2, width: this.buttonWidth, height: this.buttonHeight });
+    }
+    return this;
+  }
+
   /** Sizes the button to `rect` (CSS px) and puts it there. */
   place(rect: Rect): this {
     this.buttonWidth = rect.width;
@@ -89,11 +104,7 @@ class MenuButton extends Phaser.GameObjects.Container {
     }
     const icon = Math.min(rect.height * 0.7, 52);
     this.picture.setPosition(-rect.width / 2 + 16 + icon / 2, 0);
-    if (this.kind === 'parent') {
-      drawPadlock(this.picture, icon);
-    } else {
-      drawFileIcon(this.picture, this.kind, icon);
-    }
+    this.picture.setDisplaySize(icon, icon);
     const room = rect.width - 16 - icon - 16 - 14;
     setLabelSize(this.caption, Math.min(24, rect.height * 0.34), room);
     this.caption.setPosition(-rect.width / 2 + 16 + icon + 10 + room / 2, 0);
@@ -131,6 +142,7 @@ export class VillageMenu {
   private readonly saveButton: MenuButton;
   private readonly loadButton: MenuButton;
   private readonly parentButton: MenuButton;
+  private readonly soundButton: MenuButton;
   private readonly closeButton: RoundButton;
   private readonly confirmButton: RoundButton;
   private readonly cancelButton: RoundButton;
@@ -151,18 +163,24 @@ export class VillageMenu {
     this.panel = addGraphics(scene);
     this.title = createLabel(scene, t('menu.title'), 30);
     this.sentence = createLabel(scene, '', 19);
-    this.saveButton = new MenuButton(scene, 'save', t('menu.save'), (time) => {
+    this.saveButton = new MenuButton(scene, 'file-save', t('menu.save'), (time) => {
       hooks.touched(time);
       this.saveFile();
     });
-    this.loadButton = new MenuButton(scene, 'load', t('menu.load'), (time) => {
+    this.loadButton = new MenuButton(scene, 'file-load', t('menu.load'), (time) => {
       hooks.touched(time);
       this.chooseFile();
     });
-    this.parentButton = new MenuButton(scene, 'parent', t('menu.parent'), (time) => {
+    this.parentButton = new MenuButton(scene, 'lock', t('menu.parent'), (time) => {
       hooks.touched(time);
       this.close();
       hooks.onParent();
+    });
+    this.soundButton = new MenuButton(scene, 'sound-on', t('menu.soundOn'), (time) => {
+      hooks.onSound(!hooks.soundOn());
+      // After the switch: the tap is heard when the sound has just come on.
+      hooks.touched(time);
+      this.showSound();
     });
     this.closeButton = new RoundButton(scene, 0, 0, {
       radius: MENU_CLOSE / 2,
@@ -192,7 +210,7 @@ export class VillageMenu {
         this.refresh();
       },
     });
-    uiLayer.add([this.veil, this.dim, this.panel, this.title, this.sentence, this.saveButton, this.loadButton, this.parentButton, this.closeButton, this.confirmButton, this.cancelButton]);
+    uiLayer.add([this.veil, this.dim, this.panel, this.title, this.sentence, this.saveButton, this.loadButton, this.soundButton, this.parentButton, this.closeButton, this.confirmButton, this.cancelButton]);
     this.refresh();
   }
 
@@ -246,6 +264,9 @@ export class VillageMenu {
     }
     if (layout.parent) {
       spots['menu-parent'] = center(layout.parent);
+    }
+    if (layout.sound) {
+      spots['menu-sound'] = { ...center(layout.sound), active: this.hooks.soundOn() };
     }
     if (layout.confirm && layout.cancel) {
       spots['menu-confirm'] = center(layout.confirm);
@@ -319,6 +340,12 @@ export class VillageMenu {
     return this.flow.message ?? (this.session.saves ? 'menu.infoAuto' : 'menu.infoManual');
   }
 
+  /** The sound switch shows what is now: a loudspeaker with waves and „Ton: an“, or crossed out and „Ton: aus“. */
+  private showSound(): void {
+    const on = this.hooks.soundOn();
+    this.soundButton.setContent(on ? 'sound-on' : 'sound-off', t(on ? 'menu.soundOn' : 'menu.soundOff'));
+  }
+
   /** Shows what the flow says, where {@link menuLayout} puts it; hides everything while closed. */
   private refresh(): void {
     const mode = this.flow.mode;
@@ -332,6 +359,7 @@ export class VillageMenu {
     this.saveButton.setVisible(layout?.save !== undefined);
     this.loadButton.setVisible(layout?.load !== undefined);
     this.parentButton.setVisible(layout?.parent !== undefined);
+    this.soundButton.setVisible(layout?.sound !== undefined);
     this.confirmButton.setVisible(layout?.confirm !== undefined);
     this.cancelButton.setVisible(layout?.cancel !== undefined);
     if (!layout) {
@@ -372,6 +400,10 @@ export class VillageMenu {
     }
     if (layout.parent) {
       this.parentButton.place(layout.parent);
+    }
+    if (layout.sound) {
+      this.soundButton.place(layout.sound);
+      this.showSound();
     }
     if (layout.confirm && layout.cancel) {
       this.confirmButton.setRadius(layout.confirm.width / 2).setPosition(centerOf(layout.confirm).x, centerOf(layout.confirm).y);

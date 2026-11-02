@@ -2,6 +2,8 @@ import type Phaser from 'phaser';
 import { TUTORIAL_RULES } from '../../data/tutorial';
 import { addGraphics } from '../../ui/FastGraphics';
 import { COLORS } from '../../ui/style';
+import { ART_SCALE, HAND_KEY } from '../../art/catalog';
+import { HAND_SIZE, HAND_TIP } from '../../art/icons';
 import { handPose } from '../../ui/tutorial';
 import type { ViewSize } from '../../ui/viewport';
 
@@ -15,7 +17,7 @@ const GLOW_BASE = 40;
  * thing below). Lives in the UI layer above the controls.
  */
 export class TutorialGuide {
-  private readonly hand: Phaser.GameObjects.Graphics;
+  private readonly hand: Phaser.GameObjects.Image;
   private readonly glow: Phaser.GameObjects.Graphics;
   private shownAt: { readonly x: number; readonly y: number; readonly fromBelow: boolean } | undefined;
 
@@ -23,8 +25,8 @@ export class TutorialGuide {
     this.glow = addGraphics(scene);
     this.glow.fillStyle(COLORS.handGlow, 0.22).fillCircle(0, 0, GLOW_BASE);
     this.glow.lineStyle(6, COLORS.handGlow, 0.95).strokeCircle(0, 0, GLOW_BASE);
-    this.hand = addGraphics(scene);
-    drawHand(this.hand);
+    // The picture of the hand (M9), its origin at the fingertip.
+    this.hand = scene.add.image(0, 0, HAND_KEY).setOrigin(HAND_TIP.x / HAND_SIZE.width, HAND_TIP.y / HAND_SIZE.height);
     this.glow.setVisible(false);
     this.hand.setVisible(false);
     uiLayer.add([this.glow, this.hand]);
@@ -63,26 +65,6 @@ export class TutorialGuide {
     // The fingertip stays near the middle of the place, a little towards the hand; it bobs towards it and back.
     const toward = pose.fromBelow ? 1 : -1;
     const gap = Math.min(radius * 0.35, 18) + 4 + 5 * (1 + beat);
-    this.hand.setVisible(true).setPosition(pose.x, pose.y + toward * gap).setScale(1, pose.fromBelow ? -1 : 1);
+    this.hand.setVisible(true).setPosition(pose.x, pose.y + toward * gap).setScale(1 / ART_SCALE, (pose.fromBelow ? -1 : 1) / ART_SCALE);
   }
-}
-
-/** A white hand with a dark rim, the index finger down, the fingertip at (0, 0); about 46 × 70 CSS px. */
-function drawHand(g: Phaser.GameObjects.Graphics): void {
-  const parts = (grow: number, color: number): void => {
-    g.fillStyle(color, 1);
-    // Index finger.
-    g.fillRoundedRect(-7 - grow, -40 - grow, 14 + 2 * grow, 42 + 2 * grow, 7 + grow);
-    // Palm with the folded fingers.
-    g.fillRoundedRect(-9 - grow, -66 - grow, 34 + 2 * grow, 34 + 2 * grow, 10 + grow);
-    g.fillRoundedRect(5 - grow, -40 - grow, 10 + 2 * grow, 14 + 2 * grow, 5 + grow);
-    g.fillRoundedRect(14 - grow, -42 - grow, 10 + 2 * grow, 14 + 2 * grow, 5 + grow);
-    // Thumb.
-    g.fillRoundedRect(-19 - grow, -58 - grow, 14 + 2 * grow, 22 + 2 * grow, 7 + grow);
-  };
-  g.clear();
-  parts(3, COLORS.handRim);
-  parts(0, COLORS.handFill);
-  // A small nail on the fingertip.
-  g.fillStyle(COLORS.handGlow, 1).fillRoundedRect(-4, -10, 8, 7, 3);
 }

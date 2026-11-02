@@ -1,6 +1,8 @@
+import { inSwayView, swayAngle, swayOn } from '../ui/sway';
 import Phaser from 'phaser';
 import { CAMERA_CONFIG } from '../data/camera';
 import { buildingType } from '../data/buildings';
+import { ITEM_IDS } from '../data/goods';
 import { buildingAt, isConnected, type Tile } from '../sim/buildings';
 import { activityOf, allAsleep } from '../sim/residents';
 import { t, type TextKey } from '../data/texts';
@@ -9,10 +11,14 @@ import type { ParentSession } from '../parent/parentSession';
 import { moodOf, workPaces } from '../sim/mood';
 import { hash2 } from '../sim/random';
 import type { GameSession } from '../save/session';
+import type { AudioEngine } from '../audio/engine';
+import type { SoundKind } from '../audio/recipes';
+import type { SoundSettings } from '../parent/settings';
 import type { Simulation } from '../sim/simulation';
 import { isLand, landBounds, terrainAt, type Terrain } from '../sim/world';
 import { BuildTool, TOOLS, type Preview } from '../ui/buildTool';
-import { toolbarPanel, zoomLayout } from '../ui/buildLayout';
+import { topControls, toolbarPanel, zoomLayout } from '../ui/buildLayout';
+import { sleepSignSize } from '../ui/nightLayout';
 import { growRect, tileAtWorld, visibleRect, type CameraBounds, type Point, type Rect } from '../ui/cameraMath';
 import { landRegions } from '../ui/cameraRegions';
 import { FrameStats } from '../ui/frameStats';
@@ -44,7 +50,20 @@ import { RoundButton } from '../ui/RoundButton';
 import { COLORS, TILE_SIZE, rgb } from '../ui/style';
 import { onViewportChange, type ViewSize } from '../ui/viewport';
 import { BuildUI } from './island/BuildUI';
-import { GROUND_EDGE_PX, releaseGroundBlocks, blockArea, blockShown, blocksTouching, groundBlocks, paintGroundBlock, type GroundBlock } from './island/groundTexture';
+import {
+  GROUND_EDGE_PX,
+  releaseGroundBlocks,
+  blockArea,
+  blockShown,
+  blocksTouching,
+  groundBlocks,
+  paintGroundBlock,
+  type GroundArt,
+  type GroundBlock,
+  type GroundStamp,
+} from './island/groundTexture';
+import { GROUND_PATTERN_KEYS, GROUND_STAMP_KEYS } from '../art/catalog';
+import { artCanvas } from './art/artLoader';
 import {
   GLINT_KEY,
   OBJECT_ORIGIN,
@@ -52,21 +71,20 @@ import {
   RING_OUTER_FRACTION,
   RING_SIZE,
   ROCK_KEYS,
+  SHORE_WAVE_KEY,
   TEXTURE_SCALE,
   TREE_KEYS,
-  registerIslandTextures,
 } from './island/objectTextures';
 import { LostOverlay } from './island/LostOverlay';
 import { NightLayer } from './island/NightLayer';
 import { ParentPanel } from './island/ParentPanel';
 import { TutorialGuide } from './island/TutorialGuide';
-import { registerResidentTextures } from './island/residentTextures';
 import { ResidentView } from './island/ResidentView';
 import { VillageMenu } from './island/VillageMenu';
 import { VillageView } from './island/VillageView';
 import { WorldCameraController } from './island/WorldCameraController';
 import { ISLAND_EVENTS, SCENES, type TileTapEvent } from './keys';
-import { markActiveScene, markCamera, markParent, markPerf, markSave, markTap, markVillage } from './sceneMarker';
+import { markActiveScene, markAudio, markCamera, markParent, markPerf, markSave, markTap, markVillage } from './sceneMarker';
 
 /** Tap ring: how long it takes to grow and fade away (ms). */
 const RING_MS = 900;
@@ -120,6 +138,21 @@ interface Glint {
   readonly phase: number;
 }
 
+/** A small wave that runs up to the beach (M9): from `start` towards the land (`dx`, `dy`), then fades. */
+interface Wave {
+  readonly sprite: Phaser.GameObjects.Image;
+  readonly phase: number;
+  readonly x: number;
+  readonly y: number;
+  readonly dx: number;
+  readonly dy: number;
+}
+
+/** Waves: one run takes this long (s); a wave starts this far out in the water (world px) and runs to the beach. */
+const WAVE_SECONDS = 4.2;
+const WAVE_RUN = 16;
+/** Trees sway a little (degrees) – only those in view, and not when they are tiny far out. */
+
 /**
  * The island: ground baked into one texture, trees and rocks as sprites
  * sorted by their y position, a camera you can drag, pinch and wheel-zoom.
@@ -140,6 +173,11 @@ export class IslandScene extends Phaser.Scene {
   private worldCamera!: Phaser.Cameras.Scene2D.Camera;
   private controller!: WorldCameraController;
   private glints: Glint[] = [];
+  private waves: Wave[] = [];
+  /** The trees, for their swaying (M9); a cleared tree is destroyed and dropped here on the next frame. */
+  private swayingTrees: { readonly sprite: Phaser.GameObjects.Image; readonly phase: number }[] = [];
+  /** The ground patterns and stamps (M9), taken from the loaded pictures in `create`. */
+  private groundArt: GroundArt | undefined;
   /** Tree and rock sprites by tile index (`y * width + x`); M2/M3 remove them when forest is cleared. */
   private readonly objects = new Map<number, Phaser.GameObjects.Image>();
   private ring!: Phaser.GameObjects.Image;
@@ -208,9 +246,15 @@ export class IslandScene extends Phaser.Scene {
   private dayKey = { at: Number.NEGATIVE_INFINITY, key: '' };
   private dayPublished = '';
 
+  /** Boats that carry a guest: when the guest steps ashore, the boat sound plays (M9). */
+  private boatsWithGuest = new Set<number>();
+  /** When `data-audio` was last published (ms). */
+  private audioMarkedAt = Number.NEGATIVE_INFINITY;
+
   constructor(
     private readonly session: GameSession,
     private readonly parent: ParentSession,
+    private readonly audio: AudioEngine,
   ) {
     super(SCENES.island);
     this.simulation = session.simulation;
@@ -218,12 +262,20 @@ export class IslandScene extends Phaser.Scene {
 
   create(): void {
     markActiveScene(SCENES.island);
+    // Every touch (a user gesture: pointerup for fingers, pointerdown for the mouse) wakes a context the tablet has
+    // suspended or interrupted – after a call or the lock screen (Korrekturrunde 1). Cheap while it runs.
+    const wakeAudio = (): void => {
+      this.audio.resumeIfNeeded();
+    };
+    this.input.on(Phaser.Input.Events.POINTER_DOWN, wakeAudio);
+    this.input.on(Phaser.Input.Events.POINTER_UP, wakeAudio);
 
     const { seed, world } = this.simulation.state;
-    registerIslandTextures(this);
-    registerResidentTextures(this);
     // A restarted scene starts clean (the instance is reused).
+    this.groundArt = this.collectGroundArt();
     this.glints = [];
+    this.waves = [];
+    this.swayingTrees = [];
     this.objects.clear();
     this.ringTween = undefined;
     this.ringFade = undefined;
@@ -274,13 +326,19 @@ export class IslandScene extends Phaser.Scene {
     this.buildGround(seed);
     this.buildObjects(seed);
     this.buildGlints(seed);
+    this.buildWaves(seed);
     this.village = new VillageView(this, this.worldLayer, this.simulation);
     this.village.sync();
+    this.village.onSound = (kind) => {
+      this.playSound(kind);
+    };
+    this.boatsWithGuest = new Set(this.simulation.state.boats.filter((boat) => boat.passenger !== null).map((boat) => boat.id));
     this.residentView = new ResidentView(this, this.worldLayer, this.simulation);
     this.buildTool = new BuildTool(
       () => this.simulation.state,
       (command) => {
         if (command.type === 'assignHome') {
+          this.playSound('moveHome');
           // Moving house (✓ on the card, or let go on a house): the figure glides from where it is drawn now to the
           // door of the new home – nobody jumps across the island.
           const at = this.residentView.positionOf(command.residentId);
@@ -384,6 +442,9 @@ export class IslandScene extends Phaser.Scene {
       },
       () => this.menu.isOpen,
     );
+    this.buildUI.onSound = (kind) => {
+      this.playSound(kind);
+    };
     this.buildUI.onSkipTutorial = () => {
       this.setTutorial(skipTutorial(this.tutorial));
       this.buildUI.showNotice('tutorial.skipped');
@@ -404,6 +465,10 @@ export class IslandScene extends Phaser.Scene {
       onParent: () => {
         this.parentPanel.open();
       },
+      soundOn: () => this.parent.sound.on,
+      onSound: (on) => {
+        this.setSound({ on });
+      },
     });
     // Evening and night over everything (M8), below the parents' menu (the way out of the night) and the "other window" layer.
     this.night = new NightLayer(this, this.uiLayer, (time) => {
@@ -413,6 +478,9 @@ export class IslandScene extends Phaser.Scene {
     this.parentPanel = new ParentPanel(this, this.uiLayer, this.parent, {
       touched: (time) => {
         this.buildUI.touched(time);
+      },
+      onSound: (change) => {
+        this.setSound(change);
       },
       onTutorialAgain: () => {
         this.setTutorial(startTutorial({ ...this.countsForTutorial(), earned: this.simulation.state.earnedCoins }));
@@ -450,7 +518,7 @@ export class IslandScene extends Phaser.Scene {
         },
       );
       this.menu.layout({ width, height });
-      this.night.layout({ width, height }, toolbarPanel(width, height, TOOLS.length).rect);
+      this.night.layout({ width, height }, toolbarPanel(width, height, TOOLS.length).rect, topControls(width, height, ITEM_IDS.length));
       this.parentPanel.layout({ width, height });
       this.lost.layout({ width, height });
     });
@@ -545,6 +613,10 @@ export class IslandScene extends Phaser.Scene {
 
     this.session.autosave?.update(time);
     this.lost.setOpen(this.session.autosave?.isLost === true);
+    if (this.lost.isOpen) {
+      // The old window ("Hier weiterspielen"): no more music or noises (Korrekturrunde 1).
+      this.audio.silence();
+    }
     this.updateDay(time);
     this.followNewBoats();
     // A carried resident who stayed over a house with room a moment turns it green (one clock: the frame time).
@@ -553,13 +625,40 @@ export class IslandScene extends Phaser.Scene {
     this.controller.update(delta, simulationDelta(this.game.loop.rawDelta, delta));
     this.publishCamera();
     this.residentView.update(alpha, seconds, this.controller.view.zoom, this.buildTool.inspectedResidentId, this.buildTool.carried);
+    this.showSleepers();
     this.updateVillage(seconds, delta);
 
     for (const { sprite, phase } of this.glints) {
       const wave = 0.5 + 0.5 * Math.sin(seconds * 1.6 + phase);
       sprite.setAlpha(0.15 + 0.45 * wave).setScale((0.8 + 0.3 * wave) / TEXTURE_SCALE);
     }
+    this.updateWaves(seconds);
+    this.updateTreeSway(seconds);
+    this.audio.update();
+    if (time - this.audioMarkedAt >= 500 || time < this.audioMarkedAt) {
+      this.audioMarkedAt = time;
+      markAudio(this.audio.describe());
+    }
     this.updateTutorial(time);
+  }
+
+  /**
+   * The "z" of the sleeping (M9, Korrekturrunde 1): drawn by the night layer above its dark blue, at a size on the
+   * screen that reads from afar (`sleepSignSize`), from the points the residents' view found (world px → CSS px).
+   */
+  private showSleepers(): void {
+    const signs = this.residentView.sleepSigns;
+    if (signs.length === 0) {
+      this.night.showSleepers([], 0);
+      return;
+    }
+    const view = this.controller.view;
+    const size = this.controller.viewSize;
+    const css = sleepSignSize(view.zoom);
+    this.night.showSleepers(
+      signs.map((sign) => ({ x: (sign.x - view.centerX) * view.zoom + size.width / 2, y: (sign.y - view.centerY) * view.zoom + size.height / 2 - css / 2 })),
+      css,
+    );
   }
 
   /** Is the island covered (another window, the menu, the parents' menu, the evening or the night)? Then it takes no touch. */
@@ -590,6 +689,8 @@ export class IslandScene extends Phaser.Scene {
     for (const event of events) {
       this.dayEvent(event);
     }
+    // The music fades out in the evening and is off at night; in the morning it comes back (M9).
+    this.audio.setMode(clock.phase === 'dusk' ? 'dusk' : clock.phase === 'night' ? 'night' : 'day');
     this.night.update(clock.phase, clock.phaseTime, frameMs, DAY_CLOCK_OPTIONS.duskMinMs, DAY_CLOCK_OPTIONS.dawnMs);
   }
 
@@ -624,6 +725,7 @@ export class IslandScene extends Phaser.Scene {
       case 'night':
         // The night: the game stands still and is saved – nothing is made, nothing is lost. The evening's sentence has said its piece.
         this.buildUI.clearAllNotices();
+        this.playSound('goodNight');
         this.simulation.send({ type: 'setPaused', paused: true });
         this.simulation.applyPending();
         void this.session.autosave?.flush();
@@ -872,6 +974,16 @@ export class IslandScene extends Phaser.Scene {
       this.glideToChosenHouse(gestureActive);
     }
     const boats = this.simulation.state.boats;
+    // A guest steps ashore: the boat sound (M9).
+    if (boats.length > 0 || this.boatsWithGuest.size > 0) {
+      const withGuest = new Set(boats.filter((boat) => boat.passenger !== null).map((boat) => boat.id));
+      for (const id of this.boatsWithGuest) {
+        if (!withGuest.has(id)) {
+          this.playSound('boat');
+        }
+      }
+      this.boatsWithGuest = withGuest;
+    }
     if (boats.length === 0 && this.seenBoats.size === 0) {
       return;
     }
@@ -961,7 +1073,7 @@ export class IslandScene extends Phaser.Scene {
       if (!texture) {
         continue;
       }
-      paintGroundBlock(texture.getContext(), world, seed, block);
+      paintGroundBlock(texture.getContext(), world, seed, block, this.groundArt);
       texture.refresh();
       // Only the inner part is shown: the outermost pixels of a canvas are a little off and must not cover the neighbour.
       const shown = blockShown(block);
@@ -969,6 +1081,25 @@ export class IslandScene extends Phaser.Scene {
       this.worldLayer.add(this.add.image(shown.x, shown.y, key, 'shown').setOrigin(0, 0).setDepth(0));
       this.groundBlocks.push({ block, key, texture });
     }
+  }
+
+  /** The ground patterns and stamps among the loaded pictures (M9; the pictures are made once by the start screen). */
+  private collectGroundArt(): GroundArt {
+    const patterns: Partial<Record<Terrain, CanvasImageSource>> = {};
+    for (const [terrain, key] of Object.entries(GROUND_PATTERN_KEYS) as [Terrain, string][]) {
+      const canvas = artCanvas(this, key);
+      if (canvas) {
+        patterns[terrain] = canvas;
+      }
+    }
+    const stamps: Partial<Record<GroundStamp, CanvasImageSource>> = {};
+    for (const [name, key] of Object.entries(GROUND_STAMP_KEYS) as [GroundStamp, string][]) {
+      const canvas = artCanvas(this, key);
+      if (canvas) {
+        stamps[name] = canvas;
+      }
+    }
+    return { patterns, stamps };
   }
 
   /** One tree per forest tile, one rock per rock tile; the sprite's depth is its ground y. */
@@ -999,6 +1130,9 @@ export class IslandScene extends Phaser.Scene {
     const flip = r(5) < 0.5 ? size : -size;
     const sprite = this.add.image(groundX, groundY, key).setOrigin(origin.x, origin.y).setScale(flip, size).setDepth(groundY);
     this.worldLayer.add(sprite);
+    if (isTree) {
+      this.swayingTrees.push({ sprite, phase: r(6) * Math.PI * 2 });
+    }
     this.objects.set(y * world.width + x, sprite);
     if (animate) {
       sprite.setScale(flip * 0.3, size * 0.3);
@@ -1014,6 +1148,7 @@ export class IslandScene extends Phaser.Scene {
     let x1 = Number.NEGATIVE_INFINITY;
     let y1 = Number.NEGATIVE_INFINITY;
     let landChanged = false;
+    let cleared = false;
     const changed: { x: number; y: number }[] = [];
     for (let y = 0; y < world.height; y += 1) {
       for (let x = 0; x < world.width; x += 1) {
@@ -1026,6 +1161,7 @@ export class IslandScene extends Phaser.Scene {
           x1 = Math.max(x1, x);
           y1 = Math.max(y1, y);
           landChanged ||= isLand(now) !== (before !== undefined && isLand(before));
+          cleared ||= now === 'grass' && (before === 'forest' || before === 'rock');
           this.drawnTerrain[y * world.width + x] = now;
         }
       }
@@ -1033,6 +1169,8 @@ export class IslandScene extends Phaser.Scene {
     if (changed.length === 0) {
       return;
     }
+    // Planted, set or filled – or a planted tree or rock taken away (M9).
+    this.playSound(cleared ? 'demolish' : 'build');
     // Ground: only the blocks the changed tiles touch are painted again and uploaded to the graphics card.
     const started = performance.now();
     const touched = new Set<string>();
@@ -1043,7 +1181,7 @@ export class IslandScene extends Phaser.Scene {
     }
     for (const entry of this.groundBlocks) {
       if (touched.has(`${String(entry.block.bx)},${String(entry.block.by)}`)) {
-        paintGroundBlock(entry.texture.getContext(), world, seed, entry.block);
+        paintGroundBlock(entry.texture.getContext(), world, seed, entry.block, this.groundArt);
         entry.texture.refresh();
       }
     }
@@ -1072,6 +1210,12 @@ export class IslandScene extends Phaser.Scene {
       }
       return true;
     });
+    // The waves follow the new coast.
+    for (const wave of this.waves) {
+      wave.sprite.destroy();
+    }
+    this.waves = [];
+    this.buildWaves(seed);
     if (landChanged) {
       // New land is somewhere the camera may look at.
       this.cameraBounds.centerRegions = landRegions(world, TILE_SIZE, CAMERA_CONFIG.landMarginTiles);
@@ -1116,6 +1260,79 @@ export class IslandScene extends Phaser.Scene {
     }
   }
 
+  /** Sound on/off, music, noises (M9): kept in the parents' settings, heard at once. */
+  private setSound(change: Partial<SoundSettings>): void {
+    this.parent.setSound(change);
+    this.audio.setSwitches(this.parent.sound);
+    markAudio(this.audio.describe());
+  }
+
+  /** A noise of the game (M9); the engine leaves it out when it came too soon after the same one, or the sound is off. */
+  private playSound(kind: SoundKind): void {
+    this.audio.play(kind, this.time.now);
+  }
+
+  /** Small waves that run up to the beach now and then: on some sea tiles next to land (M9, only a picture). */
+  private buildWaves(seed: number): void {
+    const { world } = this.simulation.state;
+    const sides: readonly [number, number][] = [
+      [0, -1],
+      [1, 0],
+      [0, 1],
+      [-1, 0],
+    ];
+    for (let y = 0; y < world.height; y += 1) {
+      for (let x = 0; x < world.width; x += 1) {
+        if (terrainAt(world, x, y) !== 'water' || hash2(seed + 5151, x, y) > 0.3) {
+          continue;
+        }
+        const side = sides.find(([dx, dy]) => isLand(terrainAt(world, x + dx, y + dy)));
+        if (!side) {
+          continue;
+        }
+        const [dx, dy] = side;
+        // The edge of the land tile, a little out in the water (the foam line).
+        const edgeX = (x + 0.5 + dx * 0.5) * TILE_SIZE - dx * 6;
+        const edgeY = (y + 0.5 + dy * 0.5) * TILE_SIZE - dy * 6;
+        const sprite = this.add
+          .image(edgeX, edgeY, SHORE_WAVE_KEY)
+          .setAngle(dx === 0 ? (dy < 0 ? 0 : 180) : dx > 0 ? 90 : -90)
+          .setScale(1 / TEXTURE_SCALE)
+          .setAlpha(0)
+          .setDepth(1);
+        this.worldLayer.add(sprite);
+        this.waves.push({ sprite, phase: hash2(seed + 5152, x, y), x: edgeX, y: edgeY, dx, dy });
+      }
+    }
+  }
+
+  private updateWaves(seconds: number): void {
+    for (const wave of this.waves) {
+      const run = (seconds / WAVE_SECONDS + wave.phase) % 1;
+      const back = (1 - run) * WAVE_RUN;
+      wave.sprite
+        .setPosition(wave.x - wave.dx * back, wave.y - wave.dy * back)
+        .setAlpha(Math.sin(run * Math.PI) * 0.85)
+        .setScale((0.75 + 0.35 * run) / TEXTURE_SCALE, 1 / TEXTURE_SCALE);
+    }
+  }
+
+  /** Trees in view sway a little around their foot (only the picture). */
+  private updateTreeSway(seconds: number): void {
+    if (this.swayingTrees.some(({ sprite }) => !sprite.active)) {
+      this.swayingTrees = this.swayingTrees.filter(({ sprite }) => sprite.active);
+    }
+    if (!swayOn(this.controller.view.zoom)) {
+      return;
+    }
+    const view = this.worldCamera.worldView;
+    for (const { sprite, phase } of this.swayingTrees) {
+      if (inSwayView(sprite.x, sprite.y, view, TILE_SIZE)) {
+        sprite.setAngle(swayAngle(seconds, phase, 0.9));
+      }
+    }
+  }
+
   /** A short touch on the world: announce the tile and show a soft ring on it. */
   private handleTap(world: Point, eventTime: number): void {
     // Right after ✓ or ✕ (double taps) a tap on the world must not start a new preview.
@@ -1123,6 +1340,7 @@ export class IslandScene extends Phaser.Scene {
       return;
     }
     this.worldTapped = true;
+    this.playSound('tap');
     // The open shop covers the island: a tap beside the panel closes it and does nothing else (no building, no ring).
     if (this.buildUI.shopOpen) {
       this.buildTool.closeShop();
@@ -1258,7 +1476,7 @@ export class IslandScene extends Phaser.Scene {
     const view = this.controller.view;
     // The top of the visible world below the hint bar: house signs do not slide under the bar.
     const topEdge = view.centerY - this.controller.viewSize.height / (2 * view.zoom) + this.buildUI.topInset / view.zoom;
-    this.village.update(seconds, deltaMs, view.zoom, topEdge, this.residentView.carriedBox);
+    this.village.update(seconds, deltaMs, view.zoom, topEdge, this.residentView.carriedBox, this.worldCamera.worldView);
     this.publishVillage(revision);
   }
 

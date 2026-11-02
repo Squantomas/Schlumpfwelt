@@ -1,8 +1,12 @@
 import { defineConfig, type Plugin } from 'vitest/config';
 import texts from './src/data/texts.de.json' with { type: 'json' };
 import theme from './src/data/theme.json' with { type: 'json' };
+import { assetsPlugin } from './scripts/assetsPlugin.mjs';
 import { pwaPlugin } from './scripts/pwaPlugin.mjs';
 import { COLORS, cssColor } from './src/ui/style.ts';
+
+/** Only the environment of the build is needed here (no Node types in this project). */
+declare const process: { readonly env: Readonly<Record<string, string | undefined>> };
 
 /** The colour of the water: browser bar, splash screen and icons all take it from `COLORS.water` (one source). */
 const WATER = cssColor(COLORS.water);
@@ -29,8 +33,13 @@ function escapeHtml(value: string): string {
 export default defineConfig({
   // GitHub Pages serves the game at https://squantomas.github.io/Schlumpfwelt/
   base: '/Schlumpfwelt/',
+  // The smoke test builds once with a copy of public/ that holds an extra raster picture (M9, never committed).
+  publicDir: process.env['VILLAGE_PUBLIC_DIR'] ?? 'public',
   plugins: [
     themeHtml(),
+    // Raster files in public/assets/ that replace drawn pictures, listed at build time (see scripts/assetsPlugin.mjs);
+    // a file whose name is no key of the catalog (the keys of docs/assets/) gets a warning.
+    assetsPlugin(),
     // Installable and offline: manifest (name from the theme) and service worker (see scripts/pwaPlugin.mjs).
     pwaPlugin({ name: theme.gameName, description: texts['app.description'], color: WATER, lang: 'de' }),
   ],

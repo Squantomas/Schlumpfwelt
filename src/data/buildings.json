@@ -114,7 +114,7 @@
       "needsPath": false,
       "cost": { "coins": 3, "wood": 1 },
       "shop": { "category": "deco" },
-      "look": { "shape": "fence", "rise": 34 }
+      "look": { "shape": "fence", "rise": 44 }
     },
     {
       "id": "bench",

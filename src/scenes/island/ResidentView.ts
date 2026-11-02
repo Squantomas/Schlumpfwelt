@@ -17,7 +17,6 @@ import {
   RESIDENT_CARRY_Y,
   RESIDENT_ORIGIN,
   RESIDENT_RING_KEY,
-  SLEEP_KEY,
   moodTextureKey,
   residentTextureKey,
 } from './residentTextures';
@@ -145,6 +144,8 @@ export class ResidentView {
   private spotList: ResidentSpot[] = [];
   /** Where each resident was drawn this frame (feet, world px) and whether the good they carry is shown over the head. */
   private readonly drawn = new Map<number, DrawnResident>();
+  /** The "z" of sleep this frame (see `sleepSigns`). */
+  private readonly sleepPoints: { x: number; y: number }[] = [];
   private moodRevision = -1;
   private moodTick = -1;
   /** The figure carried in the last frame and where it hung (feet, world px): carrying that ends without {@link letGo} slides back from there. */
@@ -222,6 +223,7 @@ export class ResidentView {
     this.carriedBoxNow = undefined;
     /** Houses whose "z" is drawn this frame (one per house). */
     const sleepingHomes = new Set<number>();
+    this.sleepPoints.length = 0;
 
     for (const resident of state.residents) {
       seen.add(resident.id);
@@ -311,7 +313,7 @@ export class ResidentView {
       }
       const sleep = sleepOf(state, resident);
       if (sleep !== 'awake') {
-        this.drawSleeper(figure, resident.id, resident.home, sleep, footX, footY, seconds, signSize, sleepingHomes, spots);
+        this.drawSleeper(figure, resident.id, resident.home, sleep, footX, footY, seconds, sleepingHomes, spots);
         continue;
       }
       figure.inBedSince = undefined;
@@ -444,7 +446,6 @@ export class ResidentView {
     footX: number,
     footY: number,
     seconds: number,
-    size: number,
     homes: Set<number>,
     spots: ResidentSpot[],
   ): void {
@@ -458,7 +459,10 @@ export class ResidentView {
       if (home !== null) {
         homes.add(home);
       }
-      this.drawSign(figure, first, footX, footY - RESIDENT_CARRY_Y - size / 2 + bob, footY, size, SLEEP_KEY);
+      figure.sign?.setVisible(false);
+      if (first) {
+        this.sleepPoints.push({ x: footX, y: footY - RESIDENT_CARRY_Y + bob });
+      }
       this.drawn.set(id, { x: footX, y: footY, carry: false, sign: first, glide: false });
       return;
     }
@@ -468,17 +472,28 @@ export class ResidentView {
       figure.depth = footY;
       figure.sprite.setDepth(footY);
     }
-    this.drawSign(figure, true, footX + 14 * figure.facing, footY - 34 - size / 2 + bob, footY, size, SLEEP_KEY);
+    figure.sign?.setVisible(false);
+    this.sleepPoints.push({ x: footX + 14 * figure.facing, y: footY - 34 + bob });
     spots.push({ id, x: footX, y: footY });
     this.drawn.set(id, { x: footX, y: footY, carry: false, sign: true, glide: false });
   }
 
-  /** The heart or cloud over a head (M7), or the "z" of sleep (M8), made when first needed. */
-  private drawSign(figure: Figure, shown: boolean, x: number, y: number, depth: number, size: number, key: string = moodTextureKey(figure.mood)): void {
+  /**
+   * Where the "z" of sleep stand this frame (world px: the middle of their lower edge), one per house with somebody
+   * asleep inside and one per resident asleep outside. They are drawn by the night layer above its dark (M9,
+   * Korrekturrunde 1 – in the world they were hidden under it).
+   */
+  get sleepSigns(): readonly { readonly x: number; readonly y: number }[] {
+    return this.sleepPoints;
+  }
+
+  /** The heart or cloud over a head (M7), made when first needed. */
+  private drawSign(figure: Figure, shown: boolean, x: number, y: number, depth: number, size: number): void {
     if (!shown) {
       figure.sign?.setVisible(false);
       return;
     }
+    const key = moodTextureKey(figure.mood);
     if (!figure.sign) {
       figure.sign = this.scene.add.image(0, 0, key);
       this.layer.add(figure.sign);

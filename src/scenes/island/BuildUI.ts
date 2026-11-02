@@ -15,11 +15,10 @@ import { newItemsText } from '../../ui/shopModel';
 import { SquareButton } from '../../ui/SquareButton';
 import { worldTapIgnored } from '../../ui/tapPause';
 import { COLORS, clamp } from '../../ui/style';
-import { drawStar, drawToolIcon } from '../../ui/toolIcons';
+import { fitIcon, iconImage, starImage } from '../art/icon';
 import { TOOLBAR_GAP, TOOLBAR_PAD } from '../../ui/toolbarLayout';
 import type { ViewSize } from '../../ui/viewport';
 import { buildingTextureKey } from './buildingTextures';
-import { registerGoodTextures } from './goodTextures';
 import { InfoCard } from './InfoCard';
 import { ResidentCard } from './ResidentCard';
 import { ShopUI } from './ShopUI';
@@ -97,11 +96,13 @@ export class BuildUI {
   private hintSource: HintSource | undefined;
   /** "Skip the tutorial" was tapped. */
   onSkipTutorial: (() => void) | undefined;
+  /** A sound of the controls (M9): a tap, „geht nicht“, something new in the shop. */
+  onSound: ((kind: 'tap' | 'error' | 'unlock') => void) | undefined;
   private readonly confirmButton: RoundButton;
   private readonly cancelButton: RoundButton;
   private readonly toolButtons = new Map<ToolbarToolId, SquareButton>();
   private readonly chipButtons = new Map<string, SquareButton>();
-  private readonly shopStar: Phaser.GameObjects.Graphics;
+  private readonly shopStar: Phaser.GameObjects.Image;
   /** The gear under the zoom buttons: opens the menu (save and load a file). Only while looking. */
   private readonly menuButton: RoundButton;
   private menuRect: Rect = EMPTY;
@@ -145,7 +146,6 @@ export class BuildUI {
     /** Is the menu behind the gear open? It covers the hint bar, so "Neu im Shop" must not run out under it. */
     private readonly menuOpen: () => boolean,
   ) {
-    registerGoodTextures(scene);
     this.stock = new StockBar(scene, uiLayer);
     this.card = new InfoCard(scene, uiLayer, (time) => {
       this.touched(time);
@@ -203,16 +203,13 @@ export class BuildUI {
     });
     this.skipButton.setVisible(false);
 
-    this.shopStar = addGraphics(scene).setVisible(false);
-    drawStar(this.shopStar, 13);
+    this.shopStar = starImage(scene, 13).setVisible(false);
     for (const id of TOOLS) {
       const button = new SquareButton(scene, {
         label: t(`tool.${id}`),
         minCaptionFont: MIN_LABEL_FONT,
-        content: addGraphics(scene),
-        fitContent: (content, width, height) => {
-          drawToolIcon(content as Phaser.GameObjects.Graphics, id, Math.min(width, height));
-        },
+        content: iconImage(scene, `tool-${id}`),
+        fitContent: fitIcon,
         onTap: (time) => {
           this.touched(time);
           this.tool.selectTool(id);
@@ -244,6 +241,7 @@ export class BuildUI {
         this.shop.clearTip();
         const notice = this.tool.chooseItem(typeId);
         if (notice) {
+          this.onSound?.('error');
           this.showNotice(notice);
         } else {
           // Starting with a clean slate: an old note does not belong to the new item.
@@ -282,6 +280,7 @@ export class BuildUI {
         this.touched(time);
         const notice = this.tool.confirm();
         if (notice) {
+          this.onSound?.('error');
           this.showNotice(notice, this.tool.hintParams);
         } else {
           // Built: an old note ("Hier geht das nicht.") must not stay on.
@@ -331,6 +330,7 @@ export class BuildUI {
   touched(eventTime: number): void {
     this.lastUiTap = eventTime;
     this.touches += 1;
+    this.onSound?.('tap');
   }
 
   /** How many taps on controls there were so far (the guided start counts any tap, M8). */
@@ -717,6 +717,7 @@ export class BuildUI {
     const news = this.tool.takeAnnouncements();
     if (news.length > 0) {
       this.board.announce(newItemsText(news), NEWS_MS);
+      this.onSound?.('unlock');
       this.lastMessage = undefined;
     }
     // The numbers pop when they change; cards that can (not) be paid for change with them.

@@ -83,8 +83,21 @@ describe('Eltern-Menü: Ziffernblock und Einstellungen passen auf jeden Schirm (
         ['10 Minuten mehr', layout.extra, true],
         ['PIN ändern', layout.pin, true],
         ['Tutorial', layout.tutorial, true],
+        ['Musik', layout.music, true],
+        ['Geräusche', layout.sfx, true],
       ]);
       expect(layout.text.height).toBeGreaterThanOrEqual(40);
+      // M9: "Musik aus" and "Geräusche aus" need room for their words (on small screens in two lines).
+      expect(layout.music.width).toBeGreaterThanOrEqual(80);
+      expect(layout.sfx.width).toBe(layout.music.width);
+      expect(layout.sfx.y).toBe(layout.music.y);
+      // Korrekturrunde 1: the row of the sound does not stick to the bottom – below it as much frame as above the title,
+      // and it is as high as the buttons above it.
+      const top = layout.close.y - layout.panel.y;
+      const bottom = layout.panel.y + layout.panel.height - (layout.music.y + layout.music.height);
+      expect(bottom).toBeGreaterThanOrEqual(top - 0.001);
+      expect(layout.music.height).toBeCloseTo(layout.tutorial.height);
+      expect(layout.music.y - (layout.tutorial.y + layout.tutorial.height)).toBeCloseTo(layout.tutorial.y - (layout.pin.y + layout.pin.height));
     });
   }
 
@@ -97,6 +110,8 @@ describe('Eltern-Menü: Ziffernblock und Einstellungen passen auf jeden Schirm (
     expect(tall.keys['1'].y).toBeGreaterThan(tall.dots.y);
     expect(parentSettingsLayout(568, 320, 6).low).toBe(true);
     expect(parentSettingsLayout(1024, 768, 6).low).toBe(false);
+    // M9: the phone held upright keeps the one-column panel with the row of the sound.
+    expect(parentSettingsLayout(320, 568, 6).low).toBe(false);
   });
 
   it('die Tasten sind auf dem Tablet groß (mindestens 64 px hoch)', () => {

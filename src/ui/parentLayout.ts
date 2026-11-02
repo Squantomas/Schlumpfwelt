@@ -118,6 +118,9 @@ export interface ParentSettingsLayout {
   readonly extra: Rect;
   readonly pin: Rect;
   readonly tutorial: Rect;
+  /** M9: music and noises on/off, side by side. */
+  readonly music: Rect;
+  readonly sfx: Rect;
   readonly low: boolean;
   readonly titleFont: number;
   readonly textFont: number;
@@ -126,9 +129,17 @@ export interface ParentSettingsLayout {
 
 const CHOICE_H = 52;
 const ACTION_H = 56;
+/** Upright the three actions are a little lower since M9, so the row of the sound fits the phone (320×568). */
+const UPRIGHT_ACTION_H = 52;
+const SOUND_H = 52;
+/** Sideways (M9): a little less frame and a lower title, so four rows of 48 px fit on the right (320 px high). */
+const LOW_PAD = 12;
+const LOW_HEADER_H = 48;
 const LABEL_H = 28;
 const TEXT_H = 52;
-const UPRIGHT_SETTINGS_H = PAD + HEADER_H + GAP + LABEL_H + GAP + 2 * CHOICE_H + GAP + GAP + TEXT_H + GAP + 3 * ACTION_H + 2 * GAP + PAD;
+/** Upright: the frame below the row of the sound is as wide as above the title (Korrekturrunde 1). */
+const UPRIGHT_SETTINGS_H =
+  PAD + HEADER_H + GAP + LABEL_H + GAP + 2 * CHOICE_H + GAP + GAP + TEXT_H + GAP + 3 * (UPRIGHT_ACTION_H + GAP) + SOUND_H + PAD;
 
 function choiceGrid(left: number, top: number, innerW: number, count: number): Rect[] {
   const cols = 3;
@@ -157,20 +168,41 @@ export function parentSettingsLayout(width: number, height: number, choiceCount:
     const label: Rect = { x: innerX, y: title.y + HEADER_H + GAP, width: innerW, height: LABEL_H };
     const choicesTop = label.y + LABEL_H + GAP;
     const choices = choiceGrid(innerX, choicesTop, innerW, choiceCount);
-    const text: Rect = { x: innerX, y: choicesTop + choicesH + 2 * GAP, width: innerW, height: TEXT_H };
+    const text: Rect = { x: innerX, y: choicesTop + choicesH + GAP, width: innerW, height: TEXT_H };
     const actionTop = text.y + TEXT_H + GAP;
-    const action = (index: number): Rect => ({ x: innerX, y: actionTop + index * (ACTION_H + GAP), width: innerW, height: ACTION_H });
-    return { veil, panel, title, close, label, choices, text, extra: action(0), pin: action(1), tutorial: action(2), low, titleFont: width < 420 ? 24 : 28, textFont: width < 420 ? 15 : 17, buttonFont: width < 420 ? 17 : 20 };
+    const action = (index: number): Rect => ({ x: innerX, y: actionTop + index * (UPRIGHT_ACTION_H + GAP), width: innerW, height: UPRIGHT_ACTION_H });
+    const soundTop = actionTop + 3 * (UPRIGHT_ACTION_H + GAP);
+    const half = (innerW - GAP) / 2;
+    const music: Rect = { x: innerX, y: soundTop, width: half, height: SOUND_H };
+    const sfx: Rect = { x: innerX + half + GAP, y: soundTop, width: half, height: SOUND_H };
+    return {
+      veil,
+      panel,
+      title,
+      close,
+      label,
+      choices,
+      text,
+      extra: action(0),
+      pin: action(1),
+      tutorial: action(2),
+      music,
+      sfx,
+      low,
+      titleFont: width < 420 ? 24 : 28,
+      textFont: width < 420 ? 15 : 17,
+      buttonFont: width < 420 ? 17 : 20,
+    };
   }
   const panelW = Math.min(760, width - 2 * PARENT_MARGIN);
   const panelH = Math.min(440, height - 2 * PARENT_MARGIN);
   const panel = panelAt(width, height, panelW, panelH);
-  const innerX = panel.x + PAD;
-  const innerW = panelW - 2 * PAD;
-  const close: Rect = { x: panel.x + panelW - PAD - PARENT_CLOSE, y: panel.y + PAD, width: PARENT_CLOSE, height: PARENT_CLOSE };
-  const title: Rect = { x: innerX, y: panel.y + PAD, width: close.x - GAP - innerX, height: HEADER_H };
-  const bodyTop = title.y + HEADER_H + GAP;
-  const bodyH = panel.y + panelH - PAD - bodyTop;
+  const innerX = panel.x + LOW_PAD;
+  const innerW = panelW - 2 * LOW_PAD;
+  const close: Rect = { x: panel.x + panelW - LOW_PAD - LOW_HEADER_H, y: panel.y + LOW_PAD, width: LOW_HEADER_H, height: LOW_HEADER_H };
+  const title: Rect = { x: innerX, y: panel.y + LOW_PAD, width: close.x - GAP - innerX, height: LOW_HEADER_H };
+  const bodyTop = title.y + LOW_HEADER_H + GAP;
+  const bodyH = panel.y + panelH - LOW_PAD - bodyTop;
   const colW = (innerW - 2 * GAP) / 2;
   const label: Rect = { x: innerX, y: bodyTop, width: colW, height: LABEL_H };
   const choicesTop = bodyTop + LABEL_H + GAP;
@@ -178,7 +210,11 @@ export function parentSettingsLayout(width: number, height: number, choiceCount:
   const textTop = choicesTop + choicesH + GAP;
   const text: Rect = { x: innerX, y: textTop, width: colW, height: bodyTop + bodyH - textTop };
   const rightX = innerX + colW + 2 * GAP;
-  const actionH = Math.min(ACTION_H + 8, (bodyH - 2 * GAP) / 3);
+  const actionH = Math.min(ACTION_H + 8, (bodyH - 3 * GAP) / 4);
   const action = (index: number): Rect => ({ x: rightX, y: bodyTop + index * (actionH + GAP), width: colW, height: actionH });
-  return { veil, panel, title, close, label, choices, text, extra: action(0), pin: action(1), tutorial: action(2), low, titleFont: 22, textFont: 14, buttonFont: 16 };
+  const sound = action(3);
+  const half = (colW - GAP) / 2;
+  const music: Rect = { ...sound, width: half };
+  const sfx: Rect = { ...sound, x: sound.x + half + GAP, width: half };
+  return { veil, panel, title, close, label, choices, text, extra: action(0), pin: action(1), tutorial: action(2), music, sfx, low, titleFont: 22, textFont: 14, buttonFont: 16 };
 }

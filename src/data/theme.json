@@ -8,5 +8,13 @@
     "village": "Schlumpfdorf",
     "hat": "Mütze",
     "hats": "Mützen"
+  },
+  "figure": {
+    "skin": "#8fcdf2",
+    "skinShade": "#62acdc",
+    "cheek": "#f2a6c0",
+    "clothes": "#fffaf0",
+    "clothesShade": "#dcd6c8",
+    "shoes": "#fffaf0"
   }
 }

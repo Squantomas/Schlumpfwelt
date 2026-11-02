@@ -1,26 +1,26 @@
 import { describe, expect, it } from 'vitest';
 import { PARENT_RULES } from '../../src/data/parent';
 import { makePin } from '../../src/parent/pin';
-import { SETTINGS_FORMAT, SETTINGS_VERSION, defaultSettings, newerSettings, readSettings, toStored } from '../../src/parent/settings';
+import { DEFAULT_SOUND, SETTINGS_FORMAT, SETTINGS_MIGRATIONS, SETTINGS_VERSION, defaultSettings, migrateSettings, newerSettings, readSettings, readSound, toStored } from '../../src/parent/settings';
 
 const TODAY = '2026-11-01';
 
 describe('Einstellungen der Eltern: lesen und schreiben (M8)', () => {
   it('ohne Eintrag: keine PIN, kein Limit, heute noch nichts gespielt', () => {
-    expect(readSettings(undefined, TODAY)).toEqual({ pin: null, limitMinutes: PARENT_RULES.defaultLimit, day: TODAY, usedMs: 0, extraMinutes: 0, pinLost: false, tutorial: undefined });
+    expect(readSettings(undefined, TODAY)).toEqual({ pin: null, limitMinutes: PARENT_RULES.defaultLimit, day: TODAY, usedMs: 0, extraMinutes: 0, pinLost: false, tutorial: undefined, sound: DEFAULT_SOUND });
     expect(PARENT_RULES.defaultLimit).toBe(0);
     expect(PARENT_RULES.limitChoices).toEqual([0, 15, 30, 45, 60, 90]);
   });
 
   it('was geschrieben wird, kommt genauso wieder (auch der Fortschritt des Tutorials)', () => {
-    const settings = { pin: makePin('7531', 'ab12'), limitMinutes: 30, day: TODAY, usedMs: 123_456, extraMinutes: 10, pinLost: false, tutorial: { status: 'active', step: 2 } };
+    const settings = { pin: makePin('7531', 'ab12'), limitMinutes: 30, day: TODAY, usedMs: 123_456, extraMinutes: 10, pinLost: false, tutorial: { status: 'active', step: 2 }, sound: { on: false, music: true, sfx: false } };
     const stored = JSON.parse(JSON.stringify(toStored(settings))) as unknown;
     expect(readSettings(stored, TODAY)).toEqual(settings);
     expect(JSON.stringify(stored)).not.toContain('7531');
   });
 
   it('ein späterer Tag beginnt ein neues Konto; PIN, Limit und Tutorial bleiben', () => {
-    const stored = toStored({ pin: makePin('1234', 'ab12'), limitMinutes: 30, day: '2026-10-31', usedMs: 1_800_000, extraMinutes: 10, pinLost: false, tutorial: 'x' });
+    const stored = toStored({ pin: makePin('1234', 'ab12'), limitMinutes: 30, day: '2026-10-31', usedMs: 1_800_000, extraMinutes: 10, pinLost: false, tutorial: 'x', sound: DEFAULT_SOUND });
     const read = readSettings(stored, TODAY);
     expect(read.day).toBe(TODAY);
     expect(read.usedMs).toBe(0);
@@ -35,7 +35,7 @@ describe('Einstellungen der Eltern: lesen und schreiben (M8)', () => {
       expect(readSettings(raw, TODAY)).toEqual(defaultSettings(TODAY));
     }
     const odd = readSettings({ format: SETTINGS_FORMAT, pin: 'x', limitMinutes: -5, day: TODAY, usedMs: Number.NaN, extraMinutes: 1e12 }, TODAY);
-    expect(odd).toEqual({ pin: null, limitMinutes: 0, day: TODAY, usedMs: 0, extraMinutes: 24 * 60, pinLost: true, tutorial: undefined });
+    expect(odd).toEqual({ pin: null, limitMinutes: 0, day: TODAY, usedMs: 0, extraMinutes: 24 * 60, pinLost: true, tutorial: undefined, sound: DEFAULT_SOUND });
     const fractions = readSettings({ format: SETTINGS_FORMAT, limitMinutes: 29.7, day: 'gestern', usedMs: 5.5 }, TODAY);
     expect(fractions.limitMinutes).toBe(29);
     // An unreadable day counts as today (the time stays counted: no way round the limit).
@@ -62,7 +62,7 @@ describe('Einstellungen der Eltern: lesen und schreiben (M8)', () => {
   });
 
   it('ein Datum zurück beginnt kein neues Konto: der gespeicherte Tag und seine Zeit gehen weiter (Korrekturrunde 1)', () => {
-    const stored = toStored({ pin: null, limitMinutes: 15, day: '2026-11-02', usedMs: 900_000, extraMinutes: 10, pinLost: false, tutorial: undefined });
+    const stored = toStored({ pin: null, limitMinutes: 15, day: '2026-11-02', usedMs: 900_000, extraMinutes: 10, pinLost: false, tutorial: undefined, sound: DEFAULT_SOUND });
     const read = readSettings(stored, TODAY);
     expect(read.day).toBe('2026-11-02');
     expect(read.usedMs).toBe(900_000);
@@ -92,5 +92,37 @@ describe('Einstellungen der Eltern: lesen und schreiben (M8)', () => {
     expect(newerSettings({ format: SETTINGS_FORMAT })).toBe(false);
     expect(newerSettings({ format: 'other', version: 99 })).toBe(false);
     expect(newerSettings(undefined)).toBe(false);
+  });
+});
+
+describe('Einstellungen: Ton und Version 2 (M9)', () => {
+  it('Version 2 schreibt den Ton mit', () => {
+    expect(SETTINGS_VERSION).toBe(2);
+    expect(toStored(defaultSettings(TODAY))).toMatchObject({ version: 2, sound: { on: true, music: true, sfx: true } });
+  });
+
+  it('Migration 1 → 2: der Ton ist an, alles andere bleibt', () => {
+    const v1 = { format: SETTINGS_FORMAT, version: 1, pin: null, limitMinutes: 45, day: TODAY, usedMs: 600_000, extraMinutes: 10 };
+    expect(migrateSettings(v1)).toEqual({ ...v1, version: 2, sound: { on: true, music: true, sfx: true } });
+    expect(SETTINGS_MIGRATIONS[1]).toBeTypeOf('function');
+    // Without a version the entry counts as version 1.
+    expect(migrateSettings({ format: SETTINGS_FORMAT, day: TODAY })).toMatchObject({ version: 2, sound: DEFAULT_SOUND });
+    const read = readSettings(v1, TODAY);
+    expect(read.sound).toEqual(DEFAULT_SOUND);
+    expect(read.limitMinutes).toBe(45);
+    expect(read.usedMs).toBe(600_000);
+  });
+
+  it('eine neuere Version wird nicht umgeschrieben und gilt als neuer', () => {
+    const v3 = { format: SETTINGS_FORMAT, version: 3, sound: { on: false, music: false, sfx: false }, day: TODAY };
+    expect(migrateSettings(v3)).toBe(v3);
+    expect(newerSettings(v3)).toBe(true);
+    expect(readSettings(v3, TODAY).sound).toEqual({ on: false, music: false, sfx: false });
+  });
+
+  it('kaputte Schalter zählen als an (ein kaputter Eintrag macht das Spiel nie für immer stumm)', () => {
+    expect(readSound(undefined)).toEqual(DEFAULT_SOUND);
+    expect(readSound({ on: 'nein', music: 0, sfx: false })).toEqual({ on: true, music: true, sfx: false });
+    expect(readSettings({ format: SETTINGS_FORMAT, version: 2, day: TODAY, sound: 'aus' }, TODAY).sound).toEqual(DEFAULT_SOUND);
   });
 });

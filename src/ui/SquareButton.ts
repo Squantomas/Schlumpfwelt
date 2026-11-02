@@ -19,6 +19,20 @@ export interface SquareButtonOptions {
    * button, it is left out and the picture alone stays (tabs and toolbar).
    */
   readonly minCaptionFont?: number;
+  /**
+   * With a footer (a card of the shop): the name in lines of one font size and how the height is shared – picture,
+   * name, footer, frame (`shopCardText`/`shopCardParts`, Korrekturrunde 1: never below 12 px, long names break).
+   */
+  readonly cardText?: (width: number, height: number) => CardText;
+}
+
+export interface CardText {
+  readonly font: number;
+  readonly lines: readonly string[];
+  readonly picture: number;
+  readonly caption: number;
+  readonly footer: number;
+  readonly margins: number;
 }
 
 /** Share of the button height that the picture may use; the rest is for the label. */
@@ -43,6 +57,7 @@ export class SquareButton extends Phaser.GameObjects.Container {
   private pressed = false;
   private readonly footer: SquareButtonOptions['footer'];
   private readonly minCaptionFont: number | undefined;
+  private readonly cardText: SquareButtonOptions['cardText'];
   private captionOff = false;
   /** The size the word should have (CSS px, see {@link setCaptionFont}); `undefined`: it follows the height. */
   private wantedCaption: number | undefined;
@@ -53,6 +68,7 @@ export class SquareButton extends Phaser.GameObjects.Container {
     this.fitContent = options.fitContent;
     this.footer = options.footer;
     this.minCaptionFont = options.minCaptionFont;
+    this.cardText = options.cardText;
     this.face = addGraphics(scene);
     this.caption = createLabel(scene, options.label, 14);
     this.add([this.face, options.content, this.caption]);
@@ -93,7 +109,17 @@ export class SquareButton extends Phaser.GameObjects.Container {
     const pictureHeight = height * (withFooter ? FOOTER_PICTURE_SHARE : PICTURE_SHARE);
     this.fitContent(this.content, width * 0.8, pictureHeight * 0.9);
     this.content.setPosition(0, -height / 2 + pictureHeight / 2 + height * 0.04);
-    if (this.footer) {
+    if (this.footer && this.cardText) {
+      const card = this.cardText(width, height);
+      const top = -height / 2 + card.margins * (4 / 7);
+      this.fitContent(this.content, width * 0.8, card.picture * 0.92);
+      this.content.setPosition(0, top + card.picture / 2);
+      this.caption.setText(card.lines.join('\n'));
+      setLabelSize(this.caption, card.font);
+      this.caption.setPosition(0, top + card.picture + card.caption / 2);
+      this.footer.layoutTo(width - 8, card.footer * 0.8);
+      this.footer.setPosition(0, top + card.picture + card.caption + card.footer / 2);
+    } else if (this.footer) {
       const footerHeight = height * FOOTER_SHARE;
       const captionHeight = height - pictureHeight - footerHeight - height * 0.04;
       setLabelSize(this.caption, Math.max(11, Math.min(15, captionHeight * 0.8)), width - 6);

@@ -27,8 +27,19 @@ export function formatNumber(value: number): string {
   return numberFormat.format(value);
 }
 
+/**
+ * A soft hyphen in a text (`\u00ad`, only in long names of the shop): where a card may break a long word with a dash
+ * (`Holzfäller-` / `hütte`, M9 Korrekturrunde 1). {@link t} leaves it out; only {@link tBreakable} keeps it.
+ */
+export const SOFT_HYPHEN = '\u00ad';
+
 /** Returns the text for `key` with all placeholders filled. */
 export function t(key: TextKey, params?: TextParams): string {
+  return format(texts[key], params).replaceAll(SOFT_HYPHEN, '');
+}
+
+/** Like {@link t}, but with the places where a long word may break ({@link SOFT_HYPHEN}). */
+export function tBreakable(key: TextKey, params?: TextParams): string {
   return format(texts[key], params);
 }
 
