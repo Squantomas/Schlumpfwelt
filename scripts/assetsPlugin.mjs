@@ -7,8 +7,13 @@
  * The folder is the `publicDir` of the build (the smoke test builds once with a copy of `public/` that
  * has an extra picture in it, `VILLAGE_PUBLIC_DIR`, without touching the repository). In `npm run dev`
  * a new or removed file reloads the page.
+ *
+ * A file whose name is no key (a typo, `tre-round.png`) replaces nothing: the build warns about it, and the game names
+ * it in `<html data-assets>` as `unused`. The keys come from the prompt templates in `docs/assets/` (one heading per
+ * key, made from `src/art/catalog.ts` by `npm run prompts`; `tests/art/prompts.test.ts` keeps them up to date) – so the
+ * Vite config does not have to load the whole catalog.
  */
-import { existsSync, readdirSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 
 const ID = 'virtual:raster-assets';
@@ -30,18 +35,52 @@ export function listRasterFiles(publicDir) {
   return rasterNames(readdirSync(folder));
 }
 
-export function assetsPlugin() {
+/** The keys of all pictures, read from the headings of the prompt templates (`## \`key\``) in `docsDir`, sorted. */
+export function promptKeys(docsDir) {
+  if (!existsSync(docsDir)) {
+    return [];
+  }
+  const keys = [];
+  for (const file of readdirSync(docsDir).filter((name) => name.endsWith('.md') && name !== 'README.md')) {
+    for (const match of readFileSync(join(docsDir, file), 'utf8').matchAll(/^## `([a-z0-9-]+)`$/gm)) {
+      keys.push(match[1]);
+    }
+  }
+  return keys.sort();
+}
+
+/** The files of `files` whose name is no key (they replace nothing), sorted. */
+export function unknownRasterFiles(keys, files) {
+  const known = new Set(keys);
+  return rasterNames(files).filter((file) => !known.has(file.replace(/\.(png|webp)$/, '')));
+}
+
+/**
+ * @param {{ keys?: () => readonly string[], list?: (publicDir: string) => string[] }} [options]
+ *   `keys`: the keys of the catalog (default: from `docs/assets/`); `list`: how the folder is read (tests).
+ */
+export function assetsPlugin(options = {}) {
+  const list = options.list ?? listRasterFiles;
   let publicDir = 'public';
+  let root = '.';
   return {
     name: 'raster-assets',
     configResolved(config) {
       publicDir = config.publicDir || publicDir;
+      root = config.root || root;
+    },
+    buildStart() {
+      const keys = options.keys?.() ?? promptKeys(join(root, 'docs', 'assets'));
+      const unknown = unknownRasterFiles(keys, list(publicDir));
+      if (unknown.length > 0) {
+        this.warn(`public/assets/: ${unknown.join(', ')} – kein Schlüssel aus src/art/catalog.ts, diese Dateien ersetzen kein Bild (Tippfehler im Namen?).`);
+      }
     },
     resolveId(id) {
       return id === ID ? RESOLVED : undefined;
     },
     load(id) {
-      return id === RESOLVED ? `export default ${JSON.stringify(listRasterFiles(publicDir))};` : undefined;
+      return id === RESOLVED ? `export default ${JSON.stringify(list(publicDir))};` : undefined;
     },
     configureServer(server) {
       const folder = join(publicDir, 'assets');

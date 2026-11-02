@@ -61,17 +61,34 @@ export function planAssets(
   }));
 }
 
-/** The test hook `<html data-assets>`: how many pictures come from SVG and from raster files, per key, and what failed. */
-export function assetReport(loaded: readonly { readonly key: string; readonly kind: 'svg' | 'raster' }[], failed: readonly string[], ms: number): string {
+export interface AssetReport {
+  readonly loaded: readonly { readonly key: string; readonly kind: 'svg' | 'raster' }[];
+  /** Keys without any picture (not even the SVG could be made). */
+  readonly failed: readonly string[];
+  /** Raster files that could not be read: their key shows the drawn SVG instead. */
+  readonly rasterFailed: readonly string[];
+  /** Raster files whose name is no key ({@link unusedRasterFiles}). */
+  readonly unused: readonly string[];
+  readonly ms: number;
+}
+
+/**
+ * The hook `<html data-assets>` (tests and the project lead): how many pictures come from SVG and from raster files, per
+ * key, which keys have no picture (`failed`), which raster files could not be read (`rasterFailed`) and which replace
+ * nothing (`unused`).
+ */
+export function assetReport(report: AssetReport): string {
   const keys: Record<string, 'svg' | 'raster'> = {};
-  for (const { key, kind } of loaded) {
+  for (const { key, kind } of report.loaded) {
     keys[key] = kind;
   }
   return JSON.stringify({
-    svg: loaded.filter((asset) => asset.kind === 'svg').length,
-    raster: loaded.filter((asset) => asset.kind === 'raster').length,
-    failed,
-    ms: Math.round(ms),
+    svg: report.loaded.filter((asset) => asset.kind === 'svg').length,
+    raster: report.loaded.filter((asset) => asset.kind === 'raster').length,
+    failed: report.failed,
+    rasterFailed: report.rasterFailed,
+    unused: report.unused,
+    ms: Math.round(report.ms),
     keys,
   });
 }

@@ -45,17 +45,19 @@ describe('Rasterbild oder SVG (M9)', () => {
     expect(url).not.toContain('#');
   });
 
-  it('der Bericht für data-assets zählt SVG und Raster und nennt jeden Schlüssel', () => {
+  it('der Bericht für data-assets zählt SVG und Raster, nennt jeden Schlüssel, kaputte und unbenutzte Rasterdateien', () => {
     const report = JSON.parse(
-      assetReport(
-        [
+      assetReport({
+        loaded: [
           { key: 'a', kind: 'svg' },
           { key: 'b', kind: 'raster' },
         ],
-        ['c'],
-        12.4,
-      ),
+        failed: ['c'],
+        rasterFailed: ['a.png'],
+        unused: ['tre-round.png'],
+        ms: 12.4,
+      }),
     ) as unknown;
-    expect(report).toEqual({ svg: 1, raster: 1, failed: ['c'], ms: 12, keys: { a: 'svg', b: 'raster' } });
+    expect(report).toEqual({ svg: 1, raster: 1, failed: ['c'], rasterFailed: ['a.png'], unused: ['tre-round.png'], ms: 12, keys: { a: 'svg', b: 'raster' } });
   });
 });

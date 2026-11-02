@@ -37,7 +37,8 @@ export default defineConfig({
   publicDir: process.env['VILLAGE_PUBLIC_DIR'] ?? 'public',
   plugins: [
     themeHtml(),
-    // Raster files in public/assets/ that replace drawn pictures, listed at build time (see scripts/assetsPlugin.mjs).
+    // Raster files in public/assets/ that replace drawn pictures, listed at build time (see scripts/assetsPlugin.mjs);
+    // a file whose name is no key of the catalog (the keys of docs/assets/) gets a warning.
     assetsPlugin(),
     // Installable and offline: manifest (name from the theme) and service worker (see scripts/pwaPlugin.mjs).
     pwaPlugin({ name: theme.gameName, description: texts['app.description'], color: WATER, lang: 'de' }),
