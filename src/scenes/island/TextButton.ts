@@ -59,18 +59,11 @@ export class TextButton extends Phaser.GameObjects.Container {
     return this;
   }
 
+  /** A new word (the sound switches say what is now), at the button's size. */
   setText(text: string): this {
     if (this.caption.text !== text) {
       this.caption.setText(text);
       setLabelSize(this.caption, this.font, this.rect.width - 16);
-    }
-    return this;
-  }
-
-  /** A new word (M9: the sound switches say what is now); takes effect with the next {@link place}. */
-  setCaption(text: string): this {
-    if (this.caption.text !== text) {
-      this.caption.setText(text);
     }
     return this;
   }

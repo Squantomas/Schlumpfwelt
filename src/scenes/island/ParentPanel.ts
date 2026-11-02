@@ -387,11 +387,10 @@ export class ParentPanel {
       this.extraButton.place(settings.extra, settings.buttonFont);
       this.pinButton.place(settings.pin, settings.buttonFont);
       this.tutorialButton.place(settings.tutorial, settings.buttonFont);
-      // Music and noises (M9): lit while on, the word says which.
+      // Music and noises (M9): the same buttons as "PIN ändern" – the word says whether it is on ("Musik an"/"Musik aus").
       const { music, sfx } = this.session.sound;
-      const half = settings.buttonFont - 2;
-      this.musicButton.setCaption(t(music ? 'parent.musicOn' : 'parent.musicOff')).place(settings.music, half).setHighlighted(music);
-      this.sfxButton.setCaption(t(sfx ? 'parent.sfxOn' : 'parent.sfxOff')).place(settings.sfx, half).setHighlighted(sfx);
+      this.musicButton.place(settings.music, settings.buttonFont).setText(t(music ? 'parent.musicOn' : 'parent.musicOff'));
+      this.sfxButton.place(settings.sfx, settings.buttonFont).setText(t(sfx ? 'parent.sfxOn' : 'parent.sfxOff'));
     }
   }
 

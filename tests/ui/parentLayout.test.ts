@@ -91,6 +91,13 @@ describe('Eltern-Menü: Ziffernblock und Einstellungen passen auf jeden Schirm (
       expect(layout.music.width).toBeGreaterThanOrEqual(80);
       expect(layout.sfx.width).toBe(layout.music.width);
       expect(layout.sfx.y).toBe(layout.music.y);
+      // Korrekturrunde 1: the row of the sound does not stick to the bottom – below it as much frame as above the title,
+      // and it is as high as the buttons above it.
+      const top = layout.close.y - layout.panel.y;
+      const bottom = layout.panel.y + layout.panel.height - (layout.music.y + layout.music.height);
+      expect(bottom).toBeGreaterThanOrEqual(top - 0.001);
+      expect(layout.music.height).toBeCloseTo(layout.tutorial.height);
+      expect(layout.music.y - (layout.tutorial.y + layout.tutorial.height)).toBeCloseTo(layout.tutorial.y - (layout.pin.y + layout.pin.height));
     });
   }
 

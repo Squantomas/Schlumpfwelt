@@ -137,8 +137,9 @@ const LOW_PAD = 12;
 const LOW_HEADER_H = 48;
 const LABEL_H = 28;
 const TEXT_H = 52;
+/** Upright: the frame below the row of the sound is as wide as above the title (Korrekturrunde 1). */
 const UPRIGHT_SETTINGS_H =
-  PAD + HEADER_H + GAP + LABEL_H + GAP + 2 * CHOICE_H + GAP + GAP + TEXT_H + GAP + 3 * UPRIGHT_ACTION_H + 2 * GAP + GAP + SOUND_H + PAD;
+  PAD + HEADER_H + GAP + LABEL_H + GAP + 2 * CHOICE_H + GAP + GAP + TEXT_H + GAP + 3 * (UPRIGHT_ACTION_H + GAP) + SOUND_H + PAD;
 
 function choiceGrid(left: number, top: number, innerW: number, count: number): Rect[] {
   const cols = 3;
@@ -167,7 +168,7 @@ export function parentSettingsLayout(width: number, height: number, choiceCount:
     const label: Rect = { x: innerX, y: title.y + HEADER_H + GAP, width: innerW, height: LABEL_H };
     const choicesTop = label.y + LABEL_H + GAP;
     const choices = choiceGrid(innerX, choicesTop, innerW, choiceCount);
-    const text: Rect = { x: innerX, y: choicesTop + choicesH + 2 * GAP, width: innerW, height: TEXT_H };
+    const text: Rect = { x: innerX, y: choicesTop + choicesH + GAP, width: innerW, height: TEXT_H };
     const actionTop = text.y + TEXT_H + GAP;
     const action = (index: number): Rect => ({ x: innerX, y: actionTop + index * (UPRIGHT_ACTION_H + GAP), width: innerW, height: UPRIGHT_ACTION_H });
     const soundTop = actionTop + 3 * (UPRIGHT_ACTION_H + GAP);
