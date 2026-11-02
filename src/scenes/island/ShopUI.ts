@@ -5,7 +5,7 @@ import type { Rect } from '../../ui/cameraMath';
 import { createLabel, measureLabel, setLabelSize } from '../../ui/label';
 import { RoundButton } from '../../ui/RoundButton';
 import { noRoomSentence, progressText, roomPrice, roomText, shopCards, unlockIcons, unlockSentenceText, type ShopCard, type ShopView } from '../../ui/shopModel';
-import { SHOP_ARROW, shopCardParts, shopCardText, shopCellRects, shopPages, type ShopLayout } from '../../ui/shopLayout';
+import { SHOP_ARROW, shopCardLock, shopCardParts, shopCardText, shopCellRects, shopPages, type ShopLayout } from '../../ui/shopLayout';
 import { SquareButton } from '../../ui/SquareButton';
 import { COLORS, clamp } from '../../ui/style';
 import { fitIcon, iconImage, starImage } from '../art/icon';
@@ -164,6 +164,8 @@ const MIN_LINE_FONT = 12;
 /** One card of the grid: the button plus the things drawn over it (lock, star). */
 interface Card {
   readonly typeId: string;
+  /** The name with its soft hyphens (`tBreakable`). */
+  readonly name: string;
   readonly button: SquareButton;
   readonly footer: CardFooter;
   readonly padlock: Phaser.GameObjects.Image;
@@ -192,6 +194,11 @@ export interface ShopSpot {
   readonly font?: number;
   /** The line: height of the sentence as measured (CSS px). */
   readonly textH?: number;
+  /** Cards: height of the picture (CSS px). */
+  readonly pic?: number;
+  /** Locked cards: size of the lock and whether it touches the name or the condition as drawn (Korrekturrunde 2). */
+  readonly lock?: number;
+  readonly lockClear?: boolean;
 }
 
 /**
@@ -273,7 +280,7 @@ export class ShopUI {
         const star = starImage(scene, 12);
         button.add([padlock, star]);
         button.setVisible(false);
-        this.cards.set(type.id, { typeId: type.id, button, footer, padlock, star });
+        this.cards.set(type.id, { typeId: type.id, name, button, footer, padlock, star });
         uiLayer.add(button);
       }
     }
@@ -415,12 +422,13 @@ export class ShopUI {
     } else {
       entry.footer.showCost(card);
     }
-    // The lock sits on the picture; the star ("new") in the corner.
+    // The lock sits in the upper right corner of the picture, clear of name and condition (Korrekturrunde 2); the star
+    // ("new") in the corner of a card that is not locked.
     entry.padlock.setVisible(locked);
     if (locked) {
-      const size = Math.min(rect.width * 0.4, rect.height * 0.36);
-      entry.padlock.setDisplaySize(size, size);
-      entry.padlock.setPosition(0, -rect.height * 0.2);
+      const lock = shopCardLock(rect.width, rect.height, shopCardText(entry.name, rect.width, rect.height, measureLabel));
+      entry.padlock.setDisplaySize(lock.width, lock.height);
+      entry.padlock.setPosition(lock.x + lock.width / 2 - rect.width / 2, lock.y + lock.height / 2 - rect.height / 2);
     }
     entry.star.setVisible(fresh && !locked).setPosition(rect.width / 2 - 10, -rect.height / 2 + 10);
   }
@@ -526,7 +534,16 @@ export class ShopUI {
     for (const { card, rect } of this.shown.cards) {
       if (rect) {
         const entry = this.cards.get(card.typeId);
-        spots[`item-${card.typeId}`] = { ...center(rect), state: card.state, fresh: entry?.star.visible === true, active: chosen === card.typeId, font: entry?.button.captionFont ?? 0 };
+        const parts = entry?.button.cardParts;
+        const spot: ShopSpot = { ...center(rect), state: card.state, fresh: entry?.star.visible === true, active: chosen === card.typeId, font: entry?.button.captionFont ?? 0, pic: Math.round(parts?.picture ?? 0) };
+        if (entry?.padlock.visible === true && parts) {
+          const { padlock } = entry;
+          const lock = { x: padlock.x - padlock.displayWidth / 2, y: padlock.y - padlock.displayHeight / 2, width: padlock.displayWidth, height: padlock.displayHeight };
+          const touches = (other: Rect): boolean => lock.x < other.x + other.width && other.x < lock.x + lock.width && lock.y < other.y + other.height && other.y < lock.y + lock.height;
+          spots[`item-${card.typeId}`] = { ...spot, lock: Math.round(lock.width), lockClear: !touches(parts.name) && !touches(parts.footer) };
+        } else {
+          spots[`item-${card.typeId}`] = spot;
+        }
       }
     }
     if (layout.paged && layout.prev && layout.next) {

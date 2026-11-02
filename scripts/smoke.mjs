@@ -892,6 +892,9 @@ function checkShopFits({ village: v, w, h, tab, check }) {
     check(c.h >= 72 && c.w >= 88, `${where}: „${spot}“ nur ${c.w}×${c.h} px`);
     // Der Name steht immer in mindestens 12 px (lange Namen brechen um, Korrekturrunde 1 von M9).
     check(c.font >= 12, `${where}: Name auf „${spot}“ nur ${c.font} px`);
+    // Das Bild bleibt erkennbar; das Schloss einer gesperrten Karte liegt auf dem Bild, frei von Name und Bedingung (Korrekturrunde 2).
+    check(c.pic >= 14, `${where}: Bild auf „${spot}“ nur ${c.pic} px hoch`);
+    if (c.state === 'locked') check(c.lockClear === true && c.lock >= 14, `${where}: Schloss auf „${spot}“ (${c.lock} px) berührt Name oder Bedingung`);
   }
   for (const [a, ca] of cards) {
     for (const [b, cb] of cards) {
@@ -1782,6 +1785,8 @@ async function testShop({ page, check, shot, size, input, name, waitLong }) {
     for (const id of SHOP_ITEMS[tab]) check(`item-${id}` in village.ui, `Reiter ${tab}: Karte ${id} fehlt`);
     // Die Namen der Karten sind überall mindestens 12 px groß (lange brechen um, Korrekturrunde 1 von M9).
     for (const id of SHOP_ITEMS[tab]) check(village.ui[`item-${id}`]?.font >= 12, `Reiter ${tab}: Name der Karte ${id} nur ${village.ui[`item-${id}`]?.font} px`);
+    // Das Schloss einer gesperrten Karte berührt weder Name noch Bedingung (Korrekturrunde 2 von M9).
+    for (const id of SHOP_ITEMS[tab]) if (village.ui[`item-${id}`]?.state === 'locked') check(village.ui[`item-${id}`]?.lockClear === true, `Reiter ${tab}: Schloss auf ${id} berührt Name oder Bedingung`);
     check(Object.keys(village.ui).filter((spot) => spot.startsWith('item-')).length === SHOP_ITEMS[tab].length, `Reiter ${tab}: ${Object.keys(village.ui).filter((spot) => spot.startsWith('item-')).length} Karten, erwartet ${SHOP_ITEMS[tab].length}`);
     for (const id of SHOP_ITEMS[tab]) {
       // Einladen (M6) braucht ein freies Haus: im Startdorf sind beide Plätze des roten Hauses belegt.

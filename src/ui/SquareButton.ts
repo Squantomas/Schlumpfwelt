@@ -61,6 +61,8 @@ export class SquareButton extends Phaser.GameObjects.Container {
   private captionOff = false;
   /** The size the word should have (CSS px, see {@link setCaptionFont}); `undefined`: it follows the height. */
   private wantedCaption: number | undefined;
+  /** A card of the shop: the height of the picture and where the footer lies (from the centre), for the tests. */
+  private cardBoxes: { readonly picture: number; readonly footer: { x: number; y: number; width: number; height: number } } | undefined;
 
   constructor(scene: Phaser.Scene, options: SquareButtonOptions) {
     super(scene, 0, 0);
@@ -119,6 +121,7 @@ export class SquareButton extends Phaser.GameObjects.Container {
       this.caption.setPosition(0, top + card.picture + card.caption / 2);
       this.footer.layoutTo(width - 8, card.footer * 0.8);
       this.footer.setPosition(0, top + card.picture + card.caption + card.footer / 2);
+      this.cardBoxes = { picture: card.picture, footer: { x: -(width - 8) / 2, y: top + card.picture + card.caption, width: width - 8, height: card.footer } };
     } else if (this.footer) {
       const footerHeight = height * FOOTER_SHARE;
       const captionHeight = height - pictureHeight - footerHeight - height * 0.04;
@@ -183,6 +186,18 @@ export class SquareButton extends Phaser.GameObjects.Container {
   /** The size of the word under the picture in CSS px (0 if it is left out): for the smoke test. */
   get captionFont(): number {
     return this.caption.visible ? Number.parseFloat(String(this.caption.style.fontSize)) : 0;
+  }
+
+  /**
+   * A card of the shop (for the tests, Korrekturrunde 2): the height of its picture and where the name (as drawn) and
+   * the footer lie, from the centre of the button (CSS px). `undefined` for other buttons.
+   */
+  get cardParts(): { readonly picture: number; readonly name: { x: number; y: number; width: number; height: number }; readonly footer: { x: number; y: number; width: number; height: number } } | undefined {
+    if (!this.cardBoxes) {
+      return undefined;
+    }
+    const { displayWidth, displayHeight } = this.caption;
+    return { ...this.cardBoxes, name: { x: this.caption.x - displayWidth / 2, y: this.caption.y - displayHeight / 2, width: displayWidth, height: displayHeight } };
   }
 
   /** A dimmed button looks switched off (what it needs is missing); it still takes taps. */

@@ -774,7 +774,7 @@ export class BuildUI {
         spots['menu'] = { x: this.menuButton.x, y: this.menuButton.y, enabled: true, w: this.menuRect.width, h: this.menuRect.height };
       }
       for (const [name, spot] of Object.entries(this.shop.spots(this.tool.item))) {
-        spots[name] = { x: spot.x, y: spot.y, enabled: true, w: spot.w, h: spot.h, ...(spot.state !== undefined ? { state: spot.state, dim: spot.state !== 'ok' } : {}), ...(spot.fresh !== undefined ? { fresh: spot.fresh } : {}), ...(spot.active !== undefined ? { active: spot.active } : {}), ...(spot.font !== undefined ? { font: spot.font } : {}), ...(spot.textH !== undefined ? { textH: spot.textH } : {}) };
+        spots[name] = { x: spot.x, y: spot.y, enabled: true, w: spot.w, h: spot.h, ...(spot.state !== undefined ? { state: spot.state, dim: spot.state !== 'ok' } : {}), ...(spot.fresh !== undefined ? { fresh: spot.fresh } : {}), ...(spot.active !== undefined ? { active: spot.active } : {}), ...(spot.font !== undefined ? { font: spot.font } : {}), ...(spot.textH !== undefined ? { textH: spot.textH } : {}), ...(spot.pic !== undefined ? { pic: spot.pic } : {}), ...(spot.lock !== undefined ? { lock: spot.lock, lockClear: spot.lockClear } : {}) };
       }
       const stockRect = this.stock.rect;
       spots['stock'] = { x: stockRect.x + stockRect.width / 2, y: stockRect.y + stockRect.height / 2, enabled: true, w: stockRect.width, h: stockRect.height };
