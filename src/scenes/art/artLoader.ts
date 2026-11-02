@@ -2,6 +2,7 @@ import type Phaser from 'phaser';
 import rasterFiles from 'virtual:raster-assets';
 import { ASSETS, assetEntry, assetSvg } from '../../art/catalog';
 import { assetReport, planAssets, svgDataUrl, unusedRasterFiles, type PlannedAsset } from '../../art/source';
+import { fetchPicture, type Fetched, type PictureReader } from './fetchPicture';
 
 /**
  * Turns every picture of `src/art/catalog.ts` into a texture (M9), once per page: the SVG is drawn into a canvas of
@@ -47,33 +48,11 @@ function svgUrlOf(key: string): string {
   return asset ? svgDataUrl(assetSvg(asset)) : '';
 }
 
-interface Fetched {
-  readonly image: HTMLImageElement | undefined;
-  readonly kind: 'svg' | 'raster';
-  /** The raster file that could not be read (the SVG stands in). */
-  readonly rasterFailed?: string;
-}
+const reader: PictureReader<HTMLImageElement> = { load: loadImage, svgUrl: svgUrlOf, warn: console.warn };
 
-/** Reads the picture of a plan (the raster file, or else the SVG); never rejects. */
-async function fetchOne(plan: PlannedAsset): Promise<Fetched> {
-  if (plan.source.kind === 'raster') {
-    try {
-      return { image: await loadImage(plan.source.url), kind: 'raster' };
-    } catch {
-      console.warn(`Rasterbild ${plan.source.file} nicht lesbar, nehme das gezeichnete Bild.`);
-      const svg = await loadImage(svgUrlOf(plan.key)).catch((error: unknown) => {
-        console.warn(error);
-        return undefined;
-      });
-      return { image: svg, kind: 'svg', rasterFailed: plan.source.file };
-    }
-  }
-  try {
-    return { image: await loadImage(svgUrlOf(plan.key)), kind: 'svg' };
-  } catch (error) {
-    console.warn(error);
-    return { image: undefined, kind: 'svg' };
-  }
+/** Reads the picture of a plan (the raster file, or else the SVG); never rejects (see `fetchPicture`). */
+function fetchOne(plan: PlannedAsset): Promise<Fetched<HTMLImageElement>> {
+  return fetchPicture(plan, reader);
 }
 
 /** Paints a read picture into its texture; `false` when the browser refuses the canvas (nothing half made stays). */
@@ -109,7 +88,7 @@ export function loadArt(scene: Phaser.Scene): Promise<void> {
     progress.done = 0;
     // Reading runs beside the page (images decode on their own); each picture is painted when it is there.
     let longest = 0;
-    const paintWhenRead = async (plan: PlannedAsset): Promise<{ plan: PlannedAsset; got: Fetched; ok: boolean }> => {
+    const paintWhenRead = async (plan: PlannedAsset): Promise<{ plan: PlannedAsset; got: Fetched<HTMLImageElement>; ok: boolean }> => {
       const got = await fetchOne(plan);
       const start = performance.now();
       const ok = got.image !== undefined && paintOne(scene.textures, plan, got.image);
