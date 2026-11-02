@@ -5,7 +5,7 @@ Gedächtnis des Orchestrators. Bei Neustart: „Setze laut `docs/FORTSCHRITT.md`
 ## Aktueller Stand
 - **Aktueller Meilenstein:** Abschluss – alle Meilensteine M0–M9 fertig
 - **Status:** M9 gemergt (PR #26, 3 Korrekturrunden); Reste in #27 (`nacharbeit`)
-- **Nächster Schritt:** `docs/ABSCHLUSSBERICHT_M9.md` schreiben und mergen (Branch `abschlussbericht-m9`), dann Schlusszusammenfassung
+- **Nächster Schritt:** Lauf abgeschlossen. Abschlussbericht in `docs/ABSCHLUSSBERICHT_M9.md`; als Nächstes der Spieltest mit den Kindern, danach M10
 
 ## Meilensteine
 | # | Issue | Branch | PR | Status |
