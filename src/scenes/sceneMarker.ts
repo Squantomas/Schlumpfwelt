@@ -160,3 +160,10 @@ export function markParent(info: { readonly tutorial: string; readonly parent: s
   data.night = info.night;
   data.bedtime = info.bedtime;
 }
+
+/** Publishes the sound (M9) as `<html data-audio>` (JSON from `AudioEngine.describe`), only on a change. */
+export function markAudio(info: string): void {
+  if (document.documentElement.dataset.audio !== info) {
+    document.documentElement.dataset.audio = info;
+  }
+}

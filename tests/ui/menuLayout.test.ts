@@ -18,6 +18,7 @@ const SCREENS: readonly (readonly [number, number])[] = [
   [1920, 1080],
   [400, 400],
   [700, 399],
+  [800, 500],
 ];
 
 function intersects(a: Rect, b: Rect): boolean {
@@ -36,6 +37,7 @@ function children(layout: MenuLayout): [string, Rect][] {
     ['Sichern', layout.save],
     ['Laden', layout.load],
     ['Für Eltern', layout.parent],
+    ['Ton', layout.sound],
     ['✓', layout.confirm],
     ['✕ Frage', layout.cancel],
   ];
@@ -87,14 +89,28 @@ describe('menuLayout: nichts überlappt, nichts ragt über den Rand, alles groß
     expect(ask.save ?? ask.load).toBeUndefined();
   });
 
-  it('M8: „Für Eltern“ unter den beiden Knöpfen (auf niedrigen Schirmen daneben), nicht bei der Frage', () => {
+  it('M8/M9: „Ton an/aus“ und „Für Eltern“ unter den beiden Knöpfen (auf niedrigen Schirmen als zweite Reihe), nicht bei der Frage', () => {
     const tall = menuLayout(360, 640, 'menu');
+    expect(tall.sound?.x).toBe(tall.load?.x);
     expect(tall.parent?.x).toBe(tall.load?.x);
-    expect((tall.parent?.y ?? 0) > (tall.load?.y ?? 0)).toBe(true);
+    expect((tall.sound?.y ?? 0) > (tall.load?.y ?? 0)).toBe(true);
+    expect((tall.parent?.y ?? 0) > (tall.sound?.y ?? 0)).toBe(true);
     const low = menuLayout(568, 320, 'menu');
-    expect(low.parent?.y).toBe(low.load?.y);
-    expect((low.parent?.x ?? 0) > (low.load?.x ?? 0)).toBe(true);
+    expect(low.sound?.x).toBe(low.save?.x);
+    expect(low.parent?.x).toBe(low.load?.x);
+    expect(low.parent?.y).toBe(low.sound?.y);
+    expect((low.sound?.y ?? 0) > (low.save?.y ?? 0)).toBe(true);
     expect(menuLayout(800, 600, 'confirm').parent).toBeUndefined();
+    expect(menuLayout(800, 600, 'confirm').sound).toBeUndefined();
+  });
+
+  it('M9: jeder Knopf des Menüs ist auf niedrigen Schirmen breit genug für sein Wort (mindestens 120 px)', () => {
+    for (const [width, height] of SCREENS) {
+      const layout = menuLayout(width, height, 'menu');
+      for (const rect of [layout.save, layout.load, layout.sound, layout.parent]) {
+        expect(rect?.width ?? 0).toBeGreaterThanOrEqual(120);
+      }
+    }
   });
 
   it('stellt die Knöpfe auf niedrigen Schirmen nebeneinander, sonst untereinander', () => {

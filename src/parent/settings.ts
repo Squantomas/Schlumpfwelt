@@ -15,6 +15,7 @@ import { readPin, type PinRecord } from './pin';
  *   question of "PIN vergessen?" first – otherwise a child would simply choose one. Stored until a new PIN is set.
  * - `tutorial`: the progress of the guided start (owned and checked by `src/ui/tutorial.ts`; `undefined` while there is
  *   none – a village from before M8 counts as "tutorial done").
+ * - `sound` (M9, version 2): sound on or off as a whole, and music and noises on their own. Default: all on (quiet).
  */
 export interface ParentSettings {
   readonly pin: PinRecord | null;
@@ -24,17 +25,58 @@ export interface ParentSettings {
   readonly extraMinutes: number;
   readonly pinLost: boolean;
   readonly tutorial: unknown;
+  readonly sound: SoundSettings;
 }
 
+/** The sound switches (M9): `on` is the one switch behind the gear; `music` and `sfx` are in the parents' menu. */
+export interface SoundSettings {
+  readonly on: boolean;
+  readonly music: boolean;
+  readonly sfx: boolean;
+}
+
+export const DEFAULT_SOUND: SoundSettings = { on: true, music: true, sfx: true };
+
 export const SETTINGS_FORMAT = 'village-parent';
-export const SETTINGS_VERSION = 1;
+/** Version 2 (M9): `sound`. Every change of the format raises it and adds a step to {@link SETTINGS_MIGRATIONS}. */
+export const SETTINGS_VERSION = 2;
+
+/**
+ * Steps from one version of the entry to the next (`from` → `from + 1`), pure functions on plain data. An entry without
+ * a version is version 1 (M8 wrote it).
+ */
+export const SETTINGS_MIGRATIONS: Readonly<Record<number, (data: Readonly<Record<string, unknown>>) => Record<string, unknown>>> = {
+  1: (data) => ({ ...data, version: 2, sound: { ...DEFAULT_SOUND } }),
+};
+
+/** Brings an entry of an older version up to {@link SETTINGS_VERSION} (newer ones and foreign data stay as they are). */
+export function migrateSettings(raw: Readonly<Record<string, unknown>>): Readonly<Record<string, unknown>> {
+  let data = raw;
+  let version = typeof data['version'] === 'number' && Number.isInteger(data['version']) ? data['version'] : 1;
+  while (version < SETTINGS_VERSION) {
+    const step = SETTINGS_MIGRATIONS[version];
+    if (!step) {
+      break;
+    }
+    data = step(data);
+    version += 1;
+  }
+  return data;
+}
+
+/** Reads the sound switches; anything odd counts as "on" (a broken entry never silences the game for good). */
+export function readSound(raw: unknown): SoundSettings {
+  const data = typeof raw === 'object' && raw !== null ? (raw as Record<string, unknown>) : {};
+  const flag = (name: keyof SoundSettings): boolean => (typeof data[name] === 'boolean' ? (data[name]) : DEFAULT_SOUND[name]);
+  return { on: flag('on'), music: flag('music'), sfx: flag('sfx') };
+}
 
 /** No day has more minutes than this (a broken entry can not make the game count for ever). */
 const MAX_MINUTES = 24 * 60;
 const DAY_KEY = /^\d{4}-\d{2}-\d{2}$/;
 
 export function defaultSettings(day: string): ParentSettings {
-  return { pin: null, limitMinutes: PARENT_RULES.defaultLimit, day, usedMs: 0, extraMinutes: 0, pinLost: false, tutorial: undefined };
+  return { pin: null, limitMinutes: PARENT_RULES.defaultLimit, day, usedMs: 0, extraMinutes: 0, pinLost: false, tutorial: undefined, sound: DEFAULT_SOUND };
 }
 
 /** The entry as it is stored (plain data). */
@@ -49,6 +91,7 @@ export function toStored(settings: ParentSettings): Record<string, unknown> {
     extraMinutes: settings.extraMinutes,
     ...(settings.pinLost && settings.pin === null ? { pinLost: true } : {}),
     ...(settings.tutorial === undefined ? {} : { tutorial: settings.tutorial }),
+    sound: { on: settings.sound.on, music: settings.sound.music, sfx: settings.sound.sfx },
   };
 }
 
@@ -77,7 +120,7 @@ export function readSettings(raw: unknown, today: string): ParentSettings {
   if (typeof raw !== 'object' || raw === null || (raw as Record<string, unknown>)['format'] !== SETTINGS_FORMAT) {
     return defaultSettings(today);
   }
-  const data = raw as Record<string, unknown>;
+  const data = migrateSettings(raw as Record<string, unknown>);
   const stored = typeof data['day'] === 'string' && DAY_KEY.test(data['day']) ? data['day'] : today;
   const fresh = laterDay(today, stored);
   const rawPin = data['pin'];
@@ -90,5 +133,6 @@ export function readSettings(raw: unknown, today: string): ParentSettings {
     extraMinutes: fresh ? 0 : wholeIn(data['extraMinutes'], 0, MAX_MINUTES, 0),
     pinLost: pin === null && ((rawPin !== null && rawPin !== undefined) || data['pinLost'] === true),
     tutorial: data['tutorial'],
+    sound: readSound(data['sound']),
   };
 }

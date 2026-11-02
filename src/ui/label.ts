@@ -61,3 +61,19 @@ function applySize(label: Phaser.GameObjects.Text, fontSize: number): void {
     label.setStyle(next);
   }
 }
+
+let measureContext: CanvasRenderingContext2D | null | undefined;
+
+/**
+ * The width of `text` as a label of `fontSize` CSS px (bold, with its outline) – measured by the browser, without
+ * making a text object (the names of the shop cards, Korrekturrunde 1).
+ */
+export function measureLabel(text: string, fontSize: number): number {
+  measureContext ??= document.createElement('canvas').getContext('2d');
+  const stroke = Math.max(2, Math.round(fontSize * 0.14));
+  if (!measureContext) {
+    return text.length * fontSize * 0.6 + stroke;
+  }
+  measureContext.font = `bold ${String(fontSize)}px ${FONT_FAMILY}`;
+  return measureContext.measureText(text).width + stroke;
+}

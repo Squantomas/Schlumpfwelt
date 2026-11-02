@@ -9,7 +9,7 @@ import { cardRows, type ResidentInfo } from '../../ui/residentInfo';
 import { RoundButton } from '../../ui/RoundButton';
 import { SquareButton } from '../../ui/SquareButton';
 import { COLORS } from '../../ui/style';
-import { drawMoveHomeIcon } from '../../ui/toolIcons';
+import { fitIcon, iconImage } from '../art/icon';
 import { RESIDENT_SIZE, moodTextureKey, residentTextureKey } from './residentTextures';
 import { addGraphics } from '../../ui/FastGraphics';
 
@@ -66,10 +66,8 @@ export class ResidentCard {
     this.moveButton = new SquareButton(scene, {
       label: t('resident.move'),
       minCaptionFont: MOVE_CAPTION_MIN,
-      content: addGraphics(scene),
-      fitContent: (content, width, height) => {
-        drawMoveHomeIcon(content as Phaser.GameObjects.Graphics, Math.min(width, height));
-      },
+      content: iconImage(scene, 'move-home'),
+      fitContent: fitIcon,
       onTap: (time) => {
         if (this.canMove) {
           onMove(time);

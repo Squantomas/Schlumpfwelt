@@ -1,14 +1,14 @@
 import Phaser from 'phaser';
 import { SHOP_CATEGORIES, shopItems, type ShopCategory } from '../../data/buildings';
-import { t } from '../../data/texts';
+import { t, tBreakable } from '../../data/texts';
 import type { Rect } from '../../ui/cameraMath';
-import { createLabel, setLabelSize } from '../../ui/label';
+import { createLabel, measureLabel, setLabelSize } from '../../ui/label';
 import { RoundButton } from '../../ui/RoundButton';
 import { noRoomSentence, progressText, roomPrice, roomText, shopCards, unlockIcons, unlockSentenceText, type ShopCard, type ShopView } from '../../ui/shopModel';
-import { SHOP_ARROW, shopCellRects, shopPages, type ShopLayout } from '../../ui/shopLayout';
+import { SHOP_ARROW, shopCardLock, shopCardParts, shopCardText, shopCellRects, shopPages, type ShopLayout } from '../../ui/shopLayout';
 import { SquareButton } from '../../ui/SquareButton';
 import { COLORS, clamp } from '../../ui/style';
-import { drawCategoryIcon, drawPadlock, drawStar } from '../../ui/toolIcons';
+import { fitIcon, iconImage, starImage } from '../art/icon';
 import { buildingTextureKey } from './buildingTextures';
 import { CostRow } from './CostRow';
 import { goodTextureKey } from './goodTextures';
@@ -164,10 +164,12 @@ const MIN_LINE_FONT = 12;
 /** One card of the grid: the button plus the things drawn over it (lock, star). */
 interface Card {
   readonly typeId: string;
+  /** The name with its soft hyphens (`tBreakable`). */
+  readonly name: string;
   readonly button: SquareButton;
   readonly footer: CardFooter;
-  readonly padlock: Phaser.GameObjects.Graphics;
-  readonly star: Phaser.GameObjects.Graphics;
+  readonly padlock: Phaser.GameObjects.Image;
+  readonly star: Phaser.GameObjects.Image;
 }
 
 export interface ShopUiHandlers {
@@ -192,6 +194,11 @@ export interface ShopSpot {
   readonly font?: number;
   /** The line: height of the sentence as measured (CSS px). */
   readonly textH?: number;
+  /** Cards: height of the picture (CSS px). */
+  readonly pic?: number;
+  /** Locked cards: size of the lock and whether it touches the name or the condition as drawn (Korrekturrunde 2). */
+  readonly lock?: number;
+  readonly lockClear?: boolean;
 }
 
 /**
@@ -211,7 +218,7 @@ export class ShopUI {
   private readonly nextButton: RoundButton;
   private readonly tipPanel: Phaser.GameObjects.Graphics;
   private readonly tipLabel: Phaser.GameObjects.Text;
-  private readonly tabStars = new Map<ShopCategory, Phaser.GameObjects.Graphics>();
+  private readonly tabStars = new Map<ShopCategory, Phaser.GameObjects.Image>();
   private layoutData: ShopLayout | undefined;
   /** The sentence of the locked card that was tapped last; it stays until something else is tapped. */
   private tip = '';
@@ -233,17 +240,14 @@ export class ShopUI {
       const tab = new SquareButton(scene, {
         label: t(`shop.${category}`),
         minCaptionFont: 12,
-        content: addGraphics(scene),
-        fitContent: (content, width, height) => {
-          drawCategoryIcon(content as Phaser.GameObjects.Graphics, category, Math.min(width, height));
-        },
+        content: iconImage(scene, `tab-${category}`),
+        fitContent: fitIcon,
         onTap: (time) => {
           handlers.touched(time);
           handlers.onTab(category);
         },
       });
-      const star = addGraphics(scene).setVisible(false);
-      drawStar(star, 11);
+      const star = starImage(scene, 11).setVisible(false);
       tab.add(star);
       tab.setVisible(false);
       this.tabs.set(category, tab);
@@ -254,9 +258,14 @@ export class ShopUI {
     for (const category of SHOP_CATEGORIES) {
       for (const type of shopItems(category)) {
         const footer = new CardFooter(scene);
+        const name = tBreakable(type.nameKey);
         const button = new SquareButton(scene, {
           label: t(type.nameKey),
           footer,
+          cardText: (width, height) => {
+            const text = shopCardText(name, width, height, measureLabel);
+            return { font: text.font, lines: text.lines, ...shopCardParts(height, text) };
+          },
           content: scene.add.image(0, 0, buildingTextureKey(type.id)),
           fitContent: (content, width, height) => {
             const picture = content as Phaser.GameObjects.Image;
@@ -267,12 +276,11 @@ export class ShopUI {
             this.onCardTap(type.id);
           },
         });
-        const padlock = addGraphics(scene);
-        const star = addGraphics(scene);
-        drawStar(star, 12);
+        const padlock = iconImage(scene, 'lock');
+        const star = starImage(scene, 12);
         button.add([padlock, star]);
         button.setVisible(false);
-        this.cards.set(type.id, { typeId: type.id, button, footer, padlock, star });
+        this.cards.set(type.id, { typeId: type.id, name, button, footer, padlock, star });
         uiLayer.add(button);
       }
     }
@@ -414,12 +422,13 @@ export class ShopUI {
     } else {
       entry.footer.showCost(card);
     }
-    // The lock sits on the picture; the star ("new") in the corner.
+    // The lock sits in the upper right corner of the picture, clear of name and condition (Korrekturrunde 2); the star
+    // ("new") in the corner of a card that is not locked.
     entry.padlock.setVisible(locked);
     if (locked) {
-      const size = Math.min(rect.width * 0.4, rect.height * 0.36);
-      drawPadlock(entry.padlock, size);
-      entry.padlock.setPosition(0, -rect.height * 0.2);
+      const lock = shopCardLock(rect.width, rect.height, shopCardText(entry.name, rect.width, rect.height, measureLabel));
+      entry.padlock.setDisplaySize(lock.width, lock.height);
+      entry.padlock.setPosition(lock.x + lock.width / 2 - rect.width / 2, lock.y + lock.height / 2 - rect.height / 2);
     }
     entry.star.setVisible(fresh && !locked).setPosition(rect.width / 2 - 10, -rect.height / 2 + 10);
   }
@@ -524,7 +533,17 @@ export class ShopUI {
     spots['shop-close'] = center(layout.close);
     for (const { card, rect } of this.shown.cards) {
       if (rect) {
-        spots[`item-${card.typeId}`] = { ...center(rect), state: card.state, fresh: this.cards.get(card.typeId)?.star.visible === true, active: chosen === card.typeId };
+        const entry = this.cards.get(card.typeId);
+        const parts = entry?.button.cardParts;
+        const spot: ShopSpot = { ...center(rect), state: card.state, fresh: entry?.star.visible === true, active: chosen === card.typeId, font: entry?.button.captionFont ?? 0, pic: Math.round(parts?.picture ?? 0) };
+        if (entry?.padlock.visible === true && parts) {
+          const { padlock } = entry;
+          const lock = { x: padlock.x - padlock.displayWidth / 2, y: padlock.y - padlock.displayHeight / 2, width: padlock.displayWidth, height: padlock.displayHeight };
+          const touches = (other: Rect): boolean => lock.x < other.x + other.width && other.x < lock.x + lock.width && lock.y < other.y + other.height && other.y < lock.y + lock.height;
+          spots[`item-${card.typeId}`] = { ...spot, lock: Math.round(lock.width), lockClear: !touches(parts.name) && !touches(parts.footer) };
+        } else {
+          spots[`item-${card.typeId}`] = spot;
+        }
       }
     }
     if (layout.paged && layout.prev && layout.next) {

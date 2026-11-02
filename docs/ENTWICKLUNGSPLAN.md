@@ -25,7 +25,7 @@ Ein gemütliches Aufbauspiel im Browser für **Kinder von 6 bis 10 Jahren**: Auf
 | Technik | Phaser 3 + TypeScript + Vite | siehe Abschnitt 4 |
 | Speichern | Lokal im Browser | IndexedDB, plus Export/Import als Datei |
 | Hosting | GitHub Pages (Repository ist öffentlich) | Automatisches Deployment bei jedem Push auf `main`, Adresse: squantomas.github.io/Schlumpfwelt |
-| Grafik | KI-generiert | Stilvorgabe früh festlegen, bis dahin Platzhalter |
+| Grafik | Eigene SVG-Zeichnungen (M9), einzeln durch KI-generierte oder gemalte Bilder ersetzbar | Jedes Bild hat einen festen Schlüssel; eine Datei `public/assets/<Schlüssel>.webp|png` ersetzt die Zeichnung. Stil in `docs/STIL_LEITFADEN.md`, Prompt-Vorlage je Bild in `docs/assets/` |
 | Thema | Schlümpfe, nicht kommerziell | Seite ist öffentlich erreichbar → Markenrecht Peyo/IMPS beachten: Name, Figuren und Texte in einer Theme-Datei bündeln, damit ein Umbenennen jederzeit möglich ist |
 | Arbeitsweise | M0–M9 laufen autonom (Claude-Agententeam, siehe `docs/PROMPT_M0-M9.md`), Projektleitung prüft nach M9 | Kleine Meilensteine, jeder sofort im Browser spielbar; Entscheidungen in `docs/ENTSCHEIDUNGEN.md` |
 
@@ -85,10 +85,12 @@ src/
 ├── sim/          # Welt, Gebäude, Wirtschaft, Schlümpfe, Wege, Uhr – kein Phaser
 ├── scenes/       # Phaser-Szenen: Boot, Insel, UI, Shop, Eltern
 ├── parent/       # Eltern: PIN, Einstellungen, Tageskonto (ohne Phaser, ab M8)
+├── art/          # alle Bilder als SVG mit festen Schlüsseln (rein, ab M9)
+├── audio/        # Geräusche und Musik mit Web Audio (ohne Phaser, ab M9)
 ├── ui/           # Buttons, Karten, Dialoge
 ├── data/         # buildings.json, goods.json, residents.json, names.json, texts.de.json
 └── save/         # IndexedDB, Export/Import
-public/assets/    # Grafiken, Sounds
+public/assets/    # gemalte Bilder, die eine Zeichnung ersetzen (ab M9)
 tests/
 .github/workflows/  # Build, Tests, Deployment auf GitHub Pages
 ```
@@ -117,7 +119,7 @@ Jeder Meilenstein endet mit einer Version, die auf GitHub Pages läuft und auf d
 | **M6** | Schlümpfe | Namen, Berufe, laufen auf Wegen, tragen Waren, Einladen im Shop, Ankunft per Boot |
 | **M7** | Wohnen & Stimmung | Häuser zuweisen, Wegelänge (wirkt nur auf die Stimmung, nie direkt auf den Ertrag), Essen, Deko-Bonus, Stimmung → Arbeitstempo |
 | **M8** | Kinderfreundlich | Tutorial (erste 5 Min), Eltern-Menü mit PIN und Tageslimit, Gute-Nacht-Sequenz |
-| **M9** | Look & Sound | Stil-Leitfaden, KI-Grafiken, Animationen, Musik, Geräusche |
+| **M9** | Look & Sound | ✅ Stil-Leitfaden, eigene SVG-Grafiken mit festen Schlüsseln (KI-Bilder ersetzen sie per Datei, Prompt-Vorlagen je Bild), ruhige Animationen, Musik und Geräusche mit Web Audio, Ton-Schalter |
 | — | **🎉 Erster Spieltest mit den Kindern** | Komplettes Spiel mit Tutorial, Grafik und Sound. Beobachten statt erklären, Erkenntnisse als Issues → fließen in M10 |
 | **M10** | Ausbau | Insel-Erweiterungen, Aufträge, Ereignisse (Händlerschiff, Regenbogen), Jahreszeiten |
 

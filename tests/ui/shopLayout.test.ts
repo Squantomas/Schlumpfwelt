@@ -2,7 +2,24 @@ import { describe, expect, it } from 'vitest';
 import { SHOP_CATEGORIES, shopItems } from '../../src/data/buildings';
 import type { Rect } from '../../src/ui/cameraMath';
 import { layoutBuildUi } from '../../src/ui/buildLayout';
-import { SHOP_ARROW, SHOP_CELL_HEIGHTS, shopCellRects, shopLayout, shopPages } from '../../src/ui/shopLayout';
+import { t, tBreakable } from '../../src/data/texts';
+import {
+  SHOP_ARROW,
+  SHOP_CARD_FOOTER_MIN,
+  SHOP_CARD_MIN_FONT,
+  SHOP_CARD_TEXT_INSET,
+  SHOP_CELL_HEIGHTS,
+  SHOP_CELL_WIDTHS,
+  shopCardLock,
+  shopCardParts,
+  shopCardNameDrawn,
+  shopCardPictureGoal,
+  shopCardRects,
+  shopCardText,
+  shopCellRects,
+  shopLayout,
+  shopPages,
+} from '../../src/ui/shopLayout';
 import { MIN_TAP_SIZE } from '../../src/ui/style';
 
 const SCREENS: readonly (readonly [number, number])[] = [
@@ -193,7 +210,7 @@ describe('Shop-Layout: Größe der Karten', () => {
   it('nimmt auf dem Tablet die breiten, hohen Karten und alle in einer Seite', () => {
     const shop = open(1024, 768).shop;
     expect(shop?.paged).toBe(false);
-    expect(shop?.cellW).toBe(104);
+    expect(shop?.cellW).toBe(SHOP_CELL_WIDTHS[0]);
     expect(shop?.cellH).toBe(SHOP_CELL_HEIGHTS[0]);
   });
 
@@ -245,5 +262,130 @@ describe('Shop-Layout: Größe der Karten', () => {
     const tablet = open(1024, 768).shop;
     expect(tablet?.rows).toBe(1);
     expect(tablet?.rect.height).toBeLessThan(768 / 2.5);
+  });
+});
+
+/** Breite eines Worts in fetter Systemschrift, eher zu breit geschätzt (im Spiel misst der Browser selbst). */
+function estimate(text: string, font: number): number {
+  return text.length * font * 0.58 + Math.max(2, Math.round(font * 0.14));
+}
+
+describe('Shop-Karten: der Name ist mindestens 12 px groß, lange Namen brechen um (M9, Korrekturrunde 1)', () => {
+  const names = SHOP_CATEGORIES.flatMap((category) => shopItems(category).map((type) => tBreakable(type.nameKey)));
+  const plain = (name: string): string => name.replaceAll('\u00ad', '');
+
+  it('die längsten Namen sind dabei', () => {
+    expect(names).toContain(t('build.invite'));
+    expect(names).toContain(t('build.houseGarden'));
+    expect(names).toContain(tBreakable('build.lumberjack'));
+    // Elsewhere the soft hyphen is not part of the name.
+    expect(t('build.lumberjack')).toBe('Holzfällerhütte');
+  });
+
+  for (const [width, height] of SCREENS) {
+    it(`${String(width)}×${String(height)}: jeder Name in höchstens zwei Zeilen, nie unter 12 px, Bild bleibt`, () => {
+      const shop = open(width, height).shop;
+      expect(shop).toBeDefined();
+      if (!shop) {
+        return;
+      }
+      for (const name of names) {
+        const caption = shopCardText(name, shop.cellW, shop.cellH, estimate);
+        expect(caption.font, name).toBeGreaterThanOrEqual(SHOP_CARD_MIN_FONT);
+        expect(caption.lines.length, name).toBeLessThanOrEqual(2);
+        expect(caption.lines.join(' ').replace(/- /g, ''), name).toBe(plain(name));
+        for (const line of caption.lines) {
+          expect(estimate(line, caption.font), `${name}: ${line}`).toBeLessThanOrEqual(shop.cellW - SHOP_CARD_TEXT_INSET);
+        }
+        const parts = shopCardParts(shop.cellH, caption);
+        expect(parts.picture, `${name}: Bild`).toBeGreaterThanOrEqual(14);
+        expect(parts.picture + parts.caption + parts.footer + parts.margins).toBeCloseTo(shop.cellH);
+      }
+    });
+  }
+
+  it('auf dem Tablet quer größer als das Minimum: mindestens 14 px (alle Karten bleiben in einer Reihe)', () => {
+    const shop = open(1024, 768).shop;
+    expect(shop?.rows).toBe(1);
+    for (const name of names) {
+      expect(shopCardText(name, shop?.cellW ?? 0, shop?.cellH ?? 0, estimate).font, name).toBeGreaterThanOrEqual(14);
+    }
+  });
+
+  it('ein langes Wort bricht an seinem weichen Trennstrich, mit Strich am Ende der Zeile', () => {
+    expect(shopCardText(tBreakable('build.lumberjack'), 88, 72, estimate).lines).toEqual(['Holzfäller-', 'hütte']);
+    expect(shopCardText(tBreakable('build.lumberjack'), 400, 120, estimate).lines).toEqual(['Holzfällerhütte']);
+  });
+
+  it('ein Wort, das in eine Zeile passt, bricht nicht um', () => {
+    expect(shopCardText('Blume', 104, 120, estimate).lines).toEqual(['Blume']);
+    expect(shopCardText('Pilzhaus mit Garten', 104, 120, estimate).lines).toHaveLength(2);
+  });
+});
+
+describe('Shop-Karten: das Bild bleibt groß genug, das Schloss verdeckt weder Name noch Bedingung (M9, Korrekturrunde 2)', () => {
+  const names = SHOP_CATEGORIES.flatMap((category) => shopItems(category).map((type) => tBreakable(type.nameKey)));
+  const sizes = new Map<string, readonly [number, number]>();
+  for (const [width, height] of SCREENS) {
+    const shop = open(width, height).shop;
+    if (shop) {
+      sizes.set(`${String(shop.cellW)}×${String(shop.cellH)}`, [shop.cellW, shop.cellH]);
+    }
+  }
+  for (const w of SHOP_CELL_WIDTHS) {
+    for (const h of SHOP_CELL_HEIGHTS) {
+      sizes.set(`${String(w)}×${String(h)}`, [w, h]);
+    }
+  }
+
+  it('das Ziel fürs Bild: 32 px, auf Karten unter 80 px 40 % der Höhe', () => {
+    expect(shopCardPictureGoal(120)).toBe(32);
+    expect(shopCardPictureGoal(100)).toBe(32);
+    expect(shopCardPictureGoal(72)).toBeCloseTo(28.8);
+  });
+
+  for (const [label, [cellW, cellH]] of sizes) {
+    it(`Karte ${label}: Bild mindestens beim Ziel, sonst Name 12 px und schmaler Fuß; Schloss im Bild, frei von Name und Bedingung`, () => {
+      for (const name of names) {
+        const text = shopCardText(name, cellW, cellH, estimate);
+        const parts = shopCardParts(cellH, text);
+        const goal = shopCardPictureGoal(cellH);
+        if (parts.picture < goal - 0.001) {
+          // The card has no more room: the name is as small as allowed and the footer gave way as far as it may.
+          expect(text.font, `${name}: Schrift`).toBe(SHOP_CARD_MIN_FONT);
+          expect(text.footer, `${name}: Fuß`).toBeCloseTo(Math.min(SHOP_CARD_FOOTER_MIN, cellH * 0.3));
+        }
+        expect(text.footer, `${name}: Fuß`).toBeGreaterThanOrEqual(Math.min(SHOP_CARD_FOOTER_MIN, cellH * 0.3) - 0.001);
+        const rects = shopCardRects(cellW, cellH, text);
+        const lock = shopCardLock(cellW, cellH, text);
+        const card = { x: 0, y: 0, width: cellW, height: cellH };
+        expect(inside(lock, card), `${name}: Schloss in der Karte`).toBe(true);
+        expect(lock.y, `${name}: Schloss im Rahmen`).toBeGreaterThanOrEqual(3);
+        expect(lock.y + lock.height, `${name}: Schloss reicht unter das Bild`).toBeLessThanOrEqual(rects.picture.y + rects.picture.height);
+        expect(intersects(lock, rects.name), `${name}: Schloss auf dem Namen`).toBe(false);
+        expect(intersects(lock, rects.drawnName), `${name}: Schloss auf dem gezeichneten Namen`).toBe(false);
+        expect(intersects(lock, rects.footer), `${name}: Schloss auf der Bedingung`).toBe(false);
+        expect(lock.width, `${name}: Schloss zu klein`).toBeGreaterThanOrEqual(14);
+        expect(rects.footer.y + rects.footer.height, `${name}: Fuß in der Karte`).toBeLessThanOrEqual(cellH);
+      }
+    });
+  }
+
+  it('die Höhe des gezeichneten Namens passt zu den Messungen im Browser (2 Zeilen: 12 px → 34, 13 px → 38, 15 px → 42)', () => {
+    expect(shopCardNameDrawn({ font: 12, lines: ['a', 'b'], height: 0, footer: 0 })).toBe(34);
+    expect(shopCardNameDrawn({ font: 13, lines: ['a', 'b'], height: 0, footer: 0 })).toBe(38);
+    expect(shopCardNameDrawn({ font: 15, lines: ['a', 'b'], height: 0, footer: 0 })).toBe(42);
+  });
+
+  it('auf dem Tablet quer (104×120) bleibt der Name 15 px groß und das Bild über 32 px', () => {
+    const text = shopCardText(t('build.houseBig'), 104, 120, estimate);
+    expect(text.font).toBe(15);
+    expect(shopCardParts(120, text).picture).toBeGreaterThanOrEqual(32);
+  });
+
+  it('auf 320×568 (88×100) hat das Bild 32 px', () => {
+    for (const name of names) {
+      expect(shopCardParts(100, shopCardText(name, 88, 100, estimate)).picture, name).toBeGreaterThanOrEqual(32);
+    }
   });
 });

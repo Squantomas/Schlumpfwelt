@@ -48,6 +48,17 @@ export function zoomLayout(width: number, height: number): ZoomLayout {
   return { radius, zoomIn, zoomOut, menu, rect: { x: x - radius, y: margin, width: 2 * radius, height: 4 * radius + gap } };
 }
 
+/**
+ * The controls at the top that stay on screen under the good-night layer (dimmed): the store bar, the two zoom
+ * buttons and the gear below them – the moon keeps clear of them (M9, Korrekturrunde 1).
+ */
+export function topControls(width: number, height: number, stockCount: number): readonly Rect[] {
+  const zoom = zoomLayout(width, height);
+  const stock = stockLayout(width, height, stockCount, zoom.rect.x - GAP);
+  const gear: Rect = { x: zoom.menu.x - zoom.radius, y: zoom.menu.y - zoom.radius, width: 2 * zoom.radius, height: 2 * zoom.radius };
+  return [stock.rect, zoom.rect, gear];
+}
+
 /** Horizontal place of the hint bar: always the same width, clear of the zoom column. */
 export function hintBarGeometry(width: number): { x: number; width: number } {
   const maxBar = Math.max(width - 2 * ZOOM_COLUMN, Math.min(width - ZOOM_COLUMN - 12, 420));

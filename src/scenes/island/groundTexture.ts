@@ -9,11 +9,42 @@ import { COLORS, FLOWER_PETALS, TILE_SIZE, cssColor, cssRgba } from '../../ui/st
  * rocks are not part of it – they are sprites that are sorted by their y
  * position.
  *
- * Placeholder look until the real graphics come in M8: flat, friendly colours,
- * a darker lip below every raised edge, rounded outer corners and a bit of
+ * A darker lip below every raised edge, rounded outer corners and a bit of
  * scattered detail (flowers, tufts, moss, pebbles) that depends only on seed
  * and tile position. Every one of the five terrains has its own ground colour.
+ *
+ * M9: with the pictures of `src/art/` ({@link GroundArt}) every terrain is
+ * filled with its seamless pattern (anchored at the world origin, so blocks
+ * join without a seam) and the details are small stamped pictures; without
+ * them (unit tests) the flat colours and drawn details remain.
  */
+
+/** The little pictures scattered on the ground (M9), each {@link STAMP_PX} square. */
+export type GroundStamp = 'flowers' | 'tuft' | 'mushroom' | 'pebbles' | 'shell';
+export const STAMP_PX = 20;
+
+/** The pictures the ground is painted with (M9): a pattern per terrain and the stamps. Missing ones fall back to colours. */
+export interface GroundArt {
+  readonly patterns: Partial<Readonly<Record<Terrain, CanvasImageSource>>>;
+  readonly stamps: Partial<Readonly<Record<GroundStamp, CanvasImageSource>>>;
+}
+
+/** The fills of one painting: the patterns made for this canvas (a pattern belongs to the context that made it). */
+interface Fills {
+  readonly pattern: Partial<Record<Terrain, CanvasPattern>>;
+  readonly stamps: GroundArt['stamps'];
+}
+
+function fillsFor(ctx: CanvasRenderingContext2D, art: GroundArt | undefined): Fills {
+  const pattern: Partial<Record<Terrain, CanvasPattern>> = {};
+  for (const [terrain, source] of Object.entries(art?.patterns ?? {}) as [Terrain, CanvasImageSource][]) {
+    const made = ctx.createPattern(source, 'repeat');
+    if (made) {
+      pattern[terrain] = made;
+    }
+  }
+  return { pattern, stamps: art?.stamps ?? {} };
+}
 
 /** Height of the darker lip below beach and meadow edges, in world px. */
 const LIP = 5;
@@ -142,14 +173,16 @@ export function blockShown(block: GroundBlock): { x: number; y: number; width: n
 }
 
 /** Paints one block from scratch onto a canvas of the size {@link blockArea} says (the origin of the canvas is the corner of that area). */
-export function paintGroundBlock(ctx: CanvasRenderingContext2D, world: WorldView, seed: number, block: GroundBlock): void {
+export function paintGroundBlock(ctx: CanvasRenderingContext2D, world: WorldView, seed: number, block: GroundBlock, art?: GroundArt): void {
   const area = blockArea(block);
   ctx.save();
+  // World coordinates: a pattern starts at the world origin in every block, so neighbouring blocks join without a seam.
   ctx.translate(-area.x, -area.y);
-  ctx.fillStyle = cssColor(COLORS.waterDeep);
+  const fills = fillsFor(ctx, art);
+  ctx.fillStyle = fills.pattern.water ?? cssColor(COLORS.waterDeep);
   ctx.fillRect(area.x, area.y, area.width, area.height);
   // Tiles up to REPAINT_REACH outside the block can reach into it (halos, foam, details).
-  paintLayers(ctx, world, seed, growRange(world, block.range, REPAINT_REACH));
+  paintLayers(ctx, world, seed, growRange(world, block.range, REPAINT_REACH), fills);
   ctx.restore();
 }
 
@@ -175,7 +208,7 @@ export function paintGround(ctx: CanvasRenderingContext2D, world: WorldView, see
   }
   ctx.fillStyle = cssColor(COLORS.waterDeep);
   ctx.fillRect(0, 0, width, height);
-  paintLayers(ctx, world, seed, { x0: 0, y0: 0, x1: world.width - 1, y1: world.height - 1 });
+  paintLayers(ctx, world, seed, { x0: 0, y0: 0, x1: world.width - 1, y1: world.height - 1 }, fillsFor(ctx, undefined));
 }
 
 function growRange(world: WorldView, range: TileRange, by: number): TileRange {
@@ -188,20 +221,24 @@ function growRange(world: WorldView, range: TileRange, by: number): TileRange {
 }
 
 /** All layers, bottom to top, for the tiles in `range` (the sea under them has been filled already). */
-function paintLayers(ctx: CanvasRenderingContext2D, world: WorldView, seed: number, range: TileRange): void {
+function paintLayers(ctx: CanvasRenderingContext2D, world: WorldView, seed: number, range: TileRange, fills: Fills): void {
   const level = (x: number, y: number): number => levelOf(terrainAt(world, x, y));
   paintSeaHalos(ctx, level, range);
   paintFoam(ctx, level, range);
   // Beach: lip first, then the sand on top; then the same for the meadow.
   paintTiles(ctx, world, range, (x, y) => level(x, y) < 1, 1, LIP + 1, () => COLORS.sandShade);
-  paintTiles(ctx, world, range, (x, y) => level(x, y) < 1, 1, 0, () => COLORS.sand);
+  paintTiles(ctx, world, range, (x, y) => level(x, y) < 1, 1, 0, () => fills.pattern.sand ?? COLORS.sand);
   paintTiles(ctx, world, range, (x, y) => level(x, y) < 2, 2, LIP, () => COLORS.grassShade);
-  paintTiles(ctx, world, range, (x, y) => level(x, y) < 2, 2, 0, () => COLORS.grass);
+  paintTiles(ctx, world, range, (x, y) => level(x, y) < 2, 2, 0, () => fills.pattern.grass ?? COLORS.grass);
   // Forest floor and rocky ground are patches on the meadow with their own colour.
-  paintPatch(ctx, world, range, 'forest', COLORS.forestFloor);
-  paintPatch(ctx, world, range, 'rock', COLORS.rockFloor);
+  paintPatch(ctx, world, range, 'forest', fills.pattern.forest ?? COLORS.forestFloor);
+  paintPatch(ctx, world, range, 'rock', fills.pattern.rock ?? COLORS.rockFloor);
 
-  paintDetails(ctx, world, seed, range);
+  if (Object.keys(fills.pattern).length > 0) {
+    paintStamps(ctx, world, seed, range, fills.stamps);
+  } else {
+    paintDetails(ctx, world, seed, range);
+  }
 }
 
 /** Lighter water around the land: three soft steps from deep to shallow. */
@@ -240,21 +277,22 @@ function paintTiles(
   lower: (x: number, y: number) => boolean,
   minLevel: number,
   offset: number,
-  colorOf: (terrain: Terrain) => number,
+  colorOf: (terrain: Terrain) => number | CanvasPattern,
 ): void {
   forEachTile(range, (x, y) => {
     if (levelOf(terrainAt(world, x, y)) < minLevel) {
       return;
     }
-    ctx.fillStyle = cssColor(colorOf(terrainAt(world, x, y)));
+    const fill = colorOf(terrainAt(world, x, y));
+    ctx.fillStyle = typeof fill === 'number' ? cssColor(fill) : fill;
     paintTile(ctx, x, y, offset, lower);
     ctx.fill();
   });
 }
 
 /** Paints all tiles of one terrain in `color`; outer corners are rounded where both neighbours are another terrain. */
-function paintPatch(ctx: CanvasRenderingContext2D, world: WorldView, range: TileRange, terrain: Terrain, color: number): void {
-  ctx.fillStyle = cssColor(color);
+function paintPatch(ctx: CanvasRenderingContext2D, world: WorldView, range: TileRange, terrain: Terrain, color: number | CanvasPattern): void {
+  ctx.fillStyle = typeof color === 'number' ? cssColor(color) : color;
   const other = (x: number, y: number): boolean => terrainAt(world, x, y) !== terrain;
   forEachTile(range, (x, y) => {
     if (terrainAt(world, x, y) === terrain) {
@@ -381,6 +419,64 @@ function paintDetails(ctx: CanvasRenderingContext2D, world: WorldView, seed: num
         }
         break;
       }
+      case 'water':
+        break;
+    }
+  });
+}
+
+/**
+ * The details over the patterns (M9): the patterns already have tufts, moss, slabs and specks; on top come soft
+ * patches that break the repetition and now and then a small picture (flowers, a tuft, a toadstool, pebbles, a shell).
+ */
+function paintStamps(ctx: CanvasRenderingContext2D, world: WorldView, seed: number, range: TileRange, stamps: GroundArt['stamps']): void {
+  const stamp = (name: GroundStamp, x: number, y: number): void => {
+    const picture = stamps[name];
+    if (picture) {
+      ctx.drawImage(picture, x - STAMP_PX / 2, y - STAMP_PX / 2, STAMP_PX, STAMP_PX);
+    }
+  };
+  forEachTile(range, (x, y) => {
+    const terrain = terrainAt(world, x, y);
+    const r = (n: number): number => hash2(seed + n * 101, x, y);
+    const spot = (a: number, b: number): [number, number] => [
+      x * TILE_SIZE + DECO_MARGIN + r(a) * (TILE_SIZE - 2 * DECO_MARGIN),
+      y * TILE_SIZE + DECO_MARGIN + r(b) * (TILE_SIZE - 2 * DECO_MARGIN),
+    ];
+    switch (terrain) {
+      case 'grass':
+        if (r(1) < 0.35) {
+          ctx.fillStyle = cssRgba(r(2) < 0.5 ? COLORS.patchLight : COLORS.patchDark, 0.07);
+          const [cx, cy] = spot(3, 4);
+          blob(ctx, cx, cy, 16 + r(5) * 8, 10 + r(6) * 6, r(7) * 3);
+        }
+        if (r(8) < 0.3) {
+          stamp('tuft', ...spot(9, 10));
+        }
+        if (r(11) < 0.12) {
+          stamp('flowers', ...spot(12, 13));
+        }
+        break;
+      case 'forest':
+        if (r(15) < 0.5) {
+          ctx.fillStyle = cssRgba(COLORS.forestFloorDark, 0.45);
+          const [bx, by] = spot(16, 17);
+          blob(ctx, bx, by, 13 + r(20) * 8, 8 + r(22) * 5, r(24) * 3);
+        }
+        if (r(60) < 0.08) {
+          stamp('mushroom', ...spot(61, 62));
+        }
+        break;
+      case 'rock':
+        if (r(40) < 0.3) {
+          stamp('pebbles', ...spot(41, 42));
+        }
+        break;
+      case 'sand':
+        if (r(90) < 0.06) {
+          stamp('shell', ...spot(91, 92));
+        }
+        break;
       case 'water':
         break;
     }

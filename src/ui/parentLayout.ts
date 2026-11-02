@@ -1,4 +1,6 @@
 import type { Rect } from './cameraMath';
+import { t } from '../data/texts';
+import { MIN_TAP_SIZE } from './style';
 
 /**
  * Where the parts of the parents' menu go (M8), pure maths in CSS px, tested on every screen size: nothing overlaps,
@@ -118,17 +120,58 @@ export interface ParentSettingsLayout {
   readonly extra: Rect;
   readonly pin: Rect;
   readonly tutorial: Rect;
+  /** M9: music and noises on/off, side by side (on a narrow sideways screen one under the other). */
+  readonly music: Rect;
+  readonly sfx: Rect;
   readonly low: boolean;
   readonly titleFont: number;
   readonly textFont: number;
   readonly buttonFont: number;
+  /**
+   * Korrekturrunde 2 of M9: the font of the actions and the two sound switches – one for all of them, as big as the
+   * longest word of the switches allows in one line (at most `buttonFont`, at least 14 px).
+   */
+  readonly soundFont: number;
+}
+
+/** The words the sound switches can show (the longest one decides the font of the row). */
+export const SOUND_KEYS = ['parent.musicOn', 'parent.musicOff', 'parent.sfxOn', 'parent.sfxOff'] as const;
+/** Room left and right of a word that stays in one line (CSS px, see `TextButton`'s `oneLine`). */
+export const ONE_LINE_PAD = 6;
+const MIN_SOUND_FONT = 14;
+
+/** A careful guess of how wide a word is in the game's bold font (0.58 em a letter, measured 0.48–0.56) with its outline. */
+export function estimateWidth(text: string, font: number): number {
+  return [...text].length * 0.58 * font + 2 * Math.max(2, Math.round(font * 0.14));
+}
+
+function soundWidth(font: number): number {
+  return Math.max(...SOUND_KEYS.map((key) => estimateWidth(t(key), font))) + 2 * ONE_LINE_PAD;
+}
+
+/** The biggest font (≤ `maxFont`, ≥ 14) at which every word of the switches fits a button `width` wide in one line. */
+function soundFontFor(width: number, maxFont: number): number {
+  for (let font = maxFont; font > MIN_SOUND_FONT; font -= 1) {
+    if (soundWidth(font) <= width) {
+      return font;
+    }
+  }
+  return MIN_SOUND_FONT;
 }
 
 const CHOICE_H = 52;
 const ACTION_H = 56;
+/** Upright the three actions are a little lower since M9, so the row of the sound fits the phone (320×568). */
+const UPRIGHT_ACTION_H = 52;
+const SOUND_H = 52;
+/** Sideways (M9): a little less frame and a lower title, so four rows of 48 px fit on the right (320 px high). */
+const LOW_PAD = 12;
+const LOW_HEADER_H = 48;
 const LABEL_H = 28;
 const TEXT_H = 52;
-const UPRIGHT_SETTINGS_H = PAD + HEADER_H + GAP + LABEL_H + GAP + 2 * CHOICE_H + GAP + GAP + TEXT_H + GAP + 3 * ACTION_H + 2 * GAP + PAD;
+/** Upright: the frame below the row of the sound is as wide as above the title (Korrekturrunde 1). */
+const UPRIGHT_SETTINGS_H =
+  PAD + HEADER_H + GAP + LABEL_H + GAP + 2 * CHOICE_H + GAP + GAP + TEXT_H + GAP + 3 * (UPRIGHT_ACTION_H + GAP) + SOUND_H + PAD;
 
 function choiceGrid(left: number, top: number, innerW: number, count: number): Rect[] {
   const cols = 3;
@@ -157,28 +200,80 @@ export function parentSettingsLayout(width: number, height: number, choiceCount:
     const label: Rect = { x: innerX, y: title.y + HEADER_H + GAP, width: innerW, height: LABEL_H };
     const choicesTop = label.y + LABEL_H + GAP;
     const choices = choiceGrid(innerX, choicesTop, innerW, choiceCount);
-    const text: Rect = { x: innerX, y: choicesTop + choicesH + 2 * GAP, width: innerW, height: TEXT_H };
+    const text: Rect = { x: innerX, y: choicesTop + choicesH + GAP, width: innerW, height: TEXT_H };
     const actionTop = text.y + TEXT_H + GAP;
-    const action = (index: number): Rect => ({ x: innerX, y: actionTop + index * (ACTION_H + GAP), width: innerW, height: ACTION_H });
-    return { veil, panel, title, close, label, choices, text, extra: action(0), pin: action(1), tutorial: action(2), low, titleFont: width < 420 ? 24 : 28, textFont: width < 420 ? 15 : 17, buttonFont: width < 420 ? 17 : 20 };
+    const action = (index: number): Rect => ({ x: innerX, y: actionTop + index * (UPRIGHT_ACTION_H + GAP), width: innerW, height: UPRIGHT_ACTION_H });
+    const soundTop = actionTop + 3 * (UPRIGHT_ACTION_H + GAP);
+    const half = (innerW - GAP) / 2;
+    const music: Rect = { x: innerX, y: soundTop, width: half, height: SOUND_H };
+    const sfx: Rect = { x: innerX + half + GAP, y: soundTop, width: half, height: SOUND_H };
+    return {
+      veil,
+      panel,
+      title,
+      close,
+      label,
+      choices,
+      text,
+      extra: action(0),
+      pin: action(1),
+      tutorial: action(2),
+      music,
+      sfx,
+      low,
+      titleFont: width < 420 ? 24 : 28,
+      textFont: width < 420 ? 15 : 17,
+      buttonFont: width < 420 ? 17 : 20,
+      soundFont: soundFontFor(half, width < 420 ? 17 : 20),
+    };
   }
   const panelW = Math.min(760, width - 2 * PARENT_MARGIN);
   const panelH = Math.min(440, height - 2 * PARENT_MARGIN);
   const panel = panelAt(width, height, panelW, panelH);
-  const innerX = panel.x + PAD;
-  const innerW = panelW - 2 * PAD;
-  const close: Rect = { x: panel.x + panelW - PAD - PARENT_CLOSE, y: panel.y + PAD, width: PARENT_CLOSE, height: PARENT_CLOSE };
-  const title: Rect = { x: innerX, y: panel.y + PAD, width: close.x - GAP - innerX, height: HEADER_H };
-  const bodyTop = title.y + HEADER_H + GAP;
-  const bodyH = panel.y + panelH - PAD - bodyTop;
+  const innerX = panel.x + LOW_PAD;
+  const innerW = panelW - 2 * LOW_PAD;
+  const close: Rect = { x: panel.x + panelW - LOW_PAD - LOW_HEADER_H, y: panel.y + LOW_PAD, width: LOW_HEADER_H, height: LOW_HEADER_H };
+  const title: Rect = { x: innerX, y: panel.y + LOW_PAD, width: close.x - GAP - innerX, height: LOW_HEADER_H };
+  const bodyTop = title.y + LOW_HEADER_H + GAP;
+  const bodyH = panel.y + panelH - LOW_PAD - bodyTop;
   const colW = (innerW - 2 * GAP) / 2;
-  const label: Rect = { x: innerX, y: bodyTop, width: colW, height: LABEL_H };
+  // The right column is wider where the two switches would not fit their words in one line at 14 px (Korrekturrunde 2),
+  // as long as the choices on the left stay big enough to tap; where even that is too narrow (a square screen), the
+  // two switches stand one under the other – if five rows of 48 px fit.
+  const widened = Math.min(Math.max(colW, 2 * soundWidth(MIN_SOUND_FONT) + GAP), innerW - 2 * GAP - (3 * MIN_TAP_SIZE + 2 * GAP));
+  const stacked = (widened - GAP) / 2 < soundWidth(MIN_SOUND_FONT) && (bodyH - 4 * GAP) / 5 >= MIN_TAP_SIZE;
+  const rightW = stacked ? colW : widened;
+  const leftW = innerW - 2 * GAP - rightW;
+  const label: Rect = { x: innerX, y: bodyTop, width: leftW, height: LABEL_H };
   const choicesTop = bodyTop + LABEL_H + GAP;
-  const choices = choiceGrid(innerX, choicesTop, colW, choiceCount);
+  const choices = choiceGrid(innerX, choicesTop, leftW, choiceCount);
   const textTop = choicesTop + choicesH + GAP;
-  const text: Rect = { x: innerX, y: textTop, width: colW, height: bodyTop + bodyH - textTop };
-  const rightX = innerX + colW + 2 * GAP;
-  const actionH = Math.min(ACTION_H + 8, (bodyH - 2 * GAP) / 3);
-  const action = (index: number): Rect => ({ x: rightX, y: bodyTop + index * (actionH + GAP), width: colW, height: actionH });
-  return { veil, panel, title, close, label, choices, text, extra: action(0), pin: action(1), tutorial: action(2), low, titleFont: 22, textFont: 14, buttonFont: 16 };
+  const text: Rect = { x: innerX, y: textTop, width: leftW, height: bodyTop + bodyH - textTop };
+  const rightX = innerX + leftW + 2 * GAP;
+  const rowsRight = stacked ? 5 : 4;
+  const actionH = Math.min(ACTION_H + 8, (bodyH - (rowsRight - 1) * GAP) / rowsRight);
+  const action = (index: number): Rect => ({ x: rightX, y: bodyTop + index * (actionH + GAP), width: rightW, height: actionH });
+  const sound = action(3);
+  const half = stacked ? rightW : (rightW - GAP) / 2;
+  const music: Rect = { ...sound, width: half };
+  const sfx: Rect = stacked ? action(4) : { ...sound, x: sound.x + half + GAP, width: half };
+  return {
+    veil,
+    panel,
+    title,
+    close,
+    label,
+    choices,
+    text,
+    extra: action(0),
+    pin: action(1),
+    tutorial: action(2),
+    music,
+    sfx,
+    low,
+    titleFont: 22,
+    textFont: 14,
+    buttonFont: 16,
+    soundFont: soundFontFor(half, 16),
+  };
 }

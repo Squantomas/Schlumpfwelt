@@ -189,3 +189,155 @@ export function shopCellRects(layout: ShopLayout, onPage: number): Rect[] {
   }
   return rects;
 }
+
+/** The name on a card is never smaller than this (CSS px, Korrekturrunde 1): a long name breaks into two lines instead. */
+export const SHOP_CARD_MIN_FONT = 12;
+/** The largest name on a card (CSS px). */
+const SHOP_CARD_MAX_FONT = 16;
+/** Room left and right of the name, together (CSS px). */
+export const SHOP_CARD_TEXT_INSET = 8;
+/** Height of a line of the name, as a share of its font size. */
+const SHOP_CARD_LINE = 1.15;
+/** Shares of the card height: the footer with the cost (at most), and the frame above the picture and below the footer. */
+export const SHOP_CARD_FOOTER_SHARE = 0.3;
+const SHOP_CARD_MARGIN_SHARE = 0.07;
+/** The footer gives way to the picture down to this height (CSS px): its numbers stay at 13 px. */
+export const SHOP_CARD_FOOTER_MIN = 20;
+/** The picture of a card should be this high (CSS px) – on low cards 40 % of the card ({@link shopCardPictureGoal}). */
+export const SHOP_CARD_PICTURE_GOAL = 32;
+const SHOP_CARD_PICTURE_SHARE = 0.4;
+/** The lock of a locked card: at most this big (CSS px), this far from the right edge and from the top (inside the rim). */
+const SHOP_LOCK_MAX = 30;
+const SHOP_LOCK_INSET = 5;
+const SHOP_LOCK_TOP = 3;
+
+export interface ShopCardText {
+  readonly font: number;
+  readonly lines: readonly string[];
+  /** Height of the name (CSS px). */
+  readonly height: number;
+  /** Height of the footer (CSS px): it gives way first when the picture would be too small. */
+  readonly footer: number;
+}
+
+/** How high the picture of a card should be at least (Korrekturrunde 2): 32 px, on a card under 80 px 40 % of it. */
+export function shopCardPictureGoal(cellH: number): number {
+  return Math.min(SHOP_CARD_PICTURE_GOAL, cellH * SHOP_CARD_PICTURE_SHARE);
+}
+
+/** The soft hyphen of a name (see `tBreakable` in `src/data/texts.ts`): a long word may break there, with a dash. */
+const SOFT_HYPHEN = '\u00ad';
+
+/**
+ * Words in lines of at most `maxWidth`. A word too wide for a line of its own breaks at its soft hyphens (the line ends
+ * with "-"); a word without one that is still too wide stays alone on its line (the caller then tries a smaller font).
+ */
+function wrapWords(text: string, maxWidth: number, width: (line: string) => number): string[] {
+  const lines: string[] = [];
+  const append = (piece: string, joiner: string): void => {
+    const last = lines[lines.length - 1];
+    if (last !== undefined && width(`${last}${joiner}${piece}`) <= maxWidth) {
+      lines[lines.length - 1] = `${last}${joiner}${piece}`;
+    } else {
+      lines.push(piece);
+    }
+  };
+  for (const word of text.split(/\s+/).filter((part) => part.length > 0)) {
+    const whole = word.replaceAll(SOFT_HYPHEN, '');
+    const last = lines[lines.length - 1];
+    if ((last !== undefined && width(`${last} ${whole}`) <= maxWidth) || width(whole) <= maxWidth || !word.includes(SOFT_HYPHEN)) {
+      append(whole, ' ');
+      continue;
+    }
+    // Break the word: as many syllables per line as fit with the dash.
+    const syllables = word.split(SOFT_HYPHEN);
+    let current = '';
+    for (const [index, syllable] of syllables.entries()) {
+      const rest = index === syllables.length - 1;
+      const next = current + syllable;
+      if (current !== '' && width(rest ? next : `${next}-`) > maxWidth) {
+        lines.push(`${current}-`);
+        current = syllable;
+      } else {
+        current = next;
+      }
+    }
+    lines.push(current);
+  }
+  return lines;
+}
+
+/** How the parts of a card share its height: picture, name, footer (the cost) and the frame. */
+export function shopCardParts(cellH: number, text: ShopCardText): { readonly picture: number; readonly caption: number; readonly footer: number; readonly margins: number } {
+  const margins = cellH * SHOP_CARD_MARGIN_SHARE;
+  return { picture: cellH - text.footer - margins - text.height, caption: text.height, footer: text.footer, margins };
+}
+
+/**
+ * Height of the name as `createLabel` draws it (CSS px, see `src/ui/label.ts`): each line about 1.2 × the font plus the
+ * outline, and the shadow below – a little more than the room the layout plans for it ({@link SHOP_CARD_LINE}).
+ */
+export function shopCardNameDrawn(text: ShopCardText): number {
+  const outline = Math.max(2, Math.round(text.font * 0.14));
+  const shadow = Math.max(2, Math.round(text.font * 0.06));
+  return text.lines.length * (Math.round(text.font * 1.2) + outline) + shadow;
+}
+
+/**
+ * Where the parts of a card lie, from its top left corner (CSS px): the picture, the name as planned, the name as drawn
+ * (centred on the planned one, see {@link shopCardNameDrawn}) and the footer (cost or condition).
+ */
+export function shopCardRects(cellW: number, cellH: number, text: ShopCardText): { readonly picture: Rect; readonly name: Rect; readonly drawnName: Rect; readonly footer: Rect } {
+  const parts = shopCardParts(cellH, text);
+  const top = parts.margins * (4 / 7);
+  const name = { x: SHOP_CARD_TEXT_INSET / 2, y: top + parts.picture, width: cellW - SHOP_CARD_TEXT_INSET, height: parts.caption };
+  const drawn = shopCardNameDrawn(text);
+  return {
+    picture: { x: 0, y: top, width: cellW, height: parts.picture },
+    name,
+    drawnName: { x: name.x, y: name.y + (name.height - drawn) / 2, width: name.width, height: drawn },
+    footer: { x: 4, y: top + parts.picture + parts.caption, width: cellW - 8, height: parts.footer },
+  };
+}
+
+/**
+ * The lock of a locked card (Korrekturrunde 2): in the upper right corner, inside the rim, on the picture – it ends a
+ * pixel above the name as drawn, so it never touches the name or the condition below ("1/2", "0/200"), and the picture
+ * stays recognisable. From the top left corner of the card.
+ */
+export function shopCardLock(cellW: number, cellH: number, text: ShopCardText): Rect {
+  const { drawnName } = shopCardRects(cellW, cellH, text);
+  const size = Math.max(0, Math.min(SHOP_LOCK_MAX, drawnName.y - 1 - SHOP_LOCK_TOP, cellW * 0.3));
+  return { x: cellW - SHOP_LOCK_INSET - size, y: SHOP_LOCK_TOP, width: size, height: size };
+}
+
+/**
+ * The name of a card: as big as the card allows (up to {@link SHOP_CARD_MAX_FONT}), in one line or – when that does not
+ * fit – two, never below {@link SHOP_CARD_MIN_FONT}. The picture keeps {@link shopCardPictureGoal} where the card has
+ * room for it (Korrekturrunde 2): the footer gives way first (down to {@link SHOP_CARD_FOOTER_MIN}), then the name gets
+ * smaller; where even 12 px leave less, the picture takes what is left. `measure` is the width of a text at a font size
+ * (the browser measures it in the game, the tests estimate it).
+ */
+export function shopCardText(text: string, cellW: number, cellH: number, measure: (text: string, font: number) => number): ShopCardText {
+  const maxWidth = cellW - SHOP_CARD_TEXT_INSET;
+  const largest = Math.min(SHOP_CARD_MAX_FONT, Math.max(SHOP_CARD_MIN_FONT, Math.round(cellH * 0.125)));
+  const goal = shopCardPictureGoal(cellH);
+  const rest = cellH - cellH * SHOP_CARD_MARGIN_SHARE;
+  const fullFooter = cellH * SHOP_CARD_FOOTER_SHARE;
+  const leastFooter = Math.min(fullFooter, SHOP_CARD_FOOTER_MIN);
+  const make = (font: number, lines: readonly string[]): ShopCardText => {
+    const height = lines.length * font * SHOP_CARD_LINE + 1;
+    const footer = Math.min(fullFooter, Math.max(leastFooter, rest - height - goal));
+    return { font, lines, height, footer };
+  };
+  for (let font = largest; font >= SHOP_CARD_MIN_FONT; font -= 1) {
+    const lines = wrapWords(text, maxWidth, (line) => measure(line, font));
+    if (lines.length <= 2 && lines.every((line) => measure(line, font) <= maxWidth)) {
+      const card = make(font, lines);
+      if (rest - card.height - card.footer >= goal - 0.001 || font === SHOP_CARD_MIN_FONT) {
+        return card;
+      }
+    }
+  }
+  return make(SHOP_CARD_MIN_FONT, wrapWords(text, maxWidth, (line) => measure(line, SHOP_CARD_MIN_FONT)));
+}

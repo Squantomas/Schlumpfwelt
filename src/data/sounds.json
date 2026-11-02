@@ -1,0 +1,141 @@
+{
+  "volume": { "master": 0.5, "sfx": 0.55, "music": 0.2 },
+  "fadeMs": { "toggle": 250, "hide": 80, "dusk": 5000, "wake": 2500 },
+  "maxVoices": 10,
+  "sounds": {
+    "tap": {
+      "gapMs": 70,
+      "gain": 0.22,
+      "pitchCents": 150,
+      "variants": [
+        [{ "wave": "sine", "freq": 990, "to": 740, "dur": 70 }],
+        [{ "wave": "sine", "freq": 880, "to": 660, "dur": 70 }]
+      ]
+    },
+    "build": {
+      "gapMs": 160,
+      "gain": 0.4,
+      "pitchCents": 100,
+      "variants": [
+        [
+          { "wave": "triangle", "freq": 392, "dur": 120 },
+          { "wave": "triangle", "freq": 523, "at": 70, "dur": 140 },
+          { "wave": "sine", "freq": 784, "at": 140, "dur": 220, "gain": 0.6 },
+          { "wave": "noise", "freq": 900, "dur": 90, "gain": 0.25 }
+        ],
+        [
+          { "wave": "triangle", "freq": 440, "dur": 120 },
+          { "wave": "triangle", "freq": 587, "at": 70, "dur": 140 },
+          { "wave": "sine", "freq": 880, "at": 140, "dur": 220, "gain": 0.6 },
+          { "wave": "noise", "freq": 900, "dur": 90, "gain": 0.25 }
+        ]
+      ]
+    },
+    "path": {
+      "gapMs": 120,
+      "gain": 0.28,
+      "pitchCents": 200,
+      "variants": [[{ "wave": "noise", "freq": 1400, "dur": 80, "gain": 0.7 }, { "wave": "sine", "freq": 330, "to": 260, "dur": 90 }]]
+    },
+    "demolish": {
+      "gapMs": 200,
+      "gain": 0.32,
+      "pitchCents": 120,
+      "variants": [
+        [
+          { "wave": "noise", "freq": 600, "dur": 260, "gain": 0.7 },
+          { "wave": "triangle", "freq": 392, "to": 196, "dur": 260 }
+        ]
+      ]
+    },
+    "coins": {
+      "gapMs": 1600,
+      "gain": 0.18,
+      "pitchCents": 80,
+      "variants": [
+        [
+          { "wave": "sine", "freq": 1568, "dur": 90 },
+          { "wave": "sine", "freq": 2093, "at": 60, "dur": 160, "gain": 0.8 }
+        ],
+        [
+          { "wave": "sine", "freq": 1319, "dur": 90 },
+          { "wave": "sine", "freq": 1760, "at": 60, "dur": 160, "gain": 0.8 }
+        ]
+      ]
+    },
+    "unlock": {
+      "gapMs": 1500,
+      "gain": 0.38,
+      "pitchCents": 0,
+      "variants": [
+        [
+          { "wave": "triangle", "freq": 523, "dur": 160 },
+          { "wave": "triangle", "freq": 659, "at": 120, "dur": 160 },
+          { "wave": "triangle", "freq": 784, "at": 240, "dur": 160 },
+          { "wave": "sine", "freq": 1047, "at": 360, "dur": 420, "gain": 0.7 }
+        ]
+      ]
+    },
+    "boat": {
+      "gapMs": 1500,
+      "gain": 0.3,
+      "pitchCents": 60,
+      "variants": [
+        [
+          { "wave": "noise", "freq": 500, "dur": 500, "gain": 0.35, "attack": 120 },
+          { "wave": "triangle", "freq": 294, "at": 100, "dur": 260 },
+          { "wave": "triangle", "freq": 392, "at": 300, "dur": 380 }
+        ]
+      ]
+    },
+    "error": {
+      "gapMs": 600,
+      "gain": 0.25,
+      "pitchCents": 0,
+      "variants": [
+        [
+          { "wave": "sine", "freq": 392, "dur": 150 },
+          { "wave": "sine", "freq": 330, "at": 140, "dur": 220 }
+        ]
+      ]
+    },
+    "moveHome": {
+      "gapMs": 300,
+      "gain": 0.34,
+      "pitchCents": 80,
+      "variants": [
+        [
+          { "wave": "sine", "freq": 523, "to": 784, "dur": 180 },
+          { "wave": "triangle", "freq": 1047, "at": 160, "dur": 240, "gain": 0.6 }
+        ]
+      ]
+    },
+    "goodNight": {
+      "gapMs": 5000,
+      "gain": 0.3,
+      "pitchCents": 0,
+      "variants": [
+        [
+          { "wave": "triangle", "freq": 784, "dur": 420 },
+          { "wave": "triangle", "freq": 659, "at": 380, "dur": 420 },
+          { "wave": "triangle", "freq": 523, "at": 760, "dur": 900, "gain": 0.8 }
+        ]
+      ]
+    }
+  },
+  "music": {
+    "bpm": 76,
+    "stepsPerBeat": 2,
+    "bars": 16,
+    "seed": 7,
+    "scale": [0, 2, 4, 7, 9],
+    "root": 60,
+    "chords": [0, 9, 5, 7],
+    "melodyRest": 0.35,
+    "melodyGain": 0.5,
+    "bassGain": 0.42,
+    "melodyWave": "triangle",
+    "bassWave": "sine",
+    "noteSteps": 1.6
+  }
+}

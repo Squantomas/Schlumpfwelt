@@ -3,10 +3,11 @@ import { t } from '../../data/texts';
 import type { DayPhase } from '../../parent/dayClock';
 import { addGraphics } from '../../ui/FastGraphics';
 import { createLabel, setLabelSize } from '../../ui/label';
-import { nightLayout, nightLook, type NightLayout, type NightLook } from '../../ui/nightLayout';
+import { moonGlow, nightHiding, nightKeepOut, nightLayout, nightLook, type NightLayout, type NightLook } from '../../ui/nightLayout';
 import type { Rect } from '../../ui/cameraMath';
 import { RoundButton } from '../../ui/RoundButton';
 import { COLORS } from '../../ui/style';
+import { SLEEP_KEY, uiKey } from '../../art/catalog';
 import type { ViewSize } from '../../ui/viewport';
 import type { MenuSpot } from './VillageMenu';
 
@@ -17,12 +18,27 @@ import type { MenuSpot } from './VillageMenu';
  * every tap (a veil over everything); the only way out is the parents' button (the PIN). In the morning it all fades
  * away. Lives in the UI layer, above the controls and the menu, below the parents' menu and the "other window" layer.
  * Moon, stars and sentence are drawn once per screen size.
+ *
+ * The "z" over the houses of the sleeping (M9, Korrekturrunde 1) lies above the dark blue and below moon, sentence and
+ * button: under the dark it could hardly be seen. The scene chooses which (`placeSleepSigns` with `nightKeepOut`,
+ * only when the camera, the screen or the village changed) and hands over where they are each frame (`showSleepers`).
  */
 export class NightLayer {
   private readonly veil: Phaser.GameObjects.Zone;
   private readonly warm: Phaser.GameObjects.Graphics;
   private readonly dark: Phaser.GameObjects.Graphics;
-  private readonly sky: Phaser.GameObjects.Graphics;
+  /** Moon and stars (M9: pictures), made again only when the size of the screen changes. */
+  private readonly sky: Phaser.GameObjects.Container;
+  /** The "z" of the sleeping, a pool of pictures (only positions change). */
+  private readonly sleepers: Phaser.GameObjects.Container;
+  private sleepSigns: Phaser.GameObjects.Image[] = [];
+  private sleepShown = { count: 0, size: 0 };
+  /** What the "z" keep clear of (toolbar, store bar, zoom buttons, gear, moon, sentence, parents' button). */
+  private keepOut: readonly Rect[] = [];
+  private hiding: readonly Rect[] = [];
+  private screen: ViewSize = { width: 1, height: 1 };
+  /** Counts the layouts, so that the scene knows when its choice of "z" is out of date. */
+  private layouts = 0;
   private readonly sentence: Phaser.GameObjects.Text;
   private readonly caption: Phaser.GameObjects.Text;
   private readonly button: RoundButton;
@@ -35,11 +51,12 @@ export class NightLayer {
     this.veil = scene.add.zone(0, 0, 1, 1).setOrigin(0, 0).setInteractive();
     this.warm = addGraphics(scene);
     this.dark = addGraphics(scene);
-    this.sky = addGraphics(scene);
+    this.sky = scene.add.container(0, 0);
+    this.sleepers = scene.add.container(0, 0);
     this.sentence = createLabel(scene, t('night.text'), 32);
     this.caption = createLabel(scene, t('night.parent'), 18);
     this.button = new RoundButton(scene, 0, 0, { radius: 36, icon: 'lock', onTap: onParent });
-    uiLayer.add([this.veil, this.warm, this.dark, this.sky, this.sentence, this.caption, this.button]);
+    uiLayer.add([this.veil, this.warm, this.dark, this.sleepers, this.sky, this.sentence, this.caption, this.button]);
     this.apply();
   }
 
@@ -53,29 +70,32 @@ export class NightLayer {
     return this.look.sky > 0;
   }
 
-  /** `toolbar`: where the toolbar is (the button keeps clear of it on a narrow upright screen). */
-  layout(size: ViewSize, toolbar?: Rect): void {
+  /**
+   * `toolbar`: where the toolbar is (the button keeps clear of it on a narrow upright screen); `avoid`: the controls at
+   * the top (the moon keeps clear of them, Korrekturrunde 1 of M9).
+   */
+  layout(size: ViewSize, toolbar?: Rect, avoid: readonly Rect[] = []): void {
     const { width, height } = size;
-    const layout = nightLayout(width, height, toolbar);
+    const layout = nightLayout(width, height, toolbar, avoid);
     this.layoutData = layout;
+    this.screen = { width, height };
+    this.layouts += 1;
     this.veil.setSize(width, height);
     if (this.veil.input) {
       this.veil.input.hitArea = new Phaser.Geom.Rectangle(0, 0, width, height);
     }
     this.warm.clear().fillStyle(COLORS.duskWarm, 1).fillRect(0, 0, width, height);
     this.dark.clear().fillStyle(COLORS.nightSky, 1).fillRect(0, 0, width, height);
-    const g = this.sky.clear();
+    this.sky.removeAll(true);
+    const scene = this.sky.scene;
     for (const star of layout.stars) {
-      g.fillStyle(COLORS.star, 0.35).fillCircle(star.x, star.y, star.radius * 2);
-      g.fillStyle(COLORS.star, 1).fillCircle(star.x, star.y, star.radius);
+      // The star fills 0.7 of the half picture, its glow all of it.
+      this.sky.add(scene.add.image(star.x, star.y, uiKey('night-star')).setDisplaySize(star.radius * 4, star.radius * 4));
     }
     const { moon } = layout;
-    g.fillStyle(COLORS.moon, 0.18).fillCircle(moon.x, moon.y, moon.radius * 1.5);
-    g.fillStyle(COLORS.moon, 1).fillCircle(moon.x, moon.y, moon.radius);
-    // A full moon with a few soft craters.
-    g.fillStyle(COLORS.moonShade, 0.8).fillCircle(moon.x - moon.radius * 0.3, moon.y - moon.radius * 0.2, moon.radius * 0.2);
-    g.fillStyle(COLORS.moonShade, 0.7).fillCircle(moon.x + moon.radius * 0.35, moon.y + moon.radius * 0.1, moon.radius * 0.14);
-    g.fillStyle(COLORS.moonShade, 0.6).fillCircle(moon.x - moon.radius * 0.05, moon.y + moon.radius * 0.45, moon.radius * 0.1);
+    // The disc of the moon has 0.66 of the half picture; around it its soft glow.
+    const glow = moonGlow(moon);
+    this.sky.add(scene.add.image(moon.x, moon.y, uiKey('moon')).setDisplaySize(glow.width, glow.height));
     const { text } = layout;
     this.sentence.setWordWrapWidth(text.width);
     let font = layout.textFont;
@@ -89,6 +109,21 @@ export class NightLayer {
     this.button.setRadius(button.width / 2).setPosition(button.x + button.width / 2, button.y + button.height / 2);
     setLabelSize(this.caption, 18, caption.width);
     this.caption.setPosition(caption.x + caption.width / 2, caption.y + caption.height / 2);
+    // The words as drawn (a little margin around them), not the whole place of the sentence.
+    const words: Rect = {
+      x: this.sentence.x - this.sentence.displayWidth / 2 - 4,
+      y: this.sentence.y - this.sentence.displayHeight / 2 - 4,
+      width: this.sentence.displayWidth + 8,
+      height: this.sentence.displayHeight + 8,
+    };
+    const controls = toolbar ? [toolbar, ...avoid] : avoid;
+    this.keepOut = nightKeepOut(layout, words, controls);
+    this.hiding = nightHiding(layout, controls);
+  }
+
+  /** What the "z" keep clear of, what hides a house (CSS px) and the size of the screen; `version` changes with every layout. */
+  get sleepRoom(): { readonly keepOut: readonly Rect[]; readonly hiding: readonly Rect[]; readonly screen: ViewSize; readonly version: number } {
+    return { keepOut: this.keepOut, hiding: this.hiding, screen: this.screen, version: this.layouts };
   }
 
   /** Once per frame: the phase of the day, how long it has gone on, and the frame time (ms). */
@@ -100,6 +135,25 @@ export class NightLayer {
       this.look = look;
       this.apply();
     }
+  }
+
+  /** Once per frame: where the chosen "z" of the sleeping are (centres in CSS px) and how big each is (CSS px). */
+  showSleepers(kept: readonly { readonly x: number; readonly y: number; readonly size: number }[]): void {
+    const scene = this.sleepers.scene;
+    while (this.sleepSigns.length < kept.length) {
+      const image = scene.add.image(0, 0, SLEEP_KEY);
+      this.sleepers.add(image);
+      this.sleepSigns.push(image);
+    }
+    for (const [index, image] of this.sleepSigns.entries()) {
+      const sign = kept[index];
+      image.setVisible(sign !== undefined);
+      if (sign) {
+        image.setPosition(sign.x, sign.y).setDisplaySize(sign.size, sign.size);
+      }
+    }
+    // The smallest "z" shown (it may have given way to a bar, the moon or the sentence).
+    this.sleepShown = { count: kept.length, size: kept.length > 0 ? Math.round(Math.min(...kept.map((sign) => sign.size))) : 0 };
   }
 
   /** A reload in the night: the night is there at once, without fading in. */
@@ -118,9 +172,9 @@ export class NightLayer {
   }
 
   /** What the layer shows, for the page marker (`dark` and `sky` rounded). */
-  get shown(): { readonly dark: number; readonly warm: number; readonly sky: number; readonly blocks: boolean } {
+  get shown(): { readonly dark: number; readonly warm: number; readonly sky: number; readonly blocks: boolean; readonly z: number; readonly zSize: number } {
     const round = (value: number): number => Math.round(value * 100) / 100;
-    return { dark: round(this.look.dark), warm: round(this.look.warm), sky: round(this.look.sky), blocks: this.look.blocks };
+    return { dark: round(this.look.dark), warm: round(this.look.warm), sky: round(this.look.sky), blocks: this.look.blocks, z: this.sleepShown.count, zSize: this.sleepShown.size };
   }
 
   private apply(): void {
