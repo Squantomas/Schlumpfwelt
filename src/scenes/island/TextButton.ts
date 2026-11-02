@@ -2,12 +2,15 @@ import Phaser from 'phaser';
 import type { Rect } from '../../ui/cameraMath';
 import { addGraphics } from '../../ui/FastGraphics';
 import { createLabel, setLabelSize } from '../../ui/label';
+import { ONE_LINE_PAD } from '../../ui/parentLayout';
 import { COLORS } from '../../ui/style';
 
 /**
  * A big rounded button with a word on it (M8: the keys of the parents' keypad, the choices of the limit and the
  * buttons of the settings). Works the same with finger and mouse; only a press that started on it counts. It is
- * placed and sized with {@link place} (CSS px); a highlighted one is the chosen choice.
+ * placed and sized with {@link place} (CSS px); a highlighted one is the chosen choice. A long word breaks into two
+ * lines – unless the button is `oneLine` (the sound switches, Korrekturrunde 2 of M9): then the word stays in one line
+ * and only gets smaller if it really does not fit.
  */
 export class TextButton extends Phaser.GameObjects.Container {
   private readonly face: Phaser.GameObjects.Graphics;
@@ -16,9 +19,11 @@ export class TextButton extends Phaser.GameObjects.Container {
   private font = 20;
   private highlighted = false;
   private pressed = false;
+  private readonly oneLine: boolean;
 
-  constructor(scene: Phaser.Scene, text: string, onTap: (eventTime: number) => void) {
+  constructor(scene: Phaser.Scene, text: string, onTap: (eventTime: number) => void, options: { readonly oneLine?: boolean } = {}) {
     super(scene, 0, 0);
+    this.oneLine = options.oneLine === true;
     this.face = addGraphics(scene);
     this.caption = createLabel(scene, text, 20);
     this.add([this.face, this.caption]);
@@ -53,8 +58,8 @@ export class TextButton extends Phaser.GameObjects.Container {
     } else {
       this.setInteractive({ hitArea, hitAreaCallback: (area: Phaser.Geom.Rectangle, x: number, y: number) => area.contains(x, y), useHandCursor: true });
     }
-    this.caption.setWordWrapWidth(rect.width - 16);
-    setLabelSize(this.caption, font, rect.width - 16);
+    this.caption.setWordWrapWidth(this.oneLine ? null : this.room);
+    setLabelSize(this.caption, font, this.room);
     this.draw();
     return this;
   }
@@ -63,9 +68,14 @@ export class TextButton extends Phaser.GameObjects.Container {
   setText(text: string): this {
     if (this.caption.text !== text) {
       this.caption.setText(text);
-      setLabelSize(this.caption, this.font, this.rect.width - 16);
+      setLabelSize(this.caption, this.font, this.room);
     }
     return this;
+  }
+
+  /** How wide the word may be (CSS px). */
+  private get room(): number {
+    return this.rect.width - (this.oneLine ? 2 * ONE_LINE_PAD : 16);
   }
 
   setHighlighted(highlighted: boolean): this {

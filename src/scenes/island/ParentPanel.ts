@@ -169,6 +169,7 @@ export class ParentPanel {
         this.note = undefined;
         hooks.onSound({ music: !session.sound.music });
       }),
+      { oneLine: true },
     );
     this.sfxButton = new TextButton(
       scene,
@@ -177,6 +178,7 @@ export class ParentPanel {
         this.note = undefined;
         hooks.onSound({ sfx: !session.sound.sfx });
       }),
+      { oneLine: true },
     );
     uiLayer.add([
       this.veil,
@@ -384,13 +386,14 @@ export class ParentPanel {
           button.place(rect, settings.buttonFont).setHighlighted(this.session.clock.limitMinutes === minutes);
         }
       });
-      this.extraButton.place(settings.extra, settings.buttonFont);
-      this.pinButton.place(settings.pin, settings.buttonFont);
-      this.tutorialButton.place(settings.tutorial, settings.buttonFont);
+      // The actions and the sound switches share one font: as big as "Geräusche aus" fits in one line (Korrekturrunde 2).
+      this.extraButton.place(settings.extra, settings.soundFont);
+      this.pinButton.place(settings.pin, settings.soundFont);
+      this.tutorialButton.place(settings.tutorial, settings.soundFont);
       // Music and noises (M9): the same buttons as "PIN ändern" – the word says whether it is on ("Musik an"/"Musik aus").
       const { music, sfx } = this.session.sound;
-      this.musicButton.place(settings.music, settings.buttonFont).setText(t(music ? 'parent.musicOn' : 'parent.musicOff'));
-      this.sfxButton.place(settings.sfx, settings.buttonFont).setText(t(sfx ? 'parent.sfxOn' : 'parent.sfxOff'));
+      this.musicButton.place(settings.music, settings.soundFont).setText(t(music ? 'parent.musicOn' : 'parent.musicOff'));
+      this.sfxButton.place(settings.sfx, settings.soundFont).setText(t(sfx ? 'parent.sfxOn' : 'parent.sfxOff'));
     }
   }
 
