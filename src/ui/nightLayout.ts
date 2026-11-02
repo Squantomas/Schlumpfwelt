@@ -194,25 +194,37 @@ export function nightKeepOut(layout: NightLayout, sentence: Rect, controls: read
   return [...controls, moonGlow(layout.moon), sentence, layout.button, layout.caption];
 }
 
+/**
+ * What hides a house in the night (Korrekturrunde 3): the bars and buttons under the layer and the parents' button with
+ * its word. A house under the moon or the sentence can still be seen – its "z" moves next to them.
+ */
+export function nightHiding(layout: NightLayout, controls: readonly Rect[]): Rect[] {
+  return [...controls, layout.button, layout.caption];
+}
+
 /** The least size of a "z" that has to give way (CSS px, `docs/STIL_LEITFADEN.md`: the big "z" at least 30 CSS px). */
 export const SLEEP_SIGN_LEAST_CSS = 30;
 /** Each step down makes the "z" this much smaller, until {@link SLEEP_SIGN_LEAST_CSS}. */
 const SLEEP_SIGN_STEP = 0.85;
 /**
  * Where a "z" may move to when its place is taken, as shares of its size (from its place over the house): first a bit
- * aside or up, then a little further aside, last a little lower – it stays next to the house.
+ * aside or up, then a little further aside or up, last a little lower – it stays next to the house.
  */
-const SLEEP_SIGN_SHIFTS: readonly (readonly [number, number])[] = [
+export const SLEEP_SIGN_SHIFTS: readonly (readonly [number, number])[] = [
   [0, 0],
   [-0.6, 0],
   [0.6, 0],
   [0, -0.5],
   [-0.6, -0.5],
   [0.6, -0.5],
+  [0, -1],
+  [-0.6, -1],
+  [0.6, -1],
   [-1.1, 0],
   [1.1, 0],
   [-1.1, -0.5],
   [1.1, -0.5],
+  [0, -1.5],
   [0, 0.35],
 ];
 
@@ -232,7 +244,8 @@ export interface SleepSign<P> {
  * sentence (`keepOut`), also while it bobs up and down by `bob` CSS px, and stays on the screen. Where its place is
  * taken it moves a little aside or up (`SLEEP_SIGN_SHIFTS`), and if no place near the house is free it gets smaller,
  * step by step down to {@link SLEEP_SIGN_LEAST_CSS} – so on every screen a child sees that somebody sleeps. Only a
- * house that is itself off the screen or under a bar, the moon or the sentence has no "z". Of several anchors close
+ * house that is itself off the screen or hidden (`hiding`, see {@link nightHiding}: under a bar or a button) has no
+ * "z". Of several anchors close
  * together (neighbouring houses, residents sleeping outside next to each other) only the first gets one.
  */
 export function placeSleepSigns<P extends { readonly x: number; readonly y: number }>(
@@ -241,6 +254,7 @@ export function placeSleepSigns<P extends { readonly x: number; readonly y: numb
   keepOut: readonly Rect[],
   screen: { readonly width: number; readonly height: number },
   bob = 0,
+  hiding: readonly Rect[] = keepOut,
 ): SleepSign<P>[] {
   const kept: SleepSign<P>[] = [];
   const near = size * 0.7;
@@ -256,7 +270,7 @@ export function placeSleepSigns<P extends { readonly x: number; readonly y: numb
   };
   for (const anchor of anchors) {
     const offScreen = anchor.x < 0 || anchor.y < 0 || anchor.x > screen.width || anchor.y > screen.height;
-    const covered = keepOut.some((rect) => anchor.x >= rect.x && anchor.x <= rect.x + rect.width && anchor.y >= rect.y && anchor.y <= rect.y + rect.height);
+    const covered = hiding.some((rect) => anchor.x >= rect.x && anchor.x <= rect.x + rect.width && anchor.y >= rect.y && anchor.y <= rect.y + rect.height);
     if (offScreen || covered || kept.some((other) => Math.hypot(other.anchor.x - anchor.x, other.anchor.y - anchor.y) < near)) {
       continue;
     }

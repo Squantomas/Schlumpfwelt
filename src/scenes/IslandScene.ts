@@ -672,7 +672,7 @@ export class IslandScene extends Phaser.Scene {
     });
     if (this.sleepChoice?.key !== key) {
       const anchors = signs.map((sign) => ({ ...toScreen(sign), id: sign.id }));
-      const placed = placeSleepSigns(anchors, css, room.keepOut, room.screen, bob);
+      const placed = placeSleepSigns(anchors, css, room.keepOut, room.screen, bob, room.hiding);
       this.sleepChoice = { key, signs: new Map(placed.map((sign) => [sign.anchor.id, { dx: sign.x - sign.anchor.x, dy: sign.y - sign.anchor.y, size: sign.size }])) };
     }
     const chosen = this.sleepChoice.signs;

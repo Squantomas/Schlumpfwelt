@@ -3,7 +3,7 @@ import { t } from '../../data/texts';
 import type { DayPhase } from '../../parent/dayClock';
 import { addGraphics } from '../../ui/FastGraphics';
 import { createLabel, setLabelSize } from '../../ui/label';
-import { moonGlow, nightKeepOut, nightLayout, nightLook, type NightLayout, type NightLook } from '../../ui/nightLayout';
+import { moonGlow, nightHiding, nightKeepOut, nightLayout, nightLook, type NightLayout, type NightLook } from '../../ui/nightLayout';
 import type { Rect } from '../../ui/cameraMath';
 import { RoundButton } from '../../ui/RoundButton';
 import { COLORS } from '../../ui/style';
@@ -35,6 +35,7 @@ export class NightLayer {
   private sleepShown = { count: 0, size: 0 };
   /** What the "z" keep clear of (toolbar, store bar, zoom buttons, gear, moon, sentence, parents' button). */
   private keepOut: readonly Rect[] = [];
+  private hiding: readonly Rect[] = [];
   private screen: ViewSize = { width: 1, height: 1 };
   /** Counts the layouts, so that the scene knows when its choice of "z" is out of date. */
   private layouts = 0;
@@ -115,12 +116,14 @@ export class NightLayer {
       width: this.sentence.displayWidth + 8,
       height: this.sentence.displayHeight + 8,
     };
-    this.keepOut = nightKeepOut(layout, words, toolbar ? [toolbar, ...avoid] : avoid);
+    const controls = toolbar ? [toolbar, ...avoid] : avoid;
+    this.keepOut = nightKeepOut(layout, words, controls);
+    this.hiding = nightHiding(layout, controls);
   }
 
-  /** What the "z" keep clear of (CSS px) and the size of the screen; `version` changes with every layout. */
-  get sleepRoom(): { readonly keepOut: readonly Rect[]; readonly screen: ViewSize; readonly version: number } {
-    return { keepOut: this.keepOut, screen: this.screen, version: this.layouts };
+  /** What the "z" keep clear of, what hides a house (CSS px) and the size of the screen; `version` changes with every layout. */
+  get sleepRoom(): { readonly keepOut: readonly Rect[]; readonly hiding: readonly Rect[]; readonly screen: ViewSize; readonly version: number } {
+    return { keepOut: this.keepOut, hiding: this.hiding, screen: this.screen, version: this.layouts };
   }
 
   /** Once per frame: the phase of the day, how long it has gone on, and the frame time (ms). */

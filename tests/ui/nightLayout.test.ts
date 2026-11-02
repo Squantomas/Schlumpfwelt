@@ -4,7 +4,19 @@ import { topControls, toolbarPanel, zoomLayout } from '../../src/ui/buildLayout'
 import { ITEM_IDS } from '../../src/data/goods';
 import { stockLayout } from '../../src/ui/stockLayout';
 import { TOOLS } from '../../src/ui/buildTool';
-import { NIGHT_BUTTON_LOW, SLEEP_SIGN_LEAST_CSS, SLEEP_SIGN_MIN_CSS, moonGlow, nightKeepOut, nightLayout, nightLook, placeSleepSigns, sleepSignSize } from '../../src/ui/nightLayout';
+import {
+  NIGHT_BUTTON_LOW,
+  SLEEP_SIGN_LEAST_CSS,
+  SLEEP_SIGN_MIN_CSS,
+  SLEEP_SIGN_SHIFTS,
+  moonGlow,
+  nightHiding,
+  nightKeepOut,
+  nightLayout,
+  nightLook,
+  placeSleepSigns,
+  sleepSignSize,
+} from '../../src/ui/nightLayout';
 
 const SCREENS: readonly (readonly [number, number])[] = [
   [320, 568], [360, 640], [568, 320], [640, 360], [480, 320], [768, 1024], [1024, 768], [1280, 800], [1920, 1080], [400, 400],
@@ -13,21 +25,6 @@ const SCREENS: readonly (readonly [number, number])[] = [
 function inside(inner: Rect, outer: Rect): boolean {
   return inner.x >= outer.x - 0.001 && inner.y >= outer.y - 0.001 && inner.x + inner.width <= outer.x + outer.width + 0.001 && inner.y + inner.height <= outer.y + outer.height + 0.001;
 }
-
-/** The shifts of `placeSleepSigns` (a copy: the test asks whether the smallest "z" has room next to a house at all). */
-const SHIFT_ROOM: readonly (readonly [number, number])[] = [
-  [0, 0],
-  [-0.6, 0],
-  [0.6, 0],
-  [0, -0.5],
-  [-0.6, -0.5],
-  [0.6, -0.5],
-  [-1.1, 0],
-  [1.1, 0],
-  [-1.1, -0.5],
-  [1.1, -0.5],
-  [0, 0.35],
-];
 
 function apart(a: Rect, b: Rect): boolean {
   return a.x + a.width <= b.x || b.x + b.width <= a.x || a.y + a.height <= b.y || b.y + b.height <= a.y;
@@ -212,7 +209,8 @@ describe('Das „z“ der Schlafenden über der Nacht (M9, Korrekturrunde 1)', (
             anchors.push({ x, y });
           }
         }
-        const kept = placeSleepSigns(anchors, size, keepOut, screen, bob);
+        const hiding = nightHiding(layout, controls);
+        const kept = placeSleepSigns(anchors, size, keepOut, screen, bob, hiding);
         expect(kept.length).toBeGreaterThan(0);
         for (const sign of kept) {
           expect(sign.size).toBeGreaterThanOrEqual(SLEEP_SIGN_LEAST_CSS);
@@ -220,18 +218,18 @@ describe('Das „z“ der Schlafenden über der Nacht (M9, Korrekturrunde 1)', (
             expect(apart(boxOf(sign, bob), rect)).toBe(true);
           }
         }
-        // One sleeper alone: wherever its house stands in the free part (not under a bar, the moon or the sentence,
-        // and with room for the smallest "z" next to it), it gets a "z" of at least 30 px.
+        // One sleeper alone: wherever its house can be seen (not under a bar or a button – under the moon or the
+        // sentence it still can) and the smallest "z" has room next to it, it gets a "z" of at least 30 px.
         let lonely = 0;
         for (const anchor of anchors) {
-          const free = all.every((rect) => apart({ x: anchor.x - 1, y: anchor.y - 1, width: 2, height: 2 }, rect));
-          const room = free && SHIFT_ROOM.some(([dx, dy]) => {
+          const free = hiding.every((rect) => apart({ x: anchor.x - 1, y: anchor.y - 1, width: 2, height: 2 }, rect));
+          const room = free && SLEEP_SIGN_SHIFTS.some(([dx, dy]) => {
             const box = { x: anchor.x + dx * 30 - 15, y: anchor.y - 15 + dy * 30 - 15 - bob, width: 30, height: 30 + 2 * bob };
             return box.x >= 0 && box.y >= 0 && box.x + box.width <= width && box.y + box.height <= height && all.every((rect) => apart(box, rect));
           });
           if (room) {
             lonely += 1;
-            const one = placeSleepSigns([anchor], size, keepOut, screen, bob);
+            const one = placeSleepSigns([anchor], size, keepOut, screen, bob, hiding);
             expect(one, `Schläfer bei ${String(anchor.x)},${String(anchor.y)}`).toHaveLength(1);
             expect(one[0]?.size).toBeGreaterThanOrEqual(SLEEP_SIGN_LEAST_CSS);
           }
@@ -253,6 +251,23 @@ describe('Das „z“ der Schlafenden über der Nacht (M9, Korrekturrunde 1)', (
     expect(kept[0]?.size).toBeGreaterThanOrEqual(SLEEP_SIGN_LEAST_CSS);
     for (const rect of keepOut) {
       expect(apart(boxOf(kept[0] ?? { x: 0, y: 0, size: 0 }, 3 * zoom), rect)).toBe(true);
+    }
+  });
+
+  it('320×568 wie im Smoke (Zoom 0,5, das Dach unter dem Satz): das „z“ steht über dem Satz, frei von allem (Korrekturrunde 3)', () => {
+    const [width, height] = [320, 568];
+    const toolbar = toolbarPanel(width, height, TOOLS.length).rect;
+    const controls = [toolbar, ...topControls(width, height, ITEM_IDS.length)];
+    const layout = nightLayout(width, height, toolbar, controls.slice(1));
+    const words: Rect = { x: 33.5, y: 226.9, width: 253, height: 74 };
+    const keepOut = nightKeepOut(layout, words, controls);
+    const kept = placeSleepSigns([{ x: 73.8, y: 241.8 }], sleepSignSize(0.5), keepOut, { width, height }, 1.5, nightHiding(layout, controls));
+    expect(kept).toHaveLength(1);
+    const sign = kept[0] ?? { x: 0, y: 0, size: 0 };
+    expect(sign.size).toBeGreaterThanOrEqual(SLEEP_SIGN_LEAST_CSS);
+    expect(sign.y + sign.size / 2).toBeLessThanOrEqual(words.y);
+    for (const rect of keepOut) {
+      expect(apart(boxOf(sign, 1.5), rect)).toBe(true);
     }
   });
 
