@@ -51,6 +51,9 @@ async function start(root: HTMLElement): Promise<void> {
   // `lost`: a newer window has taken over – also in a window that does not save the village (a newer save, an unreadable
   // one): its settings must stop being written as well (M8, Korrekturrunde 1).
   const holder: { autosave: Autosave | undefined; lost: boolean } = { autosave: undefined, lost: false };
+  // Sound (M9): our own Web Audio layer (Phaser's sound stays off); the start screen's tap unlocks it. Made before the
+  // lock, so that a window that loses the village to a newer one falls silent at once (Korrekturrunde 1).
+  const audio = new AudioEngine();
   // The parents' settings (M8: PIN, daily limit, today's play time, the guided start) have a database of their own, apart
   // from the village – also with `nosave=1`: a test address must not get around the limit.
   const [opened, settingsStore] = await Promise.all([params.persist ? openSaveStore() : Promise.resolve(new MemoryStore()), openSettingsStore()]);
@@ -58,6 +61,7 @@ async function start(root: HTMLElement): Promise<void> {
     acquireSaveLock(() => {
       holder.lost = true;
       holder.autosave?.markLost();
+      audio.silence();
     }),
   );
   const begin = await prepareStart(params, store, randomSeed);
@@ -89,9 +93,7 @@ async function start(root: HTMLElement): Promise<void> {
   whenLeaving(() => {
     void parent.flush();
   });
-  // Sound (M9): our own Web Audio layer (Phaser's sound stays off); the start screen's tap unlocks it. A hidden page is
-  // silent at once; the switches live in the parents' settings.
-  const audio = new AudioEngine();
+  // A hidden page is silent at once; the switches live in the parents' settings.
   audio.setSwitches(parent.sound);
   audio.setHidden(document.visibilityState === 'hidden');
   document.addEventListener('visibilitychange', () => {

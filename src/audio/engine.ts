@@ -9,8 +9,11 @@ import { SOUND_BOOK, type SoundBook, type SoundKind, type Voice } from './recipe
  *
  * - Noises: {@link play} asks the {@link SoundPlanner} (gaps, variants, at most a few voices at once).
  * - Music: a calm loop (`music.ts`), scheduled a little ahead from {@link update}, which the game calls every frame (no
- *   timers: a page that does not draw does not play on). It fades out in the evening and is off at night.
+ *   timers: a page that does not draw does not play on). In the evening it goes on playing while its bus fades out
+ *   (`fadeMs.dusk`); after the fade and at night no notes are made.
  * - A hidden page is silent at once (the context is suspended); a switched-off sound only fades its bus.
+ * - A window that has lost the village to a newer one ({@link silence}) stays silent for good.
+ * - Tablets suspend or interrupt the context (a call, the lock screen): every tap tries {@link resumeIfNeeded}.
  */
 
 export type AudioMode = 'day' | 'dusk' | 'night';
@@ -62,6 +65,9 @@ export class AudioEngine {
   private mode: AudioMode = 'day';
   private unlocked = false;
   private failed = false;
+  private silenced = false;
+  /** Context time at which the evening fade of the music is over. */
+  private duskEndsAt = 0;
   private nextStep = 0;
   private nextStepAt = 0;
   private musicNotes = 0;
@@ -100,7 +106,7 @@ export class AudioEngine {
         this.noise = this.makeNoise(ctx);
       }
       this.unlocked = true;
-      if (!this.hidden && this.ctx.state === 'suspended') {
+      if (!this.hidden && !this.silenced && (this.ctx.state as string) !== 'running') {
         void this.ctx.resume().catch(() => undefined);
       }
       this.applyGains(this.book.fadeMs.toggle);
@@ -144,22 +150,59 @@ export class AudioEngine {
     }
   }
 
-  /** Day, evening (the music fades out) or night (no music). */
+  /** Day, evening (the music plays on and fades out over `fadeMs.dusk`) or night (no music). */
   setMode(mode: AudioMode): void {
     if (this.mode === mode) {
       return;
     }
+    const from = this.mode;
     this.mode = mode;
-    this.applyGains(mode === 'dusk' ? this.book.fadeMs.dusk : this.book.fadeMs.wake);
+    if (mode === 'dusk') {
+      this.duskEndsAt = (this.ctx?.currentTime ?? 0) + this.book.fadeMs.dusk / 1000;
+    }
+    this.applyGains(mode === 'dusk' ? this.book.fadeMs.dusk : mode === 'night' && from === 'dusk' ? this.book.fadeMs.toggle : this.book.fadeMs.wake);
     if (mode === 'day') {
       this.nextStepAt = 0;
+    }
+  }
+
+  /** A newer window has taken over the village: this one makes no sound any more (the page reloads to play on). */
+  silence(): void {
+    if (this.silenced) {
+      return;
+    }
+    this.silenced = true;
+    this.applyGains(this.book.fadeMs.hide);
+    try {
+      void this.ctx?.suspend().catch(() => undefined);
+    } catch {
+      // Ignore: the master gain is already silent.
+    }
+  }
+
+  /**
+   * On every tap (a user gesture): a context that the tablet has suspended or interrupted (a call, the lock screen) is
+   * started again – only when the sound is on and the page is visible. Cheap when it already runs.
+   */
+  resumeIfNeeded(): void {
+    const ctx = this.ctx;
+    if (!ctx || !this.unlocked || this.failed || this.hidden || this.silenced || !this.switches.on) {
+      return;
+    }
+    try {
+      if ((ctx.state as string) !== 'running') {
+        void ctx.resume().catch(() => undefined);
+        this.nextStepAt = 0;
+      }
+    } catch {
+      // Ignore: it stays silent until the next tap.
     }
   }
 
   /** A noise of the game; `now` is the frame time (ms) – for the gaps between sounds of a kind. */
   play(kind: SoundKind, now: number): void {
     this.lastRequest = now;
-    const allowed = this.unlocked && !this.failed && !this.hidden && this.switches.on && this.switches.sfx;
+    const allowed = this.unlocked && !this.failed && !this.hidden && !this.silenced && this.switches.on && this.switches.sfx;
     const planned = this.planner.request(kind, now, allowed);
     if (planned) {
       this.schedule(planned);
@@ -187,14 +230,22 @@ export class AudioEngine {
     }
   }
 
-  /** Is music playing now (switched on, a visible page, the day)? */
+  /** Is music playing now (switched on, a visible page, the day – or the evening until its fade is over)? */
   get musicPlays(): boolean {
-    return this.unlocked && !this.failed && !this.hidden && this.switches.on && this.switches.music && this.mode === 'day';
+    if (!this.musicWanted) {
+      return false;
+    }
+    return this.mode === 'day' || (this.mode === 'dusk' && (this.ctx?.currentTime ?? 0) < this.duskEndsAt);
+  }
+
+  /** Switched on and audible at all (unlocked, visible, not silenced) – regardless of the time of day. */
+  private get musicWanted(): boolean {
+    return this.unlocked && !this.failed && !this.hidden && !this.silenced && this.switches.on && this.switches.music;
   }
 
   /** For the page marker `<html data-audio>`. */
   describe(): string {
-    const state = this.failed ? 'none' : !this.unlocked ? 'locked' : this.hidden ? 'hidden' : (this.ctx?.state ?? 'none');
+    const state = this.failed ? 'none' : !this.unlocked ? 'locked' : this.silenced ? 'silenced' : this.hidden ? 'hidden' : (this.ctx?.state ?? 'none');
     return JSON.stringify({
       state,
       on: this.switches.on,
@@ -203,6 +254,8 @@ export class AudioEngine {
       mode: this.mode,
       musicPlaying: this.musicPlays && this.ctx?.state === 'running',
       musicNotes: this.musicNotes,
+      // The loudness of the music bus right now (0 … volume.music; an evening fade is seen falling).
+      musicGain: Math.round((this.musicBus?.gain.value ?? 0) * 1000) / 1000,
       played: this.planner.played,
       skipped: this.planner.skipped,
       last: Math.round(this.lastRequest),
@@ -213,8 +266,9 @@ export class AudioEngine {
     return this.switches.on && this.switches.sfx ? this.book.volume.sfx : 0;
   }
 
+  /** The level the music bus moves to: only by day (in the evening it fades to 0 while the notes go on). */
   private get musicLevel(): number {
-    return this.musicPlays ? this.book.volume.music : 0;
+    return this.musicWanted && this.mode === 'day' ? this.book.volume.music : 0;
   }
 
   private applyGains(fadeMs: number): void {
@@ -228,7 +282,7 @@ export class AudioEngine {
       node.gain.setValueAtTime(node.gain.value, now);
       node.gain.linearRampToValueAtTime(value, now + Math.max(0.01, fadeMs / 1000));
     };
-    ramp(this.master, this.hidden || !this.switches.on ? 0 : this.book.volume.master);
+    ramp(this.master, this.hidden || this.silenced || !this.switches.on ? 0 : this.book.volume.master);
     ramp(this.sfxBus, this.sfxLevel);
     ramp(this.musicBus, this.musicLevel);
   }

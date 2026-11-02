@@ -61,6 +61,30 @@ describe('Wann ein Geräusch klingt (M9)', () => {
     expect(planner.request('build', 1000, true)).toBeDefined();
   });
 
+  it('die Stimmen des neuen Geräuschs zählen mit: nie über maxVoices, ein Geräusch passt ganz oder gar nicht', () => {
+    const book = { ...SOUND_BOOK, maxVoices: 10 };
+    const planner = new SoundPlanner(book, steps([0.5]));
+    const kinds = ['tap', 'path', 'error', 'build', 'moveHome', 'boat', 'demolish', 'coins', 'goodNight', 'unlock'] as const;
+    let sounding = 0;
+    for (const kind of kinds) {
+      const sound = planner.request(kind, 0, true);
+      if (sound) {
+        sounding += sound.voices.length;
+      }
+      expect(sounding).toBeLessThanOrEqual(book.maxVoices);
+    }
+    // Nine tones sound; a sound of four does not fit and is left out whole.
+    const longTap = { ...SOUND_BOOK.sounds.tap, gapMs: 30, variants: [[{ wave: 'sine' as const, freq: 880, dur: 5000 }]] };
+    const nine = new SoundPlanner({ ...SOUND_BOOK, maxVoices: 10, sounds: { ...SOUND_BOOK.sounds, tap: longTap } }, steps([0.5]));
+    for (let i = 0; i < 9; i += 1) {
+      expect(nine.request('tap', i * 100, true)).toBeDefined();
+    }
+    expect(SOUND_BOOK.sounds.unlock.variants[0]).toHaveLength(4);
+    expect(nine.request('unlock', 900, true)).toBeUndefined();
+    expect(nine.skipped.unlock).toBe(1);
+    expect(nine.request('tap', 1000, true)).toBeDefined();
+  });
+
   it('die Länge eines Geräuschs reicht bis zum Ende seines letzten Tons', () => {
     const planner = new SoundPlanner(SOUND_BOOK, steps([0]));
     const sound = planner.request('goodNight', 0, true);

@@ -99,6 +99,9 @@ export function checkSoundBook(book: SoundBook): string[] {
     if (!(recipe.gapMs >= 30)) {
       problems.push(`${kind}: gapMs zu klein`);
     }
+    if (recipe.variants.some((variant) => variant.length > book.maxVoices)) {
+      problems.push(`${kind}: mehr Stimmen als maxVoices`);
+    }
     for (const voice of recipe.variants.flat()) {
       if (!['sine', 'triangle', 'square', 'sawtooth', 'noise'].includes(voice.wave)) {
         problems.push(`${kind}: Welle ${voice.wave}`);
