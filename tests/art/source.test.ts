@@ -56,8 +56,9 @@ describe('Rasterbild oder SVG (M9)', () => {
         rasterFailed: ['a.png'],
         unused: ['tre-round.png'],
         ms: 12.4,
+        longestSliceMs: 31.6,
       }),
     ) as unknown;
-    expect(report).toEqual({ svg: 1, raster: 1, failed: ['c'], rasterFailed: ['a.png'], unused: ['tre-round.png'], ms: 12, keys: { a: 'svg', b: 'raster' } });
+    expect(report).toEqual({ svg: 1, raster: 1, failed: ['c'], rasterFailed: ['a.png'], unused: ['tre-round.png'], ms: 12, slice: 32, keys: { a: 'svg', b: 'raster' } });
   });
 });

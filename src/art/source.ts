@@ -70,12 +70,14 @@ export interface AssetReport {
   /** Raster files whose name is no key ({@link unusedRasterFiles}). */
   readonly unused: readonly string[];
   readonly ms: number;
+  /** The longest stretch of painting without a pause for the page (ms, Korrekturrunde 2). */
+  readonly longestSliceMs: number;
 }
 
 /**
  * The hook `<html data-assets>` (tests and the project lead): how many pictures come from SVG and from raster files, per
  * key, which keys have no picture (`failed`), which raster files could not be read (`rasterFailed`) and which replace
- * nothing (`unused`).
+ * nothing (`unused`), how long painting took (`ms`) and its longest stretch without a pause (`slice`).
  */
 export function assetReport(report: AssetReport): string {
   const keys: Record<string, 'svg' | 'raster'> = {};
@@ -89,6 +91,7 @@ export function assetReport(report: AssetReport): string {
     rasterFailed: report.rasterFailed,
     unused: report.unused,
     ms: Math.round(report.ms),
+    slice: Math.round(report.longestSliceMs),
     keys,
   });
 }

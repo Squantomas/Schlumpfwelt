@@ -10,14 +10,15 @@ import { assetReport, planAssets, svgDataUrl, unusedRasterFiles, type PlannedAss
  * (`console.warn`, no error, named in `rasterFailed`). Textures live in the game's texture manager and survive a scene
  * restart. The result is published as `<html data-assets>` for the tests and the project lead.
  *
- * The pictures are painted in slices of about {@link SLICE_MS} with a frame in between (Korrekturrunde 1): no long
- * block, the start screen shows the name and a moving dot meanwhile ({@link artProgress}). A picture that cannot be made
+ * Each picture is painted as soon as it has been read, in the task that read it (Korrekturrunde 2): no long block –
+ * the biggest picture takes a few milliseconds – and the throughput is that of the reading, not of the frame rate
+ * (Korrekturrunde 1 waited for a frame after every slice of 12 ms: two to three times slower). Meanwhile the start
+ * screen shows the name and a moving dot ({@link artProgress}). A picture that cannot be made
  * (a canvas the browser refuses, e.g. Safari at its memory limit) is left out and named in `failed`; loading never
- * rejects.
+ * rejects. `slice` in the report is the longest block of this work (ms): writing the SVG text of all pictures at the
+ * start (one block; spreading it out with pauses made loading slower in the measurements, not shorter in its longest
+ * task), or painting one picture.
  */
-
-/** Paint for about this long, then let a frame be drawn (ms). */
-const SLICE_MS = 12;
 
 let loading: Promise<void> | undefined;
 const progress = { done: 0, total: ASSETS.length };
@@ -25,17 +26,6 @@ const progress = { done: 0, total: ASSETS.length };
 /** How far the pictures are (for the start screen). */
 export function artProgress(): { readonly done: number; readonly total: number } {
   return progress;
-}
-
-/** The next frame – or a short pause in a page that draws no frames (a background tab). */
-function nextFrame(): Promise<void> {
-  return new Promise((resolve) => {
-    const timer = setTimeout(resolve, 100);
-    requestAnimationFrame(() => {
-      clearTimeout(timer);
-      resolve();
-    });
-  });
 }
 
 function loadImage(url: string): Promise<HTMLImageElement> {
@@ -117,26 +107,31 @@ export function loadArt(scene: Phaser.Scene): Promise<void> {
     const plans = planAssets(ASSETS, rasterFiles);
     progress.total = plans.length;
     progress.done = 0;
-    // Reading runs beside the page (images decode on their own); painting is done in slices, one after the other.
-    const fetched = plans.map((plan) => fetchOne(plan));
+    // Reading runs beside the page (images decode on their own); each picture is painted when it is there.
+    let longest = 0;
+    const paintWhenRead = async (plan: PlannedAsset): Promise<{ plan: PlannedAsset; got: Fetched; ok: boolean }> => {
+      const got = await fetchOne(plan);
+      const start = performance.now();
+      const ok = got.image !== undefined && paintOne(scene.textures, plan, got.image);
+      longest = Math.max(longest, performance.now() - start);
+      progress.done += 1;
+      return { plan, got, ok };
+    };
+    const writing = performance.now();
+    const painting = plans.map((plan) => paintWhenRead(plan));
+    longest = Math.max(longest, performance.now() - writing);
+    const painted = await Promise.all(painting);
     const loaded: { key: string; kind: 'svg' | 'raster' }[] = [];
     const failed: string[] = [];
     const rasterFailed: string[] = [];
-    let sliceStart = performance.now();
-    for (const [index, plan] of plans.entries()) {
-      const got = await (fetched[index] ?? Promise.resolve<Fetched>({ image: undefined, kind: 'svg' }));
+    for (const { plan, got, ok } of painted) {
       if (got.rasterFailed) {
         rasterFailed.push(got.rasterFailed);
       }
-      if (got.image && paintOne(scene.textures, plan, got.image)) {
+      if (ok) {
         loaded.push({ key: plan.key, kind: got.kind });
       } else {
         failed.push(plan.key);
-      }
-      progress.done = index + 1;
-      if (performance.now() - sliceStart >= SLICE_MS) {
-        await nextFrame();
-        sliceStart = performance.now();
       }
     }
     const unused = unusedRasterFiles(
@@ -146,7 +141,7 @@ export function loadArt(scene: Phaser.Scene): Promise<void> {
     if (unused.length > 0) {
       console.warn(`Diese Bilder in public/assets/ ersetzen nichts (kein Schlüssel): ${unused.join(', ')}`);
     }
-    document.documentElement.dataset.assets = assetReport({ loaded, failed, rasterFailed, unused, ms: performance.now() - started });
+    document.documentElement.dataset.assets = assetReport({ loaded, failed, rasterFailed, unused, ms: performance.now() - started, longestSliceMs: longest });
   })().catch((error: unknown) => {
     // Nothing above should throw; if it does, the game starts with what it has.
     console.warn('Bilder nicht vollständig geladen', error);

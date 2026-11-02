@@ -73,8 +73,11 @@ export class BootScene extends Phaser.Scene {
     this.pulse = (this.pulse + delta) % PULSE_MS;
     const breath = 0.5 - 0.5 * Math.cos((this.pulse / PULSE_MS) * Math.PI * 2);
     for (const [index, dot] of this.dots.entries()) {
-      // Filled dots stay bright; the next one breathes slowly; the rest wait, faint.
-      dot.setAlpha(index < lit ? 1 : index === lit ? 0.35 + 0.5 * breath : 0.3);
+      // Filled dots stay bright; the next one breathes slowly; the rest wait, faint. Set only when it shows (steps of 0.05).
+      const alpha = Math.round((index < lit ? 1 : index === lit ? 0.35 + 0.5 * breath : 0.3) * 20) / 20;
+      if (dot.alpha !== alpha) {
+        dot.setAlpha(alpha);
+      }
     }
   }
 
