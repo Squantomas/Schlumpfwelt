@@ -83,11 +83,12 @@ Animationen sind **ruhig und nur Anzeige** – die Simulation weiß nichts von i
 | Was | Wie |
 |---|---|
 | Wellen am Strand | laufen in 4,2 s langsam an den Strand und verblassen |
-| Bäume, Blumen, Büsche | wiegen sich um höchstens etwa 1,3°, jeder versetzt; nur im Bild und ab Zoom 0,4 |
+| Bäume, Blumen, Büsche, Deko | wiegen sich um höchstens 1,3°, jedes versetzt; nur im Bild und ab Zoom 0,4 – Bäume und Deko nach denselben Regeln (`src/ui/sway.ts`) |
 | Rauch | steigt alle etwa 1,1 s aus den Schornsteinen arbeitender Gebäude, 3,2 s lang |
 | Neues Gebäude | hüpft einmal kurz (140 ms) |
 | Abreißen | eine kleine Staubwolke |
 | Bewohner | gehen, tragen Waren, zeigen ab und zu ein Herz oder eine Wolke; schlafen nachts mit einem großen „z“ |
+| „z“ der Schlafenden | warmes Weiß mit dunkelblauem Rand und hellem Schein, **über** dem Blau der Nacht gezeichnet (nicht darunter), auf dem Schirm 64–112 CSS-px; eines je Haus, nahe beieinander nur eines, nie über einer Leiste; wippt sanft |
 
 Nichts blinkt schneller als einmal pro Sekunde, nichts springt, nichts wackelt hektisch. Abend und Nacht blenden über
 mehrere Sekunden.
@@ -100,14 +101,18 @@ mehrere Sekunden.
   **Mindestabstand** zu sich selbst (Taler höchstens alle 1,6 s und leise), höchstens 10 Stimmen gleichzeitig, kleine
   Abweichungen in der Tonhöhe, damit sich nichts abnutzt.
 - **Musik:** eine ruhige pentatonische Schleife (76 Schläge pro Minute, vier Akkorde, sehr leise). Am Abend wird sie
-  langsam leiser, nachts ist sie aus; „Gute Nacht“ ist eine kleine absteigende Melodie aus drei Tönen.
-- **Stumm**, wenn die Seite versteckt ist; ohne Web Audio still und ohne Fehler. Ton an/aus hinter dem Zahnrad, Musik
+  in 5 s leiser (sie spielt dabei weiter, nur ihre Lautstärke sinkt), nachts ist sie aus; „Gute Nacht“ ist eine kleine absteigende Melodie aus drei Tönen.
+- **Stumm**, wenn die Seite versteckt ist und in einem Fenster, das ein neueres abgelöst hat („Hier weiterspielen“);
+  ohne Web Audio still und ohne Fehler. Hat das Gerät den Ton unterbrochen (Anruf, Sperre), weckt ihn der nächste Tipp. Ton an/aus hinter dem Zahnrad, Musik
   und Geräusche getrennt im Eltern-Menü. Standard: an, leise.
 
 ## 8. Schrift und fertiges Gefühl
 
 - **Nur Systemschriften** (zuerst gerundete wie „Arial Rounded MT Bold“), weiß mit blauem Rand, nie kleiner als 12 px.
-- Startschirm: das Titelbild (kleine Insel mit Pilzhäusern, Bäumen, Bewohnern und Boot) auf der Farbe des Wassers, quer
+  Lange Namen (etwa auf den Karten des Shops) brechen an einer sinnvollen Stelle um („Holzfäller-/hütte“), statt
+  kleiner zu werden.
+- Startschirm: sofort der Spielname, der Satz „Die Insel wird gemalt …“ und fünf ruhige Punkte, die sich füllen,
+  während die Bilder in kleinen Scheiben gemalt werden; dann das Titelbild (kleine Insel mit Pilzhäusern, Bäumen, Bewohnern und Boot) auf der Farbe des Wassers, quer
   rechts daneben der Spielname aus dem Theme und der Knopf „Tippen zum Spielen“, hochkant der Name darüber und der
   Knopf darunter.
 - Neue Bilder erst in den Katalog (`src/art/catalog.ts`, fester Schlüssel, Größe, Fußpunkt, Beschreibung), dann

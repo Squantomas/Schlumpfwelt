@@ -42,9 +42,11 @@ für einen Bildgenerator oder als Auftrag für eine Illustratorin.
    `public/assets/bld-bakery.webp`. Nur Kleinbuchstaben, Ziffern und Bindestriche; liegen beide da, gewinnt `.webp`.
    Eine Datei sollte unter etwa 200 KB bleiben (das Spiel lädt alle Bilder beim Start und hält sie offline vor).
 6. **Ansehen:** `npm run dev` und die Adresse öffnen, die der Befehl nennt. Im Element `<html>` zeigt
-   `data-assets`, wie viele Bilder gemalt (`raster`) und wie viele gezeichnet (`svg`) sind; `failed` nennt Dateien,
-   die sich nicht laden ließen – dann zeigt das Spiel wieder das gezeichnete Bild und schreibt eine Warnung in die
-   Konsole.
+   `data-assets`, wie viele Bilder gemalt (`raster`) und wie viele gezeichnet (`svg`) sind und unter `keys`, woher
+   jedes Bild kommt. `rasterFailed` nennt Dateien, die sich nicht laden ließen – dann zeigt das Spiel wieder das
+   gezeichnete Bild und schreibt eine Warnung in die Konsole. `unused` nennt Dateien, deren Name kein Schlüssel ist
+   (Tippfehler) – sie ersetzen nichts; davor warnt auch schon `npm run build`. `failed` nennt Schlüssel, für die es gar
+   kein Bild gibt (sollte immer leer sein).
 7. **Prüfen und hochladen:** `npm run check` muss grün sein, dann committen und pushen. Die Liste der Dateien entsteht
    beim Bauen von selbst; neue Dateien kommen auch von selbst in den Offline-Speicher der Web-App.
 
