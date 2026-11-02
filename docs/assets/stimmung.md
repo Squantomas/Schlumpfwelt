@@ -40,10 +40,10 @@ Game asset for a cosy island building game for children aged 6 to 10. Soft, frie
 ## `resident-sleep`
 
 - **Datei:** `public/assets/resident-sleep.png` (oder `.webp`)
-- **Größe:** 192 × 192 px, transparenter Hintergrund
-- **Anker:** Mitte (96, 96) – das Bild wird um seine Mitte gesetzt
+- **Größe:** 224 × 224 px, transparenter Hintergrund
+- **Anker:** Mitte (112, 112) – das Bild wird um seine Mitte gesetzt
 - **Hauptfarben:** 
 
 ```text
-Game asset for a cosy island building game for children aged 6 to 10. Soft, friendly hand-painted cartoon look with round chunky shapes and no sharp corners; a soft outline in a darker shade of each fill colour (never black); light from the top left, a soft shadow towards the bottom right; bright warm colours with high contrast; slight top-down view (the ground seen from above, objects seen a little from the front); clean edges; an original design; no text, no letters, no numbers, no logo, no watermark, no frame. Subject: three warm white letters z of growing size with a dark blue rim and a soft warm glow, rising to the top right (sleeping, seen over a dark night sky). Canvas 192 x 192 px, the subject centred with a small margin on a transparent background (PNG or WebP with alpha), nothing is cut off. Main colours: .
+Game asset for a cosy island building game for children aged 6 to 10. Soft, friendly hand-painted cartoon look with round chunky shapes and no sharp corners; a soft outline in a darker shade of each fill colour (never black); light from the top left, a soft shadow towards the bottom right; bright warm colours with high contrast; slight top-down view (the ground seen from above, objects seen a little from the front); clean edges; an original design; no text, no letters, no numbers, no logo, no watermark, no frame. Subject: three warm white letters z of growing size with a dark blue rim and a soft warm glow, rising to the top right (sleeping, seen over a dark night sky). Canvas 224 x 224 px, the subject centred with a small margin on a transparent background (PNG or WebP with alpha), nothing is cut off. Main colours: .
 ```

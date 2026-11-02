@@ -114,9 +114,9 @@ describe('Das „z“ der Schlafenden über der Nacht (M9, Korrekturrunde 1)', (
     for (const zoom of [0.1, 0.25, 0.5, 1, 1.5, 2, 4]) {
       const size = sleepSignSize(zoom);
       expect(size).toBeGreaterThanOrEqual(SLEEP_SIGN_MIN_CSS);
-      expect(size).toBeLessThanOrEqual(96);
+      expect(size).toBeLessThanOrEqual(112);
     }
-    expect(SLEEP_SIGN_MIN_CSS).toBeGreaterThanOrEqual(52);
+    expect(SLEEP_SIGN_MIN_CSS).toBeGreaterThanOrEqual(64);
     expect(sleepSignSize(2)).toBeGreaterThan(sleepSignSize(0.5));
   });
 

@@ -5472,9 +5472,9 @@ async function testLookAndSound({ browser, profile, check, problems, name, raste
     await waitForParent(page, (p) => p.limit.phase === 'night', 'die Nacht', 30_000);
     audio = await waitForAudio(page, (a) => a.mode === 'night' && a.musicPlaying === false && a.musicGain === 0 && a.played.goodNight >= 1, 'Nacht-Ton mit „Gute Nacht“');
     await sleep(1500);
-    // Das „z“ der Schlafenden liegt über dem Dunkel der Nacht, mindestens 56 CSS-px groß (Korrekturrunde 1).
+    // Das „z“ der Schlafenden liegt über dem Dunkel der Nacht, mindestens 64 CSS-px groß (Korrekturrunde 1).
     const night = (await waitForParent(page, (p) => p.night.sky === 1 && p.night.z >= 1, 'das „z“ über der Nacht')).night;
-    check(night.zSize >= 56, `Nacht: das „z“ ist nur ${night.zSize} CSS-px groß`);
+    check(night.zSize >= 64, `Nacht: das „z“ ist nur ${night.zSize} CSS-px groß`);
     console.log(`  [${name}] Nacht: ${night.z} „z“ zu ${night.zSize} CSS-px`);
     await shot(`${name}-m9-nacht`);
     const notes = audio.musicNotes;

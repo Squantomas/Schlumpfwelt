@@ -18,8 +18,8 @@ export const BOAT_SIZE = { width: 84, height: 56 } as const;
 export const BOAT_WATER = { x: 42, y: 40 } as const;
 
 export const MOOD_SIZE = 48;
-/** The "z" of sleep (M9: bigger than before, so it reads on the tablet from afar; shown 56–96 CSS px over the night). */
-export const SLEEP_SIZE = 96;
+/** The "z" of sleep (M9: bigger than before, so it reads on the tablet from afar; shown 64–112 CSS px over the night). */
+export const SLEEP_SIZE = 112;
 export const RING_SIZE = { width: 64, height: 32 } as const;
 
 export interface HatColors {
@@ -185,19 +185,20 @@ export function drawCloud(s: Svg): void {
 /**
  * Three "z" of growing size (a picture, not text), drawn above the dark of the night (Korrekturrunde 1): a soft warm
  * glow around them, a dark blue rim and a warm white letter – they shine over the deep blue and still read on the
- * light island in the evening. Together they fill about three quarters of the picture, the big one about a third.
+ * light island in the evening. They stand apart (their rims never touch, else they read as one zigzag); the big one is
+ * a good third of the picture, all three together fill more than four fifths of it.
  */
 export function drawSleep(s: Svg): void {
   const size = s.width;
   const zs: readonly [number, number, number][] = [
-    [0.22, 0.77, 0.2],
-    [0.46, 0.54, 0.26],
-    [0.7, 0.29, 0.34],
+    [0.13, 0.86, 0.14],
+    [0.36, 0.62, 0.22],
+    [0.71, 0.28, 0.36],
   ];
   for (const [color, width, opacity] of [
-    [COLORS.sleepZGlow, 0.22, 0.4],
-    [COLORS.sleepZRim, 0.13, 1],
-    [COLORS.sleepZ, 0.065, 1],
+    [COLORS.sleepZGlow, 0.11, 0.45],
+    [COLORS.sleepZRim, 0.075, 1],
+    [COLORS.sleepZ, 0.042, 1],
   ] as const) {
     for (const [fx, fy, fs] of zs) {
       const x = fx * size;

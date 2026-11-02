@@ -174,12 +174,12 @@ export function nightLook(phase: 'day' | 'dusk' | 'night' | 'dawn', phaseMs: num
 /**
  * The "z" of the sleeping residents (M9, Korrekturrunde 1) is drawn above the dark of the night (under it, it could
  * hardly be seen): in CSS px, at least this big on the screen however far the camera is out (the three letters together
- * span about three quarters of it).
+ * span more than four fifths of it, the big one a good third).
  */
-export const SLEEP_SIGN_MIN_CSS = 56;
-const SLEEP_SIGN_MAX_CSS = 96;
+export const SLEEP_SIGN_MIN_CSS = 64;
+const SLEEP_SIGN_MAX_CSS = 112;
 /** Size of the "z" at zoom 1 (CSS px); closer in it grows a little, up to {@link SLEEP_SIGN_MAX_CSS}. */
-const SLEEP_SIGN_AT_ONE = 60;
+const SLEEP_SIGN_AT_ONE = 72;
 
 /** How big the "z" is on the screen (CSS px) at this camera zoom. */
 export function sleepSignSize(zoom: number): number {
