@@ -187,17 +187,25 @@ export function sleepSignSize(zoom: number): number {
 }
 
 /**
+ * What the "z" of the night keep clear of (Korrekturrunde 2 of M9): the bars and buttons under the layer (`controls`),
+ * the moon with its glow, the sentence (`sentence`: the box of the drawn words) and the parents' button with its word.
+ */
+export function nightKeepOut(layout: NightLayout, sentence: Rect, controls: readonly Rect[]): Rect[] {
+  return [...controls, moonGlow(layout.moon), sentence, layout.button, layout.caption];
+}
+
+/**
  * Which "z" are drawn (centres in CSS px): none over a bar or a button that stays under the layer (`keepOut`), none
  * whose middle is off the screen, and of several close together (neighbouring houses, residents sleeping outside next
- * to each other) only the first – the others would sit on top of it.
+ * to each other) only the first – the others would sit on top of it. The kept points are the given objects.
  */
-export function spreadSleepSigns(
-  points: readonly { readonly x: number; readonly y: number }[],
+export function spreadSleepSigns<P extends { readonly x: number; readonly y: number }>(
+  points: readonly P[],
   size: number,
   keepOut: readonly Rect[],
   screen: { readonly width: number; readonly height: number },
-): { readonly x: number; readonly y: number }[] {
-  const kept: { x: number; y: number }[] = [];
+): P[] {
+  const kept: P[] = [];
   const near = size * 0.7;
   for (const point of points) {
     if (point.x < 0 || point.y < 0 || point.x > screen.width || point.y > screen.height) {
@@ -210,7 +218,7 @@ export function spreadSleepSigns(
     if (kept.some((other) => Math.hypot(other.x - point.x, other.y - point.y) < near)) {
       continue;
     }
-    kept.push({ x: point.x, y: point.y });
+    kept.push(point);
   }
   return kept;
 }

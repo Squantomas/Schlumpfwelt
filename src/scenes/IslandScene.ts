@@ -1,4 +1,3 @@
-import { inSwayView, swayAngle, swayOn } from '../ui/sway';
 import Phaser from 'phaser';
 import { CAMERA_CONFIG } from '../data/camera';
 import { buildingType } from '../data/buildings';
@@ -18,7 +17,8 @@ import type { Simulation } from '../sim/simulation';
 import { isLand, landBounds, terrainAt, type Terrain } from '../sim/world';
 import { BuildTool, TOOLS, type Preview } from '../ui/buildTool';
 import { topControls, toolbarPanel, zoomLayout } from '../ui/buildLayout';
-import { sleepSignSize } from '../ui/nightLayout';
+import { sleepSignSize, spreadSleepSigns } from '../ui/nightLayout';
+import { inSwayView, swayAngle, swayOn } from '../ui/sway';
 import { growRect, tileAtWorld, visibleRect, type CameraBounds, type Point, type Rect } from '../ui/cameraMath';
 import { landRegions } from '../ui/cameraRegions';
 import { FrameStats } from '../ui/frameStats';
@@ -151,7 +151,6 @@ interface Wave {
 /** Waves: one run takes this long (s); a wave starts this far out in the water (world px) and runs to the beach. */
 const WAVE_SECONDS = 4.2;
 const WAVE_RUN = 16;
-/** Trees sway a little (degrees) – only those in view, and not when they are tiny far out. */
 
 /**
  * The island: ground baked into one texture, trees and rocks as sprites
@@ -240,6 +239,8 @@ export class IslandScene extends Phaser.Scene {
   private tutorialResident: number | undefined;
   /** Nothing to point at in the picture since `since` (a resident, a place): the camera glides there (last at `glidedAt`). */
   private tutorialSearch: { kind: 'resident' | 'place'; since: number; glidedAt: number } | undefined;
+  /** Which "z" of the night are shown, and for which camera, screen and village (see `showSleepers`). */
+  private sleepChoice: { readonly key: string; readonly ids: readonly number[] } | undefined;
   private tutorialHint: TutorialHint | undefined;
   private tutorialTouches = 0;
   private worldTapped = false;
@@ -308,6 +309,7 @@ export class IslandScene extends Phaser.Scene {
     this.tutorialPath = undefined;
     this.tutorialResident = undefined;
     this.tutorialSearch = undefined;
+    this.sleepChoice = undefined;
     this.tutorialHint = undefined;
     this.tutorialTouches = 0;
     this.worldTapped = false;
@@ -625,7 +627,7 @@ export class IslandScene extends Phaser.Scene {
     this.controller.update(delta, simulationDelta(this.game.loop.rawDelta, delta));
     this.publishCamera();
     this.residentView.update(alpha, seconds, this.controller.view.zoom, this.buildTool.inspectedResidentId, this.buildTool.carried);
-    this.showSleepers();
+    this.showSleepers(seconds);
     this.updateVillage(seconds, delta);
 
     for (const { sprite, phase } of this.glints) {
@@ -645,18 +647,40 @@ export class IslandScene extends Phaser.Scene {
   /**
    * The "z" of the sleeping (M9, Korrekturrunde 1): drawn by the night layer above its dark blue, at a size on the
    * screen that reads from afar (`sleepSignSize`), from the points the residents' view found (world px → CSS px).
+   * Which of them are shown (`spreadSleepSigns`: not over bars, moon or sentence, close ones only once) is chosen
+   * again only when the camera, the screen, the layer or the village changed (Korrekturrunde 2); in between only
+   * their gentle bob moves them.
    */
-  private showSleepers(): void {
+  private showSleepers(seconds: number): void {
     const signs = this.residentView.sleepSigns;
     if (signs.length === 0) {
+      this.sleepChoice = undefined;
       this.night.showSleepers([], 0);
       return;
     }
     const view = this.controller.view;
     const size = this.controller.viewSize;
     const css = sleepSignSize(view.zoom);
+    const room = this.night.sleepRoom;
+    const state = this.simulation.state;
+    const key = `${String(view.zoom)}|${String(view.centerX)}|${String(view.centerY)}|${String(size.width)}|${String(size.height)}|${String(room.version)}|${String(state.tick)}|${String(state.revision)}|${String(signs.length)}`;
+    const toScreen = (sign: { readonly x: number; readonly y: number }): { x: number; y: number } => ({
+      x: (sign.x - view.centerX) * view.zoom + size.width / 2,
+      y: (sign.y - view.centerY) * view.zoom + size.height / 2 - css / 2,
+    });
+    if (this.sleepChoice?.key !== key) {
+      const points = signs.map(toScreen);
+      const kept = spreadSleepSigns(points, css, room.keepOut, room.screen);
+      const chosen = new Set(kept);
+      this.sleepChoice = { key, ids: points.flatMap((point, index) => (chosen.has(point) ? [signs[index]?.id ?? -1] : [])) };
+    }
+    const ids = new Set(this.sleepChoice.ids);
+    const bob = 3 * view.zoom;
     this.night.showSleepers(
-      signs.map((sign) => ({ x: (sign.x - view.centerX) * view.zoom + size.width / 2, y: (sign.y - view.centerY) * view.zoom + size.height / 2 - css / 2 })),
+      signs.filter((sign) => ids.has(sign.id)).map((sign) => {
+        const point = toScreen(sign);
+        return { x: point.x, y: point.y + Math.sin(seconds * 2 + sign.id) * bob };
+      }),
       css,
     );
   }

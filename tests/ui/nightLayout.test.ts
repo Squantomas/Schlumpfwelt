@@ -4,7 +4,7 @@ import { topControls, toolbarPanel, zoomLayout } from '../../src/ui/buildLayout'
 import { ITEM_IDS } from '../../src/data/goods';
 import { stockLayout } from '../../src/ui/stockLayout';
 import { TOOLS } from '../../src/ui/buildTool';
-import { NIGHT_BUTTON_LOW, SLEEP_SIGN_MIN_CSS, moonGlow, nightLayout, nightLook, sleepSignSize, spreadSleepSigns } from '../../src/ui/nightLayout';
+import { NIGHT_BUTTON_LOW, SLEEP_SIGN_MIN_CSS, moonGlow, nightKeepOut, nightLayout, nightLook, sleepSignSize, spreadSleepSigns } from '../../src/ui/nightLayout';
 
 const SCREENS: readonly (readonly [number, number])[] = [
   [320, 568], [360, 640], [568, 320], [640, 360], [480, 320], [768, 1024], [1024, 768], [1280, 800], [1920, 1080], [400, 400],
@@ -135,6 +135,41 @@ describe('Das „z“ der Schlafenden über der Nacht (M9, Korrekturrunde 1)', (
     const toolbar: Rect = { x: 10, y: 500, width: 300, height: 60 };
     const kept = spreadSleepSigns([{ x: 150, y: 520 }, { x: 150, y: 300 }, { x: -40, y: 300 }, { x: 150, y: 700 }], 56, [toolbar], { width: 320, height: 568 });
     expect(kept).toEqual([{ x: 150, y: 300 }]);
+  });
+
+  for (const [width, height] of ALL_SCREENS) {
+    it(`${String(width)}×${String(height)}: kein „z“ über dem Satz, dem Mond, dem Eltern-Knopf oder einer Leiste (Korrekturrunde 2)`, () => {
+      const toolbar = toolbarPanel(width, height, TOOLS.length).rect;
+      const controls = [toolbar, ...topControls(width, height, ITEM_IDS.length)];
+      const layout = nightLayout(width, height, toolbar, controls.slice(1));
+      const keepOut = nightKeepOut(layout, layout.text, controls);
+      const size = sleepSignSize(0.5);
+      // A grid of sleepers over the whole screen: every "z" that is kept stays clear of all of them.
+      const points = [];
+      for (let y = 0; y <= height; y += 24) {
+        for (let x = 0; x <= width; x += 24) {
+          points.push({ x, y });
+        }
+      }
+      const kept = spreadSleepSigns(points, size, keepOut, { width, height });
+      expect(kept.length).toBeGreaterThan(0);
+      for (const point of kept) {
+        const box: Rect = { x: point.x - size / 2, y: point.y - size / 2, width: size, height: size };
+        for (const rect of [moonGlow(layout.moon), layout.text, layout.button, layout.caption, ...controls]) {
+          expect(apart(box, rect)).toBe(true);
+        }
+      }
+    });
+  }
+
+  it('auf 320×568 fällt ein „z“ am Anfang von „Gute Nacht!“ weg; die behaltenen sind die gegebenen Punkte', () => {
+    const layout = nightLayout(320, 568);
+    const words: Rect = { x: 40, y: layout.text.y + 40, width: 240, height: 60 };
+    const touching = { x: words.x + 6, y: words.y - 20 };
+    const free = { x: 160, y: layout.button.y - 60 };
+    const kept = spreadSleepSigns([touching, free], 64, nightKeepOut(layout, words, []), { width: 320, height: 568 });
+    expect(kept).toEqual([free]);
+    expect(kept[0]).toBe(free);
   });
 
   it('immer dasselbe Ergebnis (die Reihenfolge entscheidet, kein Zufall)', () => {

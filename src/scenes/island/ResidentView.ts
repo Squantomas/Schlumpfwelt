@@ -145,7 +145,7 @@ export class ResidentView {
   /** Where each resident was drawn this frame (feet, world px) and whether the good they carry is shown over the head. */
   private readonly drawn = new Map<number, DrawnResident>();
   /** The "z" of sleep this frame (see `sleepSigns`). */
-  private readonly sleepPoints: { x: number; y: number }[] = [];
+  private readonly sleepPoints: { x: number; y: number; id: number }[] = [];
   private moodRevision = -1;
   private moodTick = -1;
   /** The figure carried in the last frame and where it hung (feet, world px): carrying that ends without {@link letGo} slides back from there. */
@@ -450,7 +450,6 @@ export class ResidentView {
     spots: ResidentSpot[],
   ): void {
     figure.carry?.setVisible(false);
-    const bob = Math.sin(seconds * 2 + id) * 3;
     if (sleep === 'inside') {
       figure.inBedSince ??= seconds;
       const fade = clamp(1 - (seconds - figure.inBedSince) / SLEEP_FADE, 0, 1);
@@ -461,7 +460,7 @@ export class ResidentView {
       }
       figure.sign?.setVisible(false);
       if (first) {
-        this.sleepPoints.push({ x: footX, y: footY - RESIDENT_CARRY_Y + bob });
+        this.sleepPoints.push({ x: footX, y: footY - RESIDENT_CARRY_Y, id });
       }
       this.drawn.set(id, { x: footX, y: footY, carry: false, sign: first, glide: false });
       return;
@@ -473,7 +472,7 @@ export class ResidentView {
       figure.sprite.setDepth(footY);
     }
     figure.sign?.setVisible(false);
-    this.sleepPoints.push({ x: footX + 14 * figure.facing, y: footY - 34 + bob });
+    this.sleepPoints.push({ x: footX + 14 * figure.facing, y: footY - 34, id });
     spots.push({ id, x: footX, y: footY });
     this.drawn.set(id, { x: footX, y: footY, carry: false, sign: true, glide: false });
   }
@@ -481,9 +480,9 @@ export class ResidentView {
   /**
    * Where the "z" of sleep stand this frame (world px: the middle of their lower edge), one per house with somebody
    * asleep inside and one per resident asleep outside. They are drawn by the night layer above its dark (M9,
-   * Korrekturrunde 1 – in the world they were hidden under it).
+   * Korrekturrunde 1 – in the world they were hidden under it); `id` is the resident's, for their own gentle bob.
    */
-  get sleepSigns(): readonly { readonly x: number; readonly y: number }[] {
+  get sleepSigns(): readonly { readonly x: number; readonly y: number; readonly id: number }[] {
     return this.sleepPoints;
   }
 

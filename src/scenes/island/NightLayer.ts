@@ -3,7 +3,7 @@ import { t } from '../../data/texts';
 import type { DayPhase } from '../../parent/dayClock';
 import { addGraphics } from '../../ui/FastGraphics';
 import { createLabel, setLabelSize } from '../../ui/label';
-import { moonGlow, nightLayout, nightLook, spreadSleepSigns, type NightLayout, type NightLook } from '../../ui/nightLayout';
+import { moonGlow, nightKeepOut, nightLayout, nightLook, type NightLayout, type NightLook } from '../../ui/nightLayout';
 import type { Rect } from '../../ui/cameraMath';
 import { RoundButton } from '../../ui/RoundButton';
 import { COLORS } from '../../ui/style';
@@ -20,7 +20,8 @@ import type { MenuSpot } from './VillageMenu';
  * Moon, stars and sentence are drawn once per screen size.
  *
  * The "z" over the houses of the sleeping (M9, Korrekturrunde 1) lies above the dark blue and below moon, sentence and
- * button: under the dark it could hardly be seen. The scene hands over where they are each frame (`showSleepers`).
+ * button: under the dark it could hardly be seen. The scene chooses which (`spreadSleepSigns` with `sleepKeepOut`,
+ * only when the camera, the screen or the village changed) and hands over where they are each frame (`showSleepers`).
  */
 export class NightLayer {
   private readonly veil: Phaser.GameObjects.Zone;
@@ -32,9 +33,11 @@ export class NightLayer {
   private readonly sleepers: Phaser.GameObjects.Container;
   private sleepSigns: Phaser.GameObjects.Image[] = [];
   private sleepShown = { count: 0, size: 0 };
-  /** Bars and buttons the "z" keep clear of (toolbar, store bar, zoom buttons, gear). */
+  /** What the "z" keep clear of (toolbar, store bar, zoom buttons, gear, moon, sentence, parents' button). */
   private keepOut: readonly Rect[] = [];
   private screen: ViewSize = { width: 1, height: 1 };
+  /** Counts the layouts, so that the scene knows when its choice of "z" is out of date. */
+  private layouts = 0;
   private readonly sentence: Phaser.GameObjects.Text;
   private readonly caption: Phaser.GameObjects.Text;
   private readonly button: RoundButton;
@@ -74,8 +77,8 @@ export class NightLayer {
     const { width, height } = size;
     const layout = nightLayout(width, height, toolbar, avoid);
     this.layoutData = layout;
-    this.keepOut = toolbar ? [toolbar, ...avoid] : avoid;
     this.screen = { width, height };
+    this.layouts += 1;
     this.veil.setSize(width, height);
     if (this.veil.input) {
       this.veil.input.hitArea = new Phaser.Geom.Rectangle(0, 0, width, height);
@@ -105,6 +108,19 @@ export class NightLayer {
     this.button.setRadius(button.width / 2).setPosition(button.x + button.width / 2, button.y + button.height / 2);
     setLabelSize(this.caption, 18, caption.width);
     this.caption.setPosition(caption.x + caption.width / 2, caption.y + caption.height / 2);
+    // The words as drawn (a little margin around them), not the whole place of the sentence.
+    const words: Rect = {
+      x: this.sentence.x - this.sentence.displayWidth / 2 - 4,
+      y: this.sentence.y - this.sentence.displayHeight / 2 - 4,
+      width: this.sentence.displayWidth + 8,
+      height: this.sentence.displayHeight + 8,
+    };
+    this.keepOut = nightKeepOut(layout, words, toolbar ? [toolbar, ...avoid] : avoid);
+  }
+
+  /** What the "z" keep clear of (CSS px) and the size of the screen; `version` changes with every layout. */
+  get sleepRoom(): { readonly keepOut: readonly Rect[]; readonly screen: ViewSize; readonly version: number } {
+    return { keepOut: this.keepOut, screen: this.screen, version: this.layouts };
   }
 
   /** Once per frame: the phase of the day, how long it has gone on, and the frame time (ms). */
@@ -118,12 +134,8 @@ export class NightLayer {
     }
   }
 
-  /**
-   * Once per frame: where the "z" of the sleeping are (centres in CSS px, one per house or sleeper outside) and how big
-   * (CSS px). Close ones and those over a bar are left out (`spreadSleepSigns`).
-   */
-  showSleepers(points: readonly { readonly x: number; readonly y: number }[], size: number): void {
-    const kept = points.length === 0 ? [] : spreadSleepSigns(points, size, this.keepOut, this.screen);
+  /** Once per frame: where the chosen "z" of the sleeping are (centres in CSS px) and how big (CSS px). */
+  showSleepers(kept: readonly { readonly x: number; readonly y: number }[], size: number): void {
     const scene = this.sleepers.scene;
     while (this.sleepSigns.length < kept.length) {
       const image = scene.add.image(0, 0, SLEEP_KEY);
